@@ -74,6 +74,7 @@ Converter constants: module SDK `0x02000009`, companion SDK `0x08050001`, origin
 4. **Unconditional samplerate dependency:** the PS5 CMake branch linked libsamplerate even with `SDL_LIBSAMPLERATE=OFF`. The patch respects that existing option; audio remains enabled with SDL's built-in resampling. No PacBrew build dependency remains.
 5. **Real feature checks:** SDL's compile-only CMake probes incorrectly enabled declared-but-unexported BSD functions such as `wcslcpy`. Probes now link against selected target stubs, without execution. Excluding WebKit-only stubs also makes SDL use its own `strcasestr` fallback instead of importing `libScePosixForWebKit`.
 6. **Application platform portability:** full libc++ iostream/filesystem/localization produced actual unresolved target symbols, including `__runes_for_locale`. PS5-only adapter branches use stdio logging under `/data/project_echo/logs`, bounded key-name copies and percentage formatting, plus software rendering. Windows behavior and all shared gameplay systems remain unchanged.
+7. **Git revision in copied SDL:** the patched SDL source copy has no `.git`; after the project became a Git repository, SDL mistakenly embedded the parent project's commit as its own revision. The PS5 CMake configuration disables SDL's optional Git discovery so it uses `SDL-2.30.12-no-vcs`, as it did for the hardware-tested build. The pinned source revision remains in [dependencies.ps5.json](../dependencies.ps5.json); the Windows SDL checkout is unaffected.
 
 [patches/sdl2-native-ps5.patch](../patches/sdl2-native-ps5.patch) is applied to a hash-keyed build-local SDL copy. No patch is applied to the Windows SDL checkout. No new gameplay feature was introduced.
 
@@ -87,6 +88,7 @@ dist\ps5\PPSA91007\
   sce_sys\param.json
   sce_sys\icon0.png
   sce_module\libc.prx
+  licenses\PROJECT_ECHO.txt
   licenses\boilerplate.txt
   licenses\SDL2.txt
 ```
@@ -165,4 +167,4 @@ Diagnostic-only initialization uses separately traced SDL core, video and contro
 
 The no-keyboard diagnostic and non-diagnostic controller executables have compiled, linked, converted and passed static package validation on native Windows. Windows adapter rebuild/gameplay regression passed. The operator reports both launch and are playable on hardware; the exact keyboard-path crash root cause and complete game acceptance remain unverified.
 
-Before redistributing binaries, satisfy the upstream GPL-3.0-or-later CRT/runtime and other dependency license/source obligations. The package includes license notices; local compilation is not a redistribution/license-compliance certification.
+Original PROJECT ECHO code is licensed under the [MIT License](../LICENSE). The PS5 binary also combines the game with the upstream GPL-3.0-or-later CRT/runtime. Before redistributing binaries, satisfy its applicable license and source obligations and those of other dependencies. The package includes license notices, but those notices and local compilation alone are not a redistribution/license-compliance certification.

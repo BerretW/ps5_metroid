@@ -41,6 +41,8 @@ if(ECHO_PS5_GAME)
     set(CMAKE_TRY_COMPILE_TARGET_TYPE EXECUTABLE)
     set(CMAKE_REQUIRED_LINK_OPTIONS -e main)
     set(CMAKE_REQUIRED_LIBRARIES ${stubs})
+    # The patched SDL copy has no .git; do not discover the parent repository.
+    set(CMAKE_DISABLE_FIND_PACKAGE_Git TRUE)
     add_subdirectory("${SDL_SOURCE}" sdl)
     get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
     add_executable(project_echo_ps5

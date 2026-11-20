@@ -244,6 +244,7 @@ if ($Target -eq "Game") {
         (Join-Path $gameApp "eboot.bin"), "--magic", "0x1D3D154F") | Out-Null
     Copy-Item -LiteralPath (Join-Path $runtime "libc-a.prx") -Destination (Join-Path $gameApp "sce_module\libc.prx")
     Copy-Item -LiteralPath (Join-Path $root "platform\ps5\sce_sys\param.json") -Destination (Join-Path $gameApp "sce_sys\param.json")
+    Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $gameApp "licenses\PROJECT_ECHO.txt")
     Copy-Item -LiteralPath (Join-Path $boilerplate "LICENSE") -Destination (Join-Path $gameApp "licenses\boilerplate.txt")
     Copy-Item -LiteralPath (Join-Path $deps "sources\sdl\LICENSE.txt") -Destination (Join-Path $gameApp "licenses\SDL2.txt")
     Add-Type -AssemblyName System.Drawing

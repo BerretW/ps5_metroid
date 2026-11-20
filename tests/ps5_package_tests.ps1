@@ -5,6 +5,18 @@ $package = Join-Path $root "dist\ps5\PPSA91007"
 $validator = Join-Path $root "scripts\test-ps5-package.ps1"
 $tool = Join-Path $root "build\ps5\host\ps5-native-tool.exe"
 & $validator -PackagePath $package
+$projectLicense = Join-Path $package "licenses\PROJECT_ECHO.txt"
+if (-not (Test-Path -LiteralPath $projectLicense -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $projectLicense -Algorithm SHA256).Hash -ne
+    (Get-FileHash -LiteralPath (Join-Path $root "LICENSE") -Algorithm SHA256).Hash) {
+    throw "Package is missing the current PROJECT ECHO license."
+}
+$sdlVersion = (Get-Content -LiteralPath (Join-Path $root "dependencies.ps5.json") -Raw | ConvertFrom-Json).sdl.version
+$sdlRevision = Join-Path $root "build\ps5\game\sdl\include\SDL2\SDL_revision.h"
+$expectedRevision = '#define SDL_REVISION "SDL-' + $sdlVersion + '-no-vcs"'
+if (-not ((Get-Content -LiteralPath $sdlRevision) -ccontains $expectedRevision)) {
+    throw "SDL revision must not be derived from the parent Git repository."
+}
 $container = Join-Path $root ("build\ps5\validation-tests\" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $container | Out-Null
 Copy-Item -LiteralPath $package -Destination $container -Recurse
@@ -64,4 +76,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 package tests PASS: isolated reports, valid package, digest corruption, signed misaligned ELF."
+Write-Host "PS5 package tests PASS: project license, SDL revision, isolated reports, valid package, digest corruption, signed misaligned ELF."
