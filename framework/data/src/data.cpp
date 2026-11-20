@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include <utility>
 
 namespace echo::framework {
@@ -452,6 +453,202 @@ bool JsonValue::number(double& value) const noexcept {
     }
     value = yyjson_get_num(static_cast<const yyjson_val*>(value_));
     return std::isfinite(value);
+}
+
+Status JsonConditionTree::parse(JsonValue document) noexcept {
+    reset();
+    if (!document.isObject()) {
+        return {ErrorCode::InvalidValue, {}, "Condition root must be an object."};
+    }
+    nodeCount_ = 1;
+    const Status status = parseNode(document, 0, 0);
+    if (!status) {
+        reset();
+        return status;
+    }
+    valid_ = true;
+    return Status::success();
+}
+
+const Condition* JsonConditionTree::root() const noexcept {
+    return valid_ ? &nodes_[0] : nullptr;
+}
+
+void JsonConditionTree::reset() noexcept {
+    nodes_.fill(Condition{});
+    for (auto& key : keys_) {
+        key.fill('\0');
+    }
+    nodeCount_ = 0;
+    valid_ = false;
+}
+
+Status JsonConditionTree::parseNode(JsonValue document, std::size_t nodeIndex,
+                                    std::size_t depth) noexcept {
+    if (depth >= 32) {
+        return {ErrorCode::InvalidValue, "condition", "Condition nesting exceeds 32 levels."};
+    }
+    if (!document.isObject()) {
+        return {ErrorCode::InvalidValue, "condition", "Each condition must be an object."};
+    }
+    std::string_view operation;
+    if (!document.find("op").string(operation)) {
+        return {ErrorCode::InvalidValue, "op", "Condition requires a string op field."};
+    }
+
+    if (operation == "and" || operation == "or") {
+        const JsonValue children = document.find("conditions");
+        if (!children.isArray() || children.size() == 0 ||
+            children.size() > kMaxChildren) {
+            return {ErrorCode::InvalidValue, "conditions",
+                    "Logical conditions require 1 to 32 child conditions."};
+        }
+        if (children.size() > kMaxNodes - nodeCount_) {
+            return {ErrorCode::CapacityExceeded, "conditions",
+                    "Condition tree exceeds the 128-node limit."};
+        }
+        const std::size_t firstChild = nodeCount_;
+        nodeCount_ += children.size();
+        const std::span<const Condition> childSpan{nodes_.data() + firstChild, children.size()};
+        nodes_[nodeIndex] = operation == "and" ? Condition::all(childSpan)
+                                               : Condition::any(childSpan);
+        for (std::size_t index = 0; index < children.size(); ++index) {
+            const Status status = parseNode(children.at(index), firstChild + index, depth + 1);
+            if (!status) {
+                return status;
+            }
+        }
+        return Status::success();
+    }
+
+    if (operation == "not") {
+        const JsonValue child = document.find("condition");
+        if (!child.valid()) {
+            return {ErrorCode::InvalidValue, "condition", "NOT requires one condition field."};
+        }
+        if (nodeCount_ == kMaxNodes) {
+            return {ErrorCode::CapacityExceeded, "condition",
+                    "Condition tree exceeds the 128-node limit."};
+        }
+        const std::size_t childIndex = nodeCount_++;
+        const Status status = parseNode(child, childIndex, depth + 1);
+        if (!status) {
+            return status;
+        }
+        nodes_[nodeIndex] = Condition::negate(nodes_[childIndex]);
+        return Status::success();
+    }
+
+    if (operation != "exists" && operation != "compare") {
+        return {ErrorCode::InvalidValue, "op", "Condition operation is not supported."};
+    }
+
+    std::string_view scopeName;
+    std::string_view keyName;
+    if (!document.find("scope").string(scopeName) ||
+        !document.find("key").string(keyName) ||
+        !validNamespaceKey(keyName)) {
+        return {ErrorCode::InvalidValue, "key",
+                "Leaf conditions require a valid scope and namespaced key."};
+    }
+    StateScope scope{};
+    if (scopeName == "global") {
+        scope = StateScope::Global;
+    } else if (scopeName == "world") {
+        scope = StateScope::World;
+    } else if (scopeName == "entity") {
+        scope = StateScope::Entity;
+    } else {
+        return {ErrorCode::InvalidValue, "scope", "Condition scope is not supported."};
+    }
+
+    EntityId entity{};
+    const JsonValue entityField = document.find("entity");
+    if (scope == StateScope::Entity) {
+        std::int64_t index{};
+        std::int64_t generation{};
+        if (!entityField.isObject() ||
+            !entityField.find("index").integer(index) ||
+            !entityField.find("generation").integer(generation) ||
+            index < 0 || index >= EntityId::kInvalidIndex || generation <= 0 ||
+            generation > std::numeric_limits<std::uint32_t>::max()) {
+            return {ErrorCode::InvalidValue, "entity",
+                    "Entity scope requires valid unsigned index and generation fields."};
+        }
+        entity = {static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(generation)};
+    } else if (entityField.valid()) {
+        return {ErrorCode::InvalidValue, "entity",
+                "Only entity-scoped conditions may include an entity field."};
+    }
+
+    auto& ownedKey = keys_[nodeIndex];
+    if (keyName.empty() || keyName.size() >= ownedKey.size()) {
+        return {ErrorCode::InvalidValue, "key", "Condition key exceeds 63 bytes."};
+    }
+    std::memcpy(ownedKey.data(), keyName.data(), keyName.size());
+    const StateAddress address{scope, entity, {ownedKey.data(), keyName.size()}};
+    if (operation == "exists") {
+        nodes_[nodeIndex] = Condition::exists(address);
+        return Status::success();
+    }
+
+    std::string_view comparisonName;
+    if (!document.find("comparison").string(comparisonName)) {
+        return {ErrorCode::InvalidValue, "comparison",
+                "Comparison conditions require a string comparison field."};
+    }
+    CompareOperator comparison{};
+    if (comparisonName == "eq") {
+        comparison = CompareOperator::Equal;
+    } else if (comparisonName == "ne") {
+        comparison = CompareOperator::NotEqual;
+    } else if (comparisonName == "lt") {
+        comparison = CompareOperator::Less;
+    } else if (comparisonName == "lte") {
+        comparison = CompareOperator::LessOrEqual;
+    } else if (comparisonName == "gt") {
+        comparison = CompareOperator::Greater;
+    } else if (comparisonName == "gte") {
+        comparison = CompareOperator::GreaterOrEqual;
+    } else {
+        return {ErrorCode::InvalidValue, "comparison",
+                "Comparison operator is not supported."};
+    }
+
+    const JsonValue jsonValue = document.find("value");
+    StateValue value{};
+    if (jsonValue.isBoolean()) {
+        bool boolean{};
+        (void)jsonValue.boolean(boolean);
+        value = StateValue::fromBoolean(boolean);
+    } else if (jsonValue.isInteger()) {
+        std::int64_t integer{};
+        (void)jsonValue.integer(integer);
+        value = StateValue::fromInteger(integer);
+    } else if (jsonValue.isNumber()) {
+        double number{};
+        if (!jsonValue.number(number)) {
+            return {ErrorCode::InvalidValue, "value", "Comparison number must be finite."};
+        }
+        value = StateValue::fromNumber(number);
+    } else if (jsonValue.isString()) {
+        std::string_view string;
+        (void)jsonValue.string(string);
+        if (!StateValue::fromString(string, value)) {
+            return {ErrorCode::InvalidValue, "value",
+                    "Comparison string exceeds the state value limit."};
+        }
+    } else {
+        return {ErrorCode::InvalidValue, "value",
+                "Comparison value must be a boolean, number, integer, or string."};
+    }
+    if (comparison != CompareOperator::Equal && comparison != CompareOperator::NotEqual &&
+        value.type != ValueType::Integer && value.type != ValueType::Number) {
+        return {ErrorCode::InvalidValue, "value",
+                "Ordering comparisons require an integer or number value."};
+    }
+    nodes_[nodeIndex] = Condition::compare(address, comparison, value);
+    return Status::success();
 }
 
 Status ContentRegistry::add(const ResourceSpec& resource) noexcept {

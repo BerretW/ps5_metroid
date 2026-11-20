@@ -77,6 +77,106 @@ void testJsonAndContent() {
           "JSON input limit is enforced before parsing");
 }
 
+void testJsonConditions() {
+    using namespace echo::framework;
+    constexpr char conditionJson[] =
+        R"({"op":"and","conditions":[)"
+        R"({"op":"exists","scope":"global","key":"story.first"},)"
+        R"({"op":"compare","scope":"entity","entity":{"index":4,"generation":2},)"
+        R"("key":"player.health","comparison":"gte","value":2.5},)"
+        R"({"op":"not","condition":{"op":"compare","scope":"world","key":"world.level",)"
+        R"("comparison":"lt","value":5}},)"
+        R"({"op":"or","conditions":[)"
+        R"({"op":"exists","scope":"global","key":"story.missing"},)"
+        R"({"op":"compare","scope":"global","key":"story.first","comparison":"eq","value":true}]},)"
+        R"({"op":"compare","scope":"world","key":"world.level","comparison":"ne","value":6},)"
+        R"({"op":"compare","scope":"world","key":"world.level","comparison":"lte","value":7},)"
+        R"({"op":"compare","scope":"world","key":"world.level","comparison":"gt","value":6}]})";
+    JsonDocument document{};
+    JsonError error{};
+    check(JsonDocument::parse(conditionJson, sizeof(conditionJson) - 1, document, error),
+          "condition JSON parses");
+    JsonConditionTree tree{};
+    check(tree.parse(document.root()), "bounded JSON condition tree decodes");
+    document.reset();
+
+    GameState state{};
+    const EntityId player{4, 2};
+    check(state.set({StateScope::Global, {}, "story.first"}, StateValue::fromBoolean(true)) &&
+              state.set({StateScope::Entity, player, "player.health"},
+                        StateValue::fromNumber(3.5)) &&
+              state.set({StateScope::World, {}, "world.level"}, StateValue::fromInteger(7)),
+          "condition fixture state is populated");
+    const Condition* condition = tree.root();
+    check(condition != nullptr && evaluate(*condition, state).status &&
+              evaluate(*condition, state).value,
+          "decoded nested conditions remain valid after the JSON document is released");
+
+    constexpr char badOrdering[] =
+        R"({"op":"compare","scope":"global","key":"story.first","comparison":"lt","value":"true"})";
+    JsonDocument invalidDocument{};
+    check(JsonDocument::parse(badOrdering, sizeof(badOrdering) - 1,
+                              invalidDocument, error),
+          "invalid condition fixture is valid JSON");
+    check(tree.parse(invalidDocument.root()).code == ErrorCode::InvalidValue &&
+              tree.root() == nullptr,
+          "invalid ordering operands are rejected and clear the previous tree");
+
+    std::array<char, 2048> tooDeep{};
+    constexpr std::string_view open = R"({"op":"not","condition":)";
+    constexpr std::string_view leaf =
+        R"({"op":"exists","scope":"global","key":"story.first"})";
+    std::size_t written = 0;
+    for (std::size_t index = 0; index < 32; ++index) {
+        std::memcpy(tooDeep.data() + written, open.data(), open.size());
+        written += open.size();
+    }
+    std::memcpy(tooDeep.data() + written, leaf.data(), leaf.size());
+    written += leaf.size();
+    for (std::size_t index = 0; index < 32; ++index) {
+        tooDeep[written++] = '}';
+    }
+    JsonDocument deepDocument{};
+    check(JsonDocument::parse(tooDeep.data(), written, deepDocument, error) &&
+              tree.parse(deepDocument.root()).code == ErrorCode::InvalidValue,
+          "condition nesting beyond the evaluator limit is rejected");
+
+    std::array<char, 8192> tooManyNodes{};
+    written = 0;
+    bool overflow = false;
+    const auto append = [&](std::string_view text) {
+        if (text.size() > tooManyNodes.size() - written) {
+            overflow = true;
+            return;
+        }
+        std::memcpy(tooManyNodes.data() + written, text.data(), text.size());
+        written += text.size();
+    };
+    constexpr std::string_view groupStart = R"({"op":"and","conditions":[)";
+    constexpr std::string_view existsLeaf =
+        R"({"op":"exists","scope":"global","key":"story.first"})";
+    append(groupStart);
+    for (std::size_t group = 0; group < 4; ++group) {
+        if (group != 0) {
+            append(",");
+        }
+        append(groupStart);
+        for (std::size_t child = 0; child < 32; ++child) {
+            if (child != 0) {
+                append(",");
+            }
+            append(existsLeaf);
+        }
+        append("]}");
+    }
+    append("]}");
+    JsonDocument largeTreeDocument{};
+    check(!overflow &&
+              JsonDocument::parse(tooManyNodes.data(), written, largeTreeDocument, error) &&
+              tree.parse(largeTreeDocument.root()).code == ErrorCode::CapacityExceeded,
+          "condition trees exceeding 128 total nodes are rejected");
+}
+
 struct FakeStorage {
     std::array<char, echo::framework::kMaxSaveBytes> current{};
     std::array<char, echo::framework::kMaxSaveBytes> temporary{};
@@ -289,6 +389,7 @@ void testSaveCodecAndStorage() {
 
 int main() {
     testJsonAndContent();
+    testJsonConditions();
     testSaveCodecAndStorage();
     if (failures != 0) {
         std::cerr << failures << " framework data test(s) failed\n";

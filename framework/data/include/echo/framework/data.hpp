@@ -60,6 +60,31 @@ private:
     void* document_{};
 };
 
+class JsonConditionTree {
+public:
+    static constexpr std::size_t kMaxNodes = 128;
+    static constexpr std::size_t kMaxChildren = 32;
+
+    JsonConditionTree() noexcept = default;
+    JsonConditionTree(const JsonConditionTree&) = delete;
+    JsonConditionTree& operator=(const JsonConditionTree&) = delete;
+    JsonConditionTree(JsonConditionTree&&) = delete;
+    JsonConditionTree& operator=(JsonConditionTree&&) = delete;
+
+    [[nodiscard]] Status parse(JsonValue document) noexcept;
+    [[nodiscard]] const Condition* root() const noexcept;
+    void reset() noexcept;
+
+private:
+    [[nodiscard]] Status parseNode(JsonValue document, std::size_t nodeIndex,
+                                   std::size_t depth) noexcept;
+
+    std::array<Condition, kMaxNodes> nodes_{};
+    std::array<std::array<char, 64>, kMaxNodes> keys_{};
+    std::size_t nodeCount_{};
+    bool valid_{};
+};
+
 enum class ResourceType : std::uint8_t {
     Generic,
     Item,

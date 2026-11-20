@@ -8,7 +8,7 @@ Echo Framework is a statically composed C++20 foundation. PROJECT ECHO remains t
 - Generation-based entity handles and compile-time component pools.
 - Typed event listeners, explicit subscriptions, bounded FIFO delivery, and queued nested events.
 - Explicit action handlers with typed parameters, capability gates, and active-game checks.
-- Namespaced global/world/entity state, typed values, change observers, and declarative conditions.
+- Namespaced global/world/entity state, typed values, change observers, declarative conditions, and bounded JSON condition decoding.
 - A bounded yyjson-backed JSON wrapper, content registry/manifest validation, versioned state saves, migration callback, and storage callbacks.
 - A headless example and a narrow PROJECT ECHO ability-unlock integration.
 
