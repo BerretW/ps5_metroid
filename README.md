@@ -60,11 +60,12 @@ Landing Bay -> Maintenance Tunnel -> Power Station (locked) -> backtrack to the 
 - `scripts/` — Windows and PS5 build, diagnostics, validation and manual deployment helpers
 - `platform/ps5/`, `cmake/`, `patches/` — PS5 target configuration and SDL adaptations
 - `docs/` — setup, architecture, controls, compatibility and evidence-based status
+- `LICENSE`, `licenses/` — project and third-party license notices
 
 Generated builds, packages, logs and restored dependencies are excluded from Git. Recreate them with the commands above; see [Windows setup](docs/SETUP.md) and [development notes](docs/DEVELOPMENT.md).
 
 ## License
 
-Original PROJECT ECHO code is licensed under the [MIT License](LICENSE), copyright 2026 SpoiledMouse. Third-party components and SDL-derived material retain their own licenses; SDL2 uses the zlib license.
+Original PROJECT ECHO code is licensed under the [MIT License](LICENSE), copyright 2026 SpoiledMouse. Third-party components and SDL-derived material retain their own licenses; SDL2 uses the [zlib license](licenses/SDL2.txt). The SDL patches in this repository modify the upstream source.
 
 PS5 builds combine the game with the upstream GPL-3.0-or-later CRT/runtime. Distributing PS5 binaries requires compliance with the applicable third-party license and source obligations; the project's MIT license does not replace them. Include the relevant license notices when distributing builds. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md) for details.
