@@ -46,3 +46,17 @@ add_executable(echo_tests tests/game_tests.cpp)
 target_link_libraries(echo_tests PRIVATE echo_game)
 target_compile_features(echo_tests PRIVATE cxx_std_20)
 add_test(NAME echo_gameplay COMMAND echo_tests)
+
+add_executable(echo_sdl_tests
+    tests/sdl_renderer_tests.cpp
+    src/platform/sdl/renderer.cpp
+)
+target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
+target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(echo_sdl_tests PRIVATE echo_game SDL2-static)
+if(MSVC)
+    target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_sdl_tests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME echo_control_prompts COMMAND echo_sdl_tests)

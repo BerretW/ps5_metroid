@@ -23,7 +23,8 @@ Changing the SDL application, rendering, controls, controller handling, or simul
 - Preserve the 640x360 logical rendering path and the software-friendly SDL renderer; PS5 specifically selects software rendering and uses its patched native SDL backend.
 - The PS5 release variant disables physical keyboard and IME because the keyboard-enabled build crashes at `sceKeyboardInit` on the reported setup. This does not disable Windows keyboard input. Keep PS5-only behavior behind its existing build options/patches; the exact crash cause remains unknown.
 - PS5 controller playability is user-reported, but complete mappings and reconnect behavior are still unverified. Do not infer platform-wide input support from a successful build or one hardware session.
-- The in-game hint bar currently shows keyboard labels on PS5. This is a known cosmetic mismatch; change it only as part of an explicit UX request, not as an incidental backend fix.
+- The actual target selects `ControlScheme`: Windows uses keyboard prompts, PS5 uses PlayStation prompts. The bitmap font renders internal button-symbol glyphs; do not pass UTF-8 symbols to this ASCII renderer and assume they will appear.
+- Keep prompts consistent with input: Windows rebound keys must update gameplay and door hints; PS5 uses fixed cross/square/triangle, Options for pause, touchpad for map and circle for back. The newer prompt/map/back changes need hardware verification even though the earlier `playable` milestone ran on the console.
 
 ## Constraints
 

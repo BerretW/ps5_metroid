@@ -25,6 +25,11 @@ struct Glyph {
 };
 
 constexpr Glyph kGlyphs[] = {
+    // Internal bitmap symbols: cross, square, triangle, circle, D-pad, Options, touchpad.
+    {'\x01', {17, 17, 10, 4, 10, 17, 17}}, {'\x02', {31, 17, 17, 17, 17, 17, 31}},
+    {'\x03', {4, 4, 10, 10, 17, 17, 31}}, {'\x04', {14, 17, 17, 17, 17, 17, 14}},
+    {'\x05', {4, 4, 31, 31, 31, 4, 4}}, {'\x06', {31, 0, 31, 0, 31, 0, 0}},
+    {'\x07', {31, 17, 21, 21, 17, 31, 0}},
     {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
     {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
     {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
@@ -146,7 +151,11 @@ void Renderer::drawMenu(int selection) noexcept {
              index == selection ? kCyan : kText);
     }
 
-    text(86, 326, "ARROWS MOVE  SPACE JUMP  J FIRE  E INTERACT", 1, kMuted);
+    if (controls_ == ControlScheme::PlayStation) {
+        text(86, 326, "\x05 SELECT  \x01 CONFIRM", 2, kMuted);
+    } else {
+        text(86, 326, "ARROWS SELECT  ENTER CONFIRM", 1, kMuted);
+    }
     SDL_RenderPresent(renderer_);
 }
 
@@ -158,6 +167,9 @@ void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
     panel({74, 38, 492, 284}, kPanel);
     panel({74, 38, 492, 3}, kCyan);
     text(110, 62, "OPTIONS", 3, kText);
+    if (controls_ == ControlScheme::PlayStation) {
+        text(110, 94, "FIXED CONTROLLER BUTTONS", 1, kMuted);
+    }
 
     const std::array<std::string_view, 5> rows{
         "VOLUME", "JUMP", "FIRE", "INTERACT", "BACK"
@@ -179,15 +191,23 @@ void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
             text(390, y, std::to_string(volume) + "%", 2, kText);
 #endif
         } else if (index < 4) {
-            const std::string_view keyName = index == 1 ? jumpKey : index == 2 ? shootKey : interactKey;
+            const std::string_view keyName = controls_ == ControlScheme::PlayStation
+                ? (index == 1 ? "\x01" : index == 2 ? "\x02" : "\x03")
+                : (index == 1 ? jumpKey : index == 2 ? shootKey : interactKey);
             text(390, y, keyName, 2, kText);
         }
     }
-    text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL" : "ENTER REBIND  LEFT RIGHT VOLUME", 1, kMuted);
+    if (controls_ == ControlScheme::PlayStation) {
+        text(104, 294, "\x05 SELECT/VOLUME  \x04 BACK", 1, kMuted);
+    } else {
+        text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL" : "ENTER REBIND  LEFT RIGHT VOLUME", 1, kMuted);
+    }
     SDL_RenderPresent(renderer_);
 }
 
-void Renderer::drawGame(const Game& game, bool showMap, bool paused) noexcept {
+void Renderer::drawGame(const Game& game, bool showMap, bool paused,
+                        std::string_view jumpKey, std::string_view shootKey,
+                        std::string_view interactKey) noexcept {
     SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
     SDL_RenderClear(renderer_);
 
@@ -282,9 +302,24 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused) noexcept {
     }
     if (game.roomId() == RoomId::MaintenanceTunnel && player.position.x > 900.0F &&
         player.position.x < 1040.0F) {
-        text(520, 285, "E", 2, kCyan);
+        text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
-    text(12, 340, "ARROWS MOVE  SPACE JUMP  J FIRE  E USE  M MAP  ESC PAUSE", 1, kMuted);
+    if (controls_ == ControlScheme::PlayStation) {
+        text(12, 340, "\x05 MOVE  \x01 JUMP  \x02 FIRE  \x03 USE  \x07 MAP  \x06 PAUSE", 2, kMuted);
+    } else {
+        int hintX = 12;
+        const auto hint = [&](std::string_view value) {
+            text(hintX, 340, value, 1, kMuted);
+            hintX += static_cast<int>(value.size()) * 6;
+        };
+        hint("ARROWS MOVE  ");
+        hint(jumpKey);
+        hint(" JUMP  ");
+        hint(shootKey);
+        hint(" FIRE  ");
+        hint(interactKey);
+        hint(" USE  M MAP  ESC PAUSE");
+    }
 
     if (showMap) {
         panel({151, 92, 338, 172}, SDL_Color{4, 10, 17, 238});
@@ -313,7 +348,7 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused) noexcept {
     if (paused) {
         panel({172, 125, 296, 112}, SDL_Color{4, 10, 17, 238});
         text(245, 146, "PAUSED", 3, kText);
-        text(195, 199, "ENTER RESUME  ESC MENU", 1, kMuted);
+        text(195, 199, controls_ == ControlScheme::PlayStation ? "\x01 RESUME  \x04 MENU" : "ENTER RESUME  ESC MENU", 1, kMuted);
     }
     SDL_RenderPresent(renderer_);
 }

@@ -33,6 +33,12 @@ extern "C" {
 
 namespace {
 
+#ifdef __PROSPERO__
+constexpr auto kControlScheme = echo::platform::ControlScheme::PlayStation;
+#else
+constexpr auto kControlScheme = echo::platform::ControlScheme::Keyboard;
+#endif
+
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
 void diagnosticNotify(std::string_view message) noexcept {
     struct Notification {
@@ -262,7 +268,7 @@ int main(int, char**) {
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");
 #endif
-    echo::platform::Renderer renderer;
+    echo::platform::Renderer renderer{kControlScheme};
     if (!renderer.create()) {
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
         diagnosticFailure("ECHO DIAG ERROR: renderer creation failed");
@@ -379,7 +385,10 @@ int main(int, char**) {
                         selectMenu();
                     }
                 } else if (screen == Screen::Options) {
-                    if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
+                    if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
+                        button == SDL_CONTROLLER_BUTTON_B) {
+                        screen = Screen::MainMenu;
+                    } else if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
                         optionSelection = (optionSelection + 4) % 5;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
                         optionSelection = (optionSelection + 1) % 5;
@@ -391,7 +400,15 @@ int main(int, char**) {
                         screen = Screen::MainMenu;
                     }
                 } else if (screen == Screen::Playing) {
-                    if (button == SDL_CONTROLLER_BUTTON_START) {
+                    if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
+                        button == SDL_CONTROLLER_BUTTON_B && paused) {
+                        screen = Screen::MainMenu;
+                        paused = false;
+                        logMessage("Returned to main menu");
+                    } else if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
+                               button == SDL_CONTROLLER_BUTTON_TOUCHPAD && !paused) {
+                        showMap = !showMap;
+                    } else if (button == SDL_CONTROLLER_BUTTON_START) {
                         if (paused) {
                             paused = false;
                         } else {
@@ -553,13 +570,15 @@ int main(int, char**) {
 #endif
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection);
-        } else if (screen == Screen::Options) {
+        } else {
             const auto jump = keyName(bindings.jump);
             const auto shoot = keyName(bindings.shoot);
             const auto interact = keyName(bindings.interact);
-            renderer.drawOptions(optionSelection, volume, waitingForKey, jump.data(), shoot.data(), interact.data());
-        } else {
-            renderer.drawGame(game, showMap, paused);
+            if (screen == Screen::Options) {
+                renderer.drawOptions(optionSelection, volume, waitingForKey, jump.data(), shoot.data(), interact.data());
+            } else {
+                renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data());
+            }
         }
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
         if (diagnosticFirstFrame) {

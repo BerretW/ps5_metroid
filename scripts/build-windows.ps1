@@ -14,8 +14,20 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 function Invoke-CommandLine([string]$Stage, [string]$CommandLine) {
     $stdoutPath = Join-Path $logDir ($Stage + ".stdout.log")
     $stderrPath = Join-Path $logDir ($Stage + ".stderr.log")
-    $process = Start-Process -FilePath $env:ComSpec -ArgumentList @("/d", "/c", $CommandLine) `
-        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $env:ComSpec
+    $info.Arguments = "/d /c " + $CommandLine
+    $info.WorkingDirectory = $root
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($info)
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    # Start-Process -Wait also waits for lingering MSVC telemetry descendants.
+    $process.WaitForExit()
+    [IO.File]::WriteAllText($stdoutPath, $stdout.Result)
+    [IO.File]::WriteAllText($stderrPath, $stderr.Result)
     if ($process.ExitCode -eq 0) {
         foreach ($path in @($stdoutPath, $stderrPath)) {
             if (Test-Path -LiteralPath $path) {
@@ -72,7 +84,7 @@ if ($RunTests) {
         $vsDevCmd, $buildDir, $Configuration
     $testExitCode = Invoke-CommandLine "test" $test
     if ($testExitCode -ne 0) {
-        throw "Gameplay tests failed with exit code $testExitCode."
+        throw "Windows tests failed with exit code $testExitCode."
     }
 }
 

@@ -5,7 +5,7 @@ PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the baseline for
 ## What this repository is ready for
 
 - **Play and develop on Windows 11 x64:** build and run the SDL2 game, run headless gameplay tests, and extend the shared simulation or SDL front end.
-- **Build a PS5 application on Windows:** the native PowerShell pipeline cross-compiles, links and statically validates the application package. The controller-only build has been reported playable on PS5 with firmware 13.60 and Kraken Mount 0.3.1; console upload is manual.
+- **Build a PS5 application on Windows:** the native PowerShell pipeline cross-compiles, links and statically validates the application package. The `playable` milestone controller build has been reported playable on PS5 with firmware 13.60 and Kraken Mount 0.3.1; console upload is manual. The subsequent controller-symbol UI and map/back bindings need another hardware check.
 - **Use the tests as a gameplay safety net:** simulation tests run without SDL or a window and cover movement, combat, room progression, ability unlocks, damage and respawn.
 
 This is a playable prototype, not a finished game. Settings do not persist, visuals are placeholders, and PS5 physical keyboard/IME are disabled because the keyboard-enabled build crashes during `sceKeyboardInit`. Full PS5 controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. See [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
@@ -15,9 +15,19 @@ This is a playable prototype, not a finished game. Settings do not persist, visu
 - Native Windows CMake/Ninja build: supported through installed Visual Studio C++ tools.
 - SDL2: pinned to the PS5 SDL fork commit `ee4c47dc0d617b3bc8f35108f9956baf228a1322` (SDL 2.30.12).
 - Native Windows PS5 cross-compilation and application-directory packaging: PASS for standalone Hello World and PROJECT ECHO.
-- PS5 hardware (user-reported, firmware 13.60 / Kraken Mount 0.3.1): Hello World and the non-diagnostic PROJECT ECHO controller build launch; the user confirms the game is playable and supplied a gameplay screenshot. PS5 keyboard/IME are intentionally disabled in this build. The original keyboard-enabled build still fails with CE-108255-1. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
+- PS5 hardware (user-reported, firmware 13.60 / Kraken Mount 0.3.1): Hello World and the `playable` milestone controller build launch; the user confirms the game is playable and supplied a gameplay screenshot. PS5 keyboard/IME are intentionally disabled in controller builds. The original keyboard-enabled build still fails with CE-108255-1. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
 See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
+
+## Simple platform selector
+
+Double-click [build.bat](build.bat), or run `.\build.bat` from a terminal:
+
+- **1 - Windows:** Release build and tests, keyboard prompts and editable keyboard bindings. Existing Windows controller input remains supported.
+- **2 - PS5:** restore pinned dependencies if needed, validate Hello first, then build the controller variant with keyboard/IME disabled. The game uses drawn PlayStation button symbols, touchpad for the map and circle to return from options or a paused game.
+- **0 - Cancel:** exit without building.
+
+The batch file only selects a platform and calls the existing PowerShell scripts. It reports failures, never runs a PS5 binary and never uploads to a console. The target itself selects its control scheme, so direct PowerShell builds behave the same way.
 
 ## Build and run on Windows
 

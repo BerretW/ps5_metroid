@@ -11,6 +11,10 @@ Use the native Windows entry points:
 
 The Windows app and gameplay tests compile the same `echo_game` library. The test executable does not initialize SDL or create a window.
 
+`build.bat` is a thin interactive front end: Windows selects Release plus tests, while PS5 selects the no-keyboard controller build and restores missing pinned dependencies. It never launches a PS5 executable or deploys to the console.
+
+The additional `echo_control_prompts` test uses SDL's dummy video driver and software rendering, not a desktop window or physical controller. It checks that Windows prompts follow rebound keys and PlayStation prompts render controller symbols independently of keyboard bindings.
+
 ## Playable development baseline
 
 The project is at a playable prototype milestone and is suitable as the starting point for further Windows development. The Windows application builds and launches, while the shared simulation has headless tests for movement, combat, the five-room route, Echo Step progression, damage, death and respawn. Run the application and tests before and after gameplay changes:
@@ -32,4 +36,4 @@ The visual and audio assets are intentionally original placeholders. Settings cu
 
 Native Windows Hello World and PROJECT ECHO PS5 artifacts now pass static validation. Use `scripts\build-ps5.ps1`, not the upstream WSL/Bash wrappers. The unchanged shared gameplay builds for both targets; PS5-specific adapter branches avoid unsupported full libc++ logging/localization and force software rendering.
 
-Run `tests\ps5_package_tests.ps1` after packaging changes. It verifies a valid package, isolated validation reports, and rejection of both a corrupt FSELF digest and a correctly wrapped ELF with invalid load-segment alignment. Uploads remain manual. The controller-only PROJECT ECHO build is reported playable on the operator's PS5; the keyboard-enabled build still crashes at `sceKeyboardInit`. Record each remaining console result separately in [acceptance status](STATUS.md). The Windows build host does not execute PS5 binaries.
+Run `tests\ps5_package_tests.ps1` after packaging changes. It verifies a valid package, isolated validation reports, and rejection of both a corrupt FSELF digest and a correctly wrapped ELF with invalid load-segment alignment. Uploads remain manual. The `playable` milestone controller build is reported playable on the operator's PS5; the newer controller-symbol UI and touchpad/circle actions need another hardware check. The keyboard-enabled build still crashes at `sceKeyboardInit`. Record each remaining console result separately in [acceptance status](STATUS.md). The Windows build host does not execute PS5 binaries.
