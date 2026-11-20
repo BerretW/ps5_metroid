@@ -30,6 +30,7 @@ constexpr Glyph kGlyphs[] = {
     {'\x03', {4, 4, 10, 10, 17, 17, 31}}, {'\x04', {14, 17, 17, 17, 17, 17, 14}},
     {'\x05', {4, 4, 31, 31, 31, 4, 4}}, {'\x06', {31, 0, 31, 0, 31, 0, 0}},
     {'\x07', {31, 17, 21, 21, 17, 31, 0}},
+    {'+', {0, 4, 4, 31, 4, 4, 0}}, {'%', {17, 2, 4, 8, 17, 0, 0}},
     {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
     {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
     {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
@@ -140,14 +141,14 @@ void Renderer::drawMenu(int selection) noexcept {
     text(120, 94, "PROJECT ECHO", 4, kText);
     text(122, 135, "FACILITY 07  /  SIGNAL LOST", 1, kMuted);
 
-    constexpr std::array<std::string_view, 3> labels{"PLAY", "OPTIONS", "EXIT"};
+    constexpr std::array<std::string_view, 4> labels{"PLAY", "OPTIONS", "DUALSENSE LAB", "EXIT"};
     for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
-        const int y = 180 + index * 36;
+        const int y = 174 + index * 31;
         if (index == selection) {
-            panel({112, y - 6, 176, 26}, kPanelLight);
-            panel({112, y - 6, 3, 26}, kCyan);
+            panel({112, y - 5, 210, 24}, kPanelLight);
+            panel({112, y - 5, 3, 24}, kCyan);
         }
-        text(128, y, labels[static_cast<std::size_t>(index)], 2,
+        text(128, y, labels[static_cast<std::size_t>(index)], index == 2 ? 1 : 2,
              index == selection ? kCyan : kText);
     }
 
@@ -350,6 +351,217 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(245, 146, "PAUSED", 3, kText);
         text(195, 199, controls_ == ControlScheme::PlayStation ? "\x01 RESUME  \x04 MENU" : "ENTER RESUME  ESC MENU", 1, kMuted);
     }
+    SDL_RenderPresent(renderer_);
+}
+
+void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
+                                int connectedControllers) noexcept {
+    SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
+    SDL_RenderClear(renderer_);
+    panel({12, 12, 310, 310}, kPanel);
+    panel({330, 12, 298, 310}, kPanel);
+    panel({12, 12, 616, 3}, kCyan);
+    text(24, 24, "DUALSENSE LAB", 2, kText);
+
+    if (controller.connected) {
+        text(24, 48, std::string_view(controller.name.data()).substr(0, 34), 1, kCyan);
+        std::array<char, 96> deviceLine{};
+        SDL_snprintf(deviceLine.data(), deviceLine.size(), "ID %d  BATTERY %.*s",
+                     controller.instanceId, static_cast<int>(input::batteryName(controller.battery).size()),
+                     input::batteryName(controller.battery).data());
+        text(24, 62, deviceLine.data(), 1, kMuted);
+    } else {
+        text(24, 50, "NO CONTROLLER CONNECTED", 1, kOrange);
+    }
+    std::array<char, 48> deviceCountLine{};
+    SDL_snprintf(deviceCountLine.data(), deviceCountLine.size(), "SDL DEVICES %d", connectedControllers);
+    text(24, 76, deviceCountLine.data(), 1, kMuted);
+
+    const auto button = [&controller](SDL_GameControllerButton id) noexcept {
+        const auto index = static_cast<std::size_t>(id);
+        return index < controller.buttons.size() && controller.buttons[index];
+    };
+    const auto buttonLabel = [this, &button](int x, int y, int width, std::string_view label,
+                                             SDL_GameControllerButton id, bool mapped = true) {
+        const SDL_Color fill = !mapped ? SDL_Color{39, 43, 51, 255}
+                                : button(id) ? SDL_Color{33, 91, 73, 255}
+                                             : kPanelLight;
+        panel({x, y, width, 16}, fill);
+        text(x + 3, y + 4, label, 1, !mapped ? kMuted : button(id) ? kGreen : kText);
+        if (!mapped) {
+            text(x + width - 18, y + 4, "N/A", 1, kMuted);
+        }
+    };
+    const auto triggerLabel = [this, &controller](int x, int y, std::string_view label,
+                                                  SDL_GameControllerAxis axis) {
+        const bool pressed = controller.axes[axis] > 16000;
+        panel({x, y, 48, 16}, pressed ? SDL_Color{33, 91, 73, 255} : kPanelLight);
+        text(x + 3, y + 4, label, 1, pressed ? kGreen : kText);
+    };
+
+    text(24, 88, "CONTROLS", 1, kMuted);
+    triggerLabel(24, 101, "L2", SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+    buttonLabel(78, 101, 48, "L1", SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    buttonLabel(208, 101, 48, "R1", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    triggerLabel(262, 101, "R2", SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+    buttonLabel(48, 123, 48, "L3", SDL_CONTROLLER_BUTTON_LEFTSTICK);
+    buttonLabel(238, 123, 48, "R3", SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+
+    buttonLabel(94, 151, 34, "UP", SDL_CONTROLLER_BUTTON_DPAD_UP);
+    buttonLabel(57, 171, 36, "LEFT", SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+    buttonLabel(94, 171, 34, "DOWN", SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    buttonLabel(129, 171, 42, "RIGHT", SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+    buttonLabel(229, 145, 44, "TRI", SDL_CONTROLLER_BUTTON_Y);
+    buttonLabel(192, 163, 38, "SQR", SDL_CONTROLLER_BUTTON_X);
+    buttonLabel(273, 163, 38, "CIR", SDL_CONTROLLER_BUTTON_B);
+    buttonLabel(229, 181, 44, "X", SDL_CONTROLLER_BUTTON_A);
+
+    buttonLabel(45, 205, 72, "OPTIONS", SDL_CONTROLLER_BUTTON_START);
+    buttonLabel(125, 205, 84, "TOUCHPAD", SDL_CONTROLLER_BUTTON_TOUCHPAD);
+    buttonLabel(217, 205, 70, "CREATE", SDL_CONTROLLER_BUTTON_BACK,
+                controller.connected && controls_ != ControlScheme::PlayStation);
+    buttonLabel(45, 225, 72, "PS", SDL_CONTROLLER_BUTTON_GUIDE,
+                controller.connected && controls_ != ControlScheme::PlayStation);
+    buttonLabel(125, 225, 84, "MUTE", SDL_CONTROLLER_BUTTON_MISC1,
+                controller.connected && controls_ != ControlScheme::PlayStation);
+    text(24, 250, "LEFT STICK", 1, kMuted);
+    text(184, 250, "RIGHT STICK", 1, kMuted);
+
+    const auto stick = [this, &controller](int x, int y, SDL_GameControllerAxis axisX,
+                                           SDL_GameControllerAxis axisY) {
+        const SDL_Rect bounds{x - 19, y - 19, 38, 38};
+        setColor(renderer_, kMuted);
+        SDL_RenderDrawRect(renderer_, &bounds);
+        SDL_RenderDrawLine(renderer_, x - 19, y, x + 19, y);
+        SDL_RenderDrawLine(renderer_, x, y - 19, x, y + 19);
+        const auto raw = input::normalizeStick(controller.axes[axisX], controller.axes[axisY]);
+        const auto value = input::applyRadialDeadZone(raw, controller.deadZone);
+        const SDL_Rect dot{x + static_cast<int>(value.x * 15.0F) - 3,
+                           y + static_cast<int>(value.y * 15.0F) - 3, 6, 6};
+        panel(dot, kCyan);
+    };
+    stick(82, 286, SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY);
+    stick(232, 286, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY);
+
+    text(342, 25, "LIVE VALUES", 1, kMuted);
+    const auto valueLine = [this](int x, int y, const char* label, float value) {
+        std::array<char, 64> line{};
+        SDL_snprintf(line.data(), line.size(), "%s %+.2f", label, static_cast<double>(value));
+        text(x, y, line.data(), 1, kText);
+    };
+    const auto leftStick = input::applyRadialDeadZone(input::normalizeStick(
+        controller.axes[SDL_CONTROLLER_AXIS_LEFTX], controller.axes[SDL_CONTROLLER_AXIS_LEFTY]), controller.deadZone);
+    const auto rightStick = input::applyRadialDeadZone(input::normalizeStick(
+        controller.axes[SDL_CONTROLLER_AXIS_RIGHTX], controller.axes[SDL_CONTROLLER_AXIS_RIGHTY]), controller.deadZone);
+    valueLine(344, 43, "LX/1K", controller.axes[SDL_CONTROLLER_AXIS_LEFTX] / 1000.0F);
+    valueLine(480, 43, "RX/1K", controller.axes[SDL_CONTROLLER_AXIS_RIGHTX] / 1000.0F);
+    valueLine(344, 57, "LY/1K", controller.axes[SDL_CONTROLLER_AXIS_LEFTY] / 1000.0F);
+    valueLine(480, 57, "RY/1K", controller.axes[SDL_CONTROLLER_AXIS_RIGHTY] / 1000.0F);
+    std::array<char, 64> normalizedLine{};
+    SDL_snprintf(normalizedLine.data(), normalizedLine.size(), "NORM LX%+.2f LY%+.2f",
+                 static_cast<double>(leftStick.x), static_cast<double>(leftStick.y));
+    text(344, 71, normalizedLine.data(), 1, kText);
+    std::array<char, 64> normalizedRightLine{};
+    SDL_snprintf(normalizedRightLine.data(), normalizedRightLine.size(), "NORM RX%+.2f RY%+.2f",
+                 static_cast<double>(rightStick.x), static_cast<double>(rightStick.y));
+    text(480, 71, normalizedRightLine.data(), 1, kText);
+    std::array<char, 64> triggerLine{};
+    SDL_snprintf(triggerLine.data(), triggerLine.size(), "L2 %d %0.f%%  R2 %d %0.f%%",
+                 controller.axes[SDL_CONTROLLER_AXIS_TRIGGERLEFT],
+                 static_cast<double>(input::normalizeTrigger(controller.axes[SDL_CONTROLLER_AXIS_TRIGGERLEFT]) * 100.0F),
+                 controller.axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT],
+                 static_cast<double>(input::normalizeTrigger(controller.axes[SDL_CONTROLLER_AXIS_TRIGGERRIGHT]) * 100.0F));
+    text(344, 85, triggerLine.data(), 1, kText);
+
+    std::array<char, 48> deadZoneLine{};
+    SDL_snprintf(deadZoneLine.data(), deadZoneLine.size(), "RADIAL DEAD ZONE %d%%",
+                 static_cast<int>(controller.deadZone * 100.0F));
+    text(344, 99, deadZoneLine.data(), 1, kMuted);
+    text(344, 115, "CAPABILITIES", 1, kMuted);
+    text(344, 131, controller.touchpadApiAvailable ? "TOUCH CONTACT API AVAILABLE" : "TOUCH CONTACT UNSUPPORTED", 1,
+         controller.touchpadApiAvailable ? kGreen : kOrange);
+    if (controller.touchpadApiAvailable) {
+        std::array<char, 64> touchLine{};
+        SDL_snprintf(touchLine.data(), touchLine.size(), "PADS %d  FINGER SLOTS %d",
+                     controller.touchpadCount, controller.touchpadFingerCount);
+        text(344, 144, touchLine.data(), 1, kText);
+        const SDL_Rect touchpadBounds{344, 158, 124, 26};
+        setColor(renderer_, kMuted);
+        SDL_RenderDrawRect(renderer_, &touchpadBounds);
+        for (std::size_t index = 0; index < controller.touchSampleCount; ++index) {
+            const auto& touch = controller.touches[index];
+            if (!touch.active || touch.touchpad != 0) {
+                continue;
+            }
+            panel({344 + static_cast<int>(input::normalizeTouchCoordinate(touch.x) * 120.0F) - 2,
+                   158 + static_cast<int>(input::normalizeTouchCoordinate(touch.y) * 22.0F) - 2, 5, 5}, kCyan);
+        }
+        float maxPressure = 0.0F;
+        for (std::size_t index = 0; index < controller.touchSampleCount; ++index) {
+            const auto& touch = controller.touches[index];
+            if (touch.active) {
+                maxPressure = std::max(maxPressure, touch.pressure);
+            }
+        }
+        std::array<char, 48> pressureLine{};
+        SDL_snprintf(pressureLine.data(), pressureLine.size(), "ACTIVE PRESSURE %.2f",
+                     static_cast<double>(maxPressure));
+        text(480, 165, pressureLine.data(), 1, kText);
+    } else {
+        text(344, 144, "CLICK BUTTON IS SEPARATE", 1, kMuted);
+    }
+    text(344, 190, controller.gyroAvailable ? "GYRO API AVAILABLE" : "GYRO UNSUPPORTED", 1,
+         controller.gyroAvailable ? kGreen : kOrange);
+    text(344, 203, controller.accelerometerAvailable ? "ACCEL API AVAILABLE" : "ACCEL UNSUPPORTED", 1,
+         controller.accelerometerAvailable ? kGreen : kOrange);
+    if (controller.gyroRead) {
+        std::array<char, 80> line{};
+        SDL_snprintf(line.data(), line.size(), "GYRO RAD/S %+.1f %+.1f %+.1f",
+                     static_cast<double>(controller.gyro[0]), static_cast<double>(controller.gyro[1]),
+                     static_cast<double>(controller.gyro[2]));
+        text(344, 216, line.data(), 1, kText);
+    }
+    if (controller.accelerometerRead) {
+        std::array<char, 80> line{};
+        SDL_snprintf(line.data(), line.size(), "ACCEL M/S2 %+.1f %+.1f %+.1f",
+                     static_cast<double>(controller.accelerometer[0]), static_cast<double>(controller.accelerometer[1]),
+                     static_cast<double>(controller.accelerometer[2]));
+        text(344, 229, line.data(), 1, kText);
+    }
+    text(344, 246, controller.rumbleAvailable ? "RUMBLE API AVAILABLE" : "RUMBLE UNSUPPORTED", 1,
+         controller.rumbleAvailable ? kGreen : kOrange);
+    text(344, 259, controller.triggerRumbleAvailable ? "TRIGGER RUMBLE AVAILABLE" : "TRIGGER RUMBLE UNSUPPORTED", 1,
+         controller.triggerRumbleAvailable ? kGreen : kOrange);
+    text(344, 272, controller.ledAvailable ? "RGB LED API AVAILABLE" : "RGB LED UNSUPPORTED", 1,
+         controller.ledAvailable ? kGreen : kOrange);
+    text(344, 285, "ADAPTIVE TRIGGERS UNSUPPORTED", 1, kOrange);
+    std::array<char, 88> audioLine{};
+    SDL_snprintf(audioLine.data(), audioLine.size(), "AUDIO OUT %d  CAPTURE %d",
+                 controller.outputDeviceCount, controller.captureDeviceCount);
+    text(344, 298, audioLine.data(), 1, kMuted);
+    std::array<char, 80> rangeLine{};
+    SDL_snprintf(rangeLine.data(), rangeLine.size(), "CAL LX %d..%d RX %d..%d",
+                 controller.axisMinimum[SDL_CONTROLLER_AXIS_LEFTX],
+                 controller.axisMaximum[SDL_CONTROLLER_AXIS_LEFTX],
+                 controller.axisMinimum[SDL_CONTROLLER_AXIS_RIGHTX],
+                 controller.axisMaximum[SDL_CONTROLLER_AXIS_RIGHTX]);
+    text(344, 311, rangeLine.data(), 1, kMuted);
+
+    text(24, 310, std::string_view(controller.lastAction.data()), 1,
+         controller.lastError[0] == '\0' ? kCyan : kOrange);
+    if (controller.hasResult) {
+        std::array<char, 48> resultLine{};
+        SDL_snprintf(resultLine.data(), resultLine.size(), "RESULT %d", controller.lastResult);
+        text(200, 310, resultLine.data(), 1, controller.lastError[0] == '\0' ? kMuted : kOrange);
+    }
+    text(24, 326, controls_ == ControlScheme::PlayStation
+             ? "DPAD LEFT/RIGHT DEVICE  UP/DOWN DEAD ZONE"
+             : "ARROWS LEFT/RIGHT DEVICE  UP/DOWN DEAD ZONE",
+         1, kMuted);
+    text(24, 340, controls_ == ControlScheme::PlayStation
+             ? "\x01 RUMBLE  \x02 LED  L3 TRIG  L1 OK  R1 FAIL  \x03 EXPORT  \x04 BACK"
+             : "R RUMBLE  L LED  T TRIG  P OK  F FAIL  E EXPORT  ESC BACK",
+         1, kMuted);
     SDL_RenderPresent(renderer_);
 }
 

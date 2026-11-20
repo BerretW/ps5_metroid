@@ -127,6 +127,26 @@ int main() {
         pad.drawMenu(0);
         check(capture(keyboardWindow, {86, 326, 492, 16}) != capture(padWindow, {86, 326, 492, 16}),
               "main menu uses platform-specific navigation prompts");
+        keyboard.drawMenu(2);
+        const auto labMenuEntry = capture(keyboardWindow, {120, 231, 210, 24});
+        keyboard.drawMenu(1);
+        check(labMenuEntry != capture(keyboardWindow, {120, 231, 210, 24}),
+              "main menu exposes a distinct DualSense Lab entry");
+
+        echo::input::ControllerSnapshot simulatedController;
+        simulatedController.connected = true;
+        echo::input::setText(simulatedController.name, "Simulated DualSense");
+        simulatedController.battery = SDL_JOYSTICK_POWER_FULL;
+        keyboard.drawDualSenseLab(simulatedController, 1);
+        const auto idleCross = capture(keyboardWindow, {229, 181, 44, 16});
+        const auto centeredStick = capture(keyboardWindow, {63, 267, 38, 38});
+        simulatedController.buttons[SDL_CONTROLLER_BUTTON_A] = true;
+        simulatedController.axes[SDL_CONTROLLER_AXIS_LEFTX] = 16000;
+        keyboard.drawDualSenseLab(simulatedController, 1);
+        check(idleCross != capture(keyboardWindow, {229, 181, 44, 16}),
+              "DualSense Lab highlights an observed button press");
+        check(centeredStick != capture(keyboardWindow, {63, 267, 38, 38}),
+              "DualSense Lab moves the live stick indicator");
         keyboard.drawGame(game, false, true, "SPACE", "J", "E");
         pad.drawGame(game, false, true, "SPACE", "J", "E");
         check(capture(keyboardWindow, {195, 199, 260, 14}) != capture(padWindow, {195, 199, 260, 14}),

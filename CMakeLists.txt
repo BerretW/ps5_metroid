@@ -30,6 +30,7 @@ endif()
 add_executable(project_echo
     src/platform/sdl/main.cpp
     src/platform/sdl/renderer.cpp
+    src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(project_echo PRIVATE cxx_std_20)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
@@ -50,6 +51,7 @@ add_test(NAME echo_gameplay COMMAND echo_tests)
 add_executable(echo_sdl_tests
     tests/sdl_renderer_tests.cpp
     src/platform/sdl/renderer.cpp
+    src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED)
@@ -60,3 +62,18 @@ else()
     target_compile_options(echo_sdl_tests PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 add_test(NAME echo_control_prompts COMMAND echo_sdl_tests)
+
+add_executable(echo_dualsense_tests
+    tests/dualsense_diagnostics_tests.cpp
+    src/input/dualsense_diagnostics.cpp
+)
+target_include_directories(echo_dualsense_tests PRIVATE src)
+target_compile_features(echo_dualsense_tests PRIVATE cxx_std_20)
+target_compile_definitions(echo_dualsense_tests PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(echo_dualsense_tests PRIVATE SDL2-static)
+if(MSVC)
+    target_compile_options(echo_dualsense_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_dualsense_tests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME echo_dualsense_diagnostics COMMAND echo_dualsense_tests)

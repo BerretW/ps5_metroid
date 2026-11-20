@@ -15,6 +15,8 @@ The Windows app and gameplay tests compile the same `echo_game` library. The tes
 
 The additional `echo_control_prompts` test uses SDL's dummy video driver and software rendering, not a desktop window or physical controller. It checks that Windows prompts follow rebound keys and PlayStation prompts render controller symbols independently of keyboard bindings.
 
+`echo_dualsense_diagnostics` tests simulated axis normalization, dead-zone behavior, trigger/touch coordinate bounds, short effect-duration limits, and report escaping/status separation. The SDL renderer tests also cover the menu entry and live button/stick visualization. These tests do not require a physical controller. The integrated DualSense Lab is documented in [DUALSENSE_LAB.md](DUALSENSE_LAB.md); hardware claims must follow its checklist and remain NOT TESTED until confirmed.
+
 ## Playable development baseline
 
 The project is at a playable prototype milestone and is suitable as the starting point for further Windows development. The Windows application builds and launches, while the shared simulation has headless tests for movement, combat, the five-room route, Echo Step progression, damage, death and respawn. Run the application and tests before and after gameplay changes:

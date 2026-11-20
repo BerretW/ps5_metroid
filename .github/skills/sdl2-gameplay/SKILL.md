@@ -25,6 +25,8 @@ Changing the SDL application, rendering, controls, controller handling, or simul
 - PS5 controller playability is user-reported, but complete mappings and reconnect behavior are still unverified. Do not infer platform-wide input support from a successful build or one hardware session.
 - The actual target selects `ControlScheme`: Windows uses keyboard prompts, PS5 uses PlayStation prompts. The bitmap font renders internal button-symbol glyphs; do not pass UTF-8 symbols to this ASCII renderer and assume they will appear.
 - Keep prompts consistent with input: Windows rebound keys must update gameplay and door hints; PS5 uses fixed cross/square/triangle, Options for pause, touchpad for map and circle for back. The newer prompt/map/back changes need hardware verification even though the earlier `playable` milestone ran on the console.
+- The DualSense Lab queries SDL capabilities per connected device. The pinned PS5 backend exposes ordinary rumble and lightbar calls but not touch contacts, sensors or trigger rumble; consult `docs/DUALSENSE_COMPATIBILITY.md` before extending it.
+- Lab haptics are explicit and limited to 250 ms. Stop/reset output on exit and disconnect, and keep successful API calls separate from operator-confirmed hardware behavior.
 
 ## Constraints
 

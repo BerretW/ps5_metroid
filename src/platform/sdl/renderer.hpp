@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/game.hpp"
+#include "input/dualsense_diagnostics.hpp"
 
 #include <SDL.h>
 
@@ -22,6 +23,8 @@ public:
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey) noexcept;
+    void drawDualSenseLab(const input::ControllerSnapshot& controller,
+                          int connectedControllers) noexcept;
 
 private:
     void text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept;

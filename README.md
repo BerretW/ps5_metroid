@@ -8,7 +8,7 @@ PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the baseline for
 - **Build a PS5 application on Windows:** the native PowerShell pipeline cross-compiles, links and statically validates the application package. The `playable` milestone controller build has been reported playable on PS5 with firmware 13.60 and Kraken Mount 0.3.1; console upload is manual. The subsequent controller-symbol UI and map/back bindings need another hardware check.
 - **Use the tests as a gameplay safety net:** simulation tests run without SDL or a window and cover movement, combat, room progression, ability unlocks, damage and respawn.
 
-This is a playable prototype, not a finished game. Settings do not persist, visuals are placeholders, and PS5 physical keyboard/IME are disabled because the keyboard-enabled build crashes during `sceKeyboardInit`. Full PS5 controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. See [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
+This is a playable prototype, not a finished game. Settings do not persist, visuals are placeholders, and PS5 physical keyboard/IME are disabled because the keyboard-enabled build crashes during `sceKeyboardInit`. Full PS5 controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. DualSense Lab provides live SDL diagnostics and guarded output tests; hardware-dependent results remain unverified until tested. See [DualSense Lab](docs/DUALSENSE_LAB.md), [compatibility](docs/DUALSENSE_COMPATIBILITY.md), [hardware checklist](docs/DUALSENSE_HARDWARE_TESTS.md), [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
 ## Current technical assessment
 
@@ -17,7 +17,7 @@ This is a playable prototype, not a finished game. Settings do not persist, visu
 - Native Windows PS5 cross-compilation and application-directory packaging: PASS for standalone Hello World and PROJECT ECHO.
 - PS5 hardware (user-reported, firmware 13.60 / Kraken Mount 0.3.1): Hello World and the `playable` milestone controller build launch; the user confirms the game is playable and supplied a gameplay screenshot. PS5 keyboard/IME are intentionally disabled in controller builds. The original keyboard-enabled build still fails with CE-108255-1. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
-See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
+See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
 
 ## Simple platform selector
 
@@ -62,12 +62,13 @@ Landing Bay -> Maintenance Tunnel -> Power Station (locked) -> backtrack to the 
 
 ## How it works
 
-`src/game/` contains the deterministic, shared gameplay simulation. `src/platform/sdl/` handles the window, input, rendering, menus, HUD and audio. The Windows application and headless tests link the same game library; PS5 uses the same gameplay code with a native SDL backend and a separate application toolchain/package. See [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), and [development notes](docs/DEVELOPMENT.md).
+`src/game/` contains the deterministic, shared gameplay simulation. `src/platform/sdl/` handles the window, input, rendering, menus, HUD and audio; `src/input/` contains reusable diagnostics math and report serialization. The Windows application and headless tests link the same game library; PS5 uses the same gameplay code with a native SDL backend and a separate application toolchain/package. See [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), and [development notes](docs/DEVELOPMENT.md).
 
 ## Repository map
 
 - `src/game/` — gameplay state and simulation
 - `src/platform/sdl/` — SDL application, input and rendering
+- `src/input/` — controller diagnostic data and reporting
 - `tests/` — headless gameplay and PS5 package checks
 - `scripts/` — Windows and PS5 build, diagnostics, validation and manual deployment helpers
 - `platform/ps5/`, `cmake/`, `patches/` — PS5 target configuration and SDL adaptations

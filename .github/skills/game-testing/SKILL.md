@@ -22,6 +22,7 @@ Changing simulation rules, map topology, collision, combat, or progression.
 - `echo_game` is shared by the Windows application and PS5 build. The headless tests are the fast regression guard for shared mechanics; they do not prove SDL input, rendering, sound or hardware behavior.
 - Existing coverage includes movement, jumping, projectile combat, the five-room ability-gated route, enemy/hazard damage, death and respawn. Extend the focused test cases in `tests/game_tests.cpp` when changing those rules.
 - The PS5 controller package is user-reported playable, but complete mappings/reconnect, audio, progression, logging and exit/relaunch remain separate console checks. Do not replace hardware evidence with unit-test results.
+- `echo_dualsense_diagnostics` covers simulated input math and report serialization only. Follow `docs/DUALSENSE_HARDWARE_TESTS.md` for physical DualSense checks; build and unit-test success never marks output hardware supported.
 
 ## Constraints
 
