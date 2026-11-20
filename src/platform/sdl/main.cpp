@@ -2,6 +2,7 @@
 #include "platform/sdl/assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/renderer.hpp"
+#include "echo/framework/data.hpp"
 
 #include <SDL.h>
 
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string_view>
 #include <utility>
 #ifdef __PROSPERO__
@@ -155,6 +157,93 @@ void logMessage(std::string_view message) {
     log << message << '\n';
 #endif
 }
+
+#if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
+void runPs5SaveStorageDiagnostic() {
+    using namespace echo::framework;
+    logMessage("PS5 save storage probe: starting in /data/project_echo/saves");
+    Ps5SaveStorage provider{};
+    const Status initialized = provider.initialize();
+    if (!initialized) {
+        logMessage("PS5 save storage probe: directory initialization failed");
+        logMessage(initialized.detail);
+        return;
+    }
+
+    const SaveStorage storage = provider.callbacks();
+    GameState state{};
+    constexpr std::array<ModuleVersion, 1> modules{{{"echo.storage_probe", 1, true}}};
+    std::array<char, kMaxSaveBytes> scratch{};
+    constexpr std::string_view slot = "framework_probe";
+    if (!state.set({StateScope::Global, {}, "probe.value"}, StateValue::fromInteger(1))) {
+        logMessage("PS5 save storage probe: could not initialize fixture state");
+        return;
+    }
+    Status status = SaveService::save(storage, slot, "echo.project_echo", 1,
+                                      modules, state, scratch.data(), scratch.size());
+    if (!status) {
+        logMessage("PS5 save storage probe: initial write failed");
+        logMessage(status.detail);
+        return;
+    }
+    logMessage("PS5 save storage probe: initial write passed");
+
+    if (!state.set({StateScope::Global, {}, "probe.value"}, StateValue::fromInteger(2))) {
+        logMessage("PS5 save storage probe: could not update fixture state");
+        return;
+    }
+    status = SaveService::save(storage, slot, "echo.project_echo", 1,
+                               modules, state, scratch.data(), scratch.size());
+    if (!status) {
+        logMessage("PS5 save storage probe: replacement failed");
+        logMessage(status.detail);
+        return;
+    }
+    logMessage("PS5 save storage probe: replacement passed");
+
+    GameState restored{};
+    SaveHeader header{};
+    status = SaveService::load(storage, slot, "echo.project_echo", 1, modules,
+                               restored, header, scratch.data(), scratch.size());
+    StateValue restoredValue{};
+    if (!status || !restored.get({StateScope::Global, {}, "probe.value"}, restoredValue) ||
+        restoredValue.type != ValueType::Integer || restoredValue.integer != 2) {
+        logMessage("PS5 save storage probe: read-back verification failed");
+        if (!status) {
+            logMessage(status.detail);
+        }
+        return;
+    }
+    logMessage("PS5 save storage probe: read-back verification passed");
+
+    std::array<char, 128> slots{};
+    std::size_t slotsSize{};
+    status = SaveService::enumerate(storage, slots.data(), slots.size(), slotsSize);
+    if (!status) {
+        logMessage("PS5 save storage probe: slot enumeration failed");
+        logMessage(status.detail);
+        return;
+    }
+    bool foundProbe = false;
+    for (std::size_t offset = 0; offset < slotsSize;) {
+        const char* const terminator = static_cast<const char*>(
+            std::memchr(slots.data() + offset, '\0', slotsSize - offset));
+        if (terminator == nullptr) {
+            logMessage("PS5 save storage probe: slot list is malformed");
+            return;
+        }
+        const std::string_view item(
+            slots.data() + offset, static_cast<std::size_t>(terminator - (slots.data() + offset)));
+        foundProbe = foundProbe || item == slot;
+        offset += item.size() + 1;
+    }
+    if (!foundProbe) {
+        logMessage("PS5 save storage probe: enumeration omitted the probe slot");
+        return;
+    }
+    logMessage("PS5 save storage probe: PASS; reserved slot framework_probe.sav remains for inspection");
+}
+#endif
 
 auto keyName(SDL_Keycode key) {
     const char* name = SDL_GetKeyName(key);
@@ -512,6 +601,9 @@ int main(int, char**) {
         return 1;
     }
     logMessage("Echo Framework core initialized from assets/framework/game.json");
+#if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
+    runPs5SaveStorageDiagnostic();
+#endif
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");

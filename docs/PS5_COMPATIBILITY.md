@@ -178,4 +178,18 @@ Diagnostic-only initialization uses separately traced SDL core, video and contro
 
 The no-keyboard diagnostic and non-diagnostic controller executables have compiled, linked, converted and passed static package validation on native Windows. Windows adapter rebuild/gameplay regression passed. The operator reports both launch and are playable on hardware; the exact keyboard-path crash root cause and complete game acceptance remain unverified.
 
+### Save-storage diagnostic (hardware test pending)
+
+The PS5 save provider is included only in a dedicated opt-in build. Rebuild and validate it with:
+
+```powershell
+.\scripts\build-ps5.ps1 -Target Game -StartupDiagnostics -SkipPs5Keyboard -SaveStorageDiagnostics
+.\scripts\test-ps5-package.ps1 -PackagePath .\dist\ps5-save-diagnostic\PPSA91007 -LogDirectory .\build\ps5\logs\save-storage-diagnostic
+Get-FileHash .\dist\ps5-save-diagnostic\PPSA91007\eboot.bin -Algorithm SHA256
+```
+
+The resulting separate package is [dist/ps5-save-diagnostic/PPSA91007](../dist/ps5-save-diagnostic/PPSA91007), title ID `PPSA91007`, `eboot.bin` SHA256 `bdb48597902ed1683f40fdd31fd2e080b4d5f3e7ec54fd8ad15ff68f60152ce7`. It has passed static package validation on Windows; **the storage probe has not been run on PS5 hardware**. It uses the controller-only diagnostic path. As with other same-title packages, replace the intended app directory rather than registering multiple `PPSA91007` copies.
+
+On launch, the probe initializes `/data/project_echo/saves`, writes and replaces the reserved `framework_probe.sav`, loads the replacement and checks that enumeration includes the slot. The expected success line is `PS5 save storage probe: PASS; reserved slot framework_probe.sav remains for inspection` in `/data/project_echo/logs/project_echo.log`. Collect the log after the console run. The diagnostic deliberately leaves that one reserved save file; it does not clean up or overwrite unrelated save slots. A failure is reported with the exact stage in the same log. Do not treat package validation, app launch, or the pre-existing use of `/data` for logs as evidence that save persistence passed.
+
 Original PROJECT ECHO code is licensed under the [MIT License](../LICENSE). The PS5 binary also combines the game with the upstream GPL-3.0-or-later CRT/runtime. Before redistributing binaries, satisfy its applicable license and source obligations and those of other dependencies. The package includes license notices, but those notices and local compilation alone are not a redistribution/license-compliance certification.

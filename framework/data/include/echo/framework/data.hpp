@@ -208,4 +208,84 @@ public:
     [[nodiscard]] static bool validSlot(std::string_view slot) noexcept;
 };
 
+#if defined(_WIN32)
+class WindowsSaveStorage {
+public:
+    WindowsSaveStorage() noexcept = default;
+    ~WindowsSaveStorage();
+    WindowsSaveStorage(const WindowsSaveStorage&) = delete;
+    WindowsSaveStorage& operator=(const WindowsSaveStorage&) = delete;
+    WindowsSaveStorage(WindowsSaveStorage&&) = delete;
+    WindowsSaveStorage& operator=(WindowsSaveStorage&&) = delete;
+
+    [[nodiscard]] Status initialize(std::wstring_view subdirectory = L"Saves") noexcept;
+    [[nodiscard]] SaveStorage callbacks() noexcept;
+
+private:
+    static bool readCallback(void* context, std::string_view slot, char* output,
+                             std::size_t capacity, std::size_t& size) noexcept;
+    static bool writeTemporaryCallback(void* context, std::string_view slot,
+                                       const char* data, std::size_t size) noexcept;
+    static bool replaceCallback(void* context, std::string_view slot) noexcept;
+    static bool removeTemporaryCallback(void* context, std::string_view slot) noexcept;
+    static bool enumerateCallback(void* context, char* output,
+                                  std::size_t capacity, std::size_t& written) noexcept;
+
+    bool read(std::string_view slot, char* output, std::size_t capacity,
+              std::size_t& size) noexcept;
+    bool writeTemporary(std::string_view slot, const char* data,
+                        std::size_t size) noexcept;
+    bool replace(std::string_view slot) noexcept;
+    bool removeTemporary(std::string_view slot) noexcept;
+    bool enumerate(char* output, std::size_t capacity,
+                   std::size_t& written) noexcept;
+    void reset() noexcept;
+
+    std::array<wchar_t, 1024> rootPath_{};
+    std::array<char, 33> temporarySlot_{};
+    void* rootHandle_{};
+    void* temporaryHandle_{};
+};
+#endif
+
+#if defined(__PROSPERO__)
+class Ps5SaveStorage {
+public:
+    Ps5SaveStorage() noexcept = default;
+    ~Ps5SaveStorage();
+    Ps5SaveStorage(const Ps5SaveStorage&) = delete;
+    Ps5SaveStorage& operator=(const Ps5SaveStorage&) = delete;
+    Ps5SaveStorage(Ps5SaveStorage&&) = delete;
+    Ps5SaveStorage& operator=(Ps5SaveStorage&&) = delete;
+
+    [[nodiscard]] Status initialize(std::string_view subdirectory = "saves") noexcept;
+    [[nodiscard]] SaveStorage callbacks() noexcept;
+
+private:
+    static bool readCallback(void* context, std::string_view slot, char* output,
+                             std::size_t capacity, std::size_t& size) noexcept;
+    static bool writeTemporaryCallback(void* context, std::string_view slot,
+                                       const char* data, std::size_t size) noexcept;
+    static bool replaceCallback(void* context, std::string_view slot) noexcept;
+    static bool removeTemporaryCallback(void* context, std::string_view slot) noexcept;
+    static bool enumerateCallback(void* context, char* output,
+                                  std::size_t capacity, std::size_t& written) noexcept;
+
+    bool read(std::string_view slot, char* output, std::size_t capacity,
+              std::size_t& size) noexcept;
+    bool writeTemporary(std::string_view slot, const char* data,
+                        std::size_t size) noexcept;
+    bool replace(std::string_view slot) noexcept;
+    bool removeTemporary(std::string_view slot) noexcept;
+    bool enumerate(char* output, std::size_t capacity,
+                   std::size_t& written) noexcept;
+    void reset() noexcept;
+
+    std::array<char, 96> rootPath_{};
+    std::array<char, 128> temporaryPath_{};
+    std::array<char, 33> temporarySlot_{};
+    std::uint32_t temporarySequence_{};
+};
+#endif
+
 } // namespace echo::framework

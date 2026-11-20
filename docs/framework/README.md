@@ -9,7 +9,7 @@ Echo Framework is a statically composed C++20 foundation. PROJECT ECHO remains t
 - Typed event listeners, explicit subscriptions, bounded FIFO delivery, and queued nested events.
 - Explicit action handlers with typed parameters, capability gates, and active-game checks.
 - Namespaced global/world/entity state, typed values, change observers, declarative conditions, and bounded JSON condition decoding.
-- A bounded yyjson-backed JSON wrapper, content registry/manifest validation, versioned state saves, migration callback, and storage callbacks.
+- A bounded yyjson-backed JSON wrapper, content registry/manifest validation, versioned state saves, migration callback, storage callbacks, and an opt-in Windows Local AppData provider.
 - A headless example and a narrow PROJECT ECHO ability-unlock integration.
 
 Feature modules for dialogue, inventory, combat, tile maps, and other genres are intentionally not included. Register only module implementations that the executable links. Runtime JSON may select registered modules, but cannot load code.
@@ -32,4 +32,4 @@ Link `EchoFramework::Core` for modules, state, actions, and conditions. Link `Ec
 
 ## Boundaries
 
-Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization is implemented, but no production Windows or PS5 save-storage backend is supplied. In particular, a writable PS5 application-data path and replacement semantics have not been verified; see [save system](SAVE_SYSTEM.md).
+Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization, the opt-in Windows storage provider, and a PS5 storage provider with an opt-in console diagnostic are implemented. The diagnostic package has passed static validation, but its storage probe has not been run on hardware; PROJECT ECHO does not yet persist its gameplay state. See [save system](SAVE_SYSTEM.md).

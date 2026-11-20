@@ -4,7 +4,8 @@ param(
     [string]$Target = "Hello",
     [switch]$RestoreDependencies,
     [switch]$StartupDiagnostics,
-    [switch]$SkipPs5Keyboard
+    [switch]$SkipPs5Keyboard,
+    [switch]$SaveStorageDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +20,12 @@ if ($StartupDiagnostics) {
 } elseif ($SkipPs5Keyboard) {
     if ($Target -ne "Game") { throw "-SkipPs5Keyboard requires -Target Game." }
     $logs = Join-Path $logs "controller-release"
+}
+if ($SaveStorageDiagnostics) {
+    if ($Target -ne "Game" -or -not $StartupDiagnostics -or -not $SkipPs5Keyboard) {
+        throw "-SaveStorageDiagnostics requires -Target Game -StartupDiagnostics -SkipPs5Keyboard."
+    }
+    $logs = Join-Path $work "logs\save-storage-diagnostic"
 }
 $llvm = Join-Path $deps "llvm-18.1.8"
 $sdk = Join-Path $deps "sdk\ps5-payload-sdk"
@@ -222,11 +229,23 @@ if ($Target -eq "Game") {
         Invoke-Native "sdl-patch" "git" @("-C", $sdlSource, "apply", "--recount", $patch) | Out-Null
     }
     Invoke-Native "sdl-patch-check" "git" @("-C", $sdlSource, "apply", "--recount", "--reverse", "--check", $patch) | Out-Null
-    $gameBuild = Join-Path $work $(if ($SkipPs5Keyboard -and $StartupDiagnostics) { "game-diagnostic-no-keyboard" } elseif ($SkipPs5Keyboard) { "game-controller" } elseif ($StartupDiagnostics) { "game-diagnostic" } else { "game" })
+    $gameBuildName = if ($SaveStorageDiagnostics) {
+        "game-save-storage-diagnostic"
+    } elseif ($SkipPs5Keyboard -and $StartupDiagnostics) {
+        "game-diagnostic-no-keyboard"
+    } elseif ($SkipPs5Keyboard) {
+        "game-controller"
+    } elseif ($StartupDiagnostics) {
+        "game-diagnostic"
+    } else {
+        "game"
+    }
+    $gameBuild = Join-Path $work $gameBuildName
     Invoke-Native "game-configure" "cmake" @("--fresh", "-S", (Join-Path $root "platform\ps5"), "-B", $gameBuild,
         "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=$(Join-Path $root 'cmake\ps5-windows.cmake')",
         "-DLLVM_ROOT=$llvm", "-DPS5_SDK_ROOT=$sdk", "-DBOILERPLATE_SOURCE=$boilerplate", "-DECHO_PS5_GAME=ON",
         "-DSDL_SOURCE=$sdlSource", "-DECHO_PS5_STARTUP_DIAGNOSTICS=$($StartupDiagnostics.IsPresent)",
+        "-DECHO_PS5_SAVE_STORAGE_DIAGNOSTICS=$($SaveStorageDiagnostics.IsPresent)",
         "-DECHO_PS5_NO_KEYBOARD=$($SkipPs5Keyboard.IsPresent)") | Out-Null
     Invoke-Native "game-build" "cmake" @("--build", $gameBuild, "--target", "project_echo_ps5",
         "--verbose", "--", "-d", "keeprsp") | Out-Null
@@ -237,7 +256,18 @@ if ($Target -eq "Game") {
     Invoke-Native "game-convert" $nativeTool @("link", "--in", $gameIntermediate, "--out", $gameElf,
         "--stub-dir", (Join-Path $sdk "target\lib"), "--module-sdk", "0x02000009",
         "--companion-sdk", "0x08050001", "--file-name", "eboot.elf") | Out-Null
-    $gameApp = Join-Path $root $(if ($SkipPs5Keyboard -and $StartupDiagnostics) { "dist\ps5-diagnostic-no-keyboard\PPSA91007" } elseif ($SkipPs5Keyboard) { "dist\ps5-controller\PPSA91007" } elseif ($StartupDiagnostics) { "dist\ps5-diagnostic\PPSA91007" } else { "dist\ps5\PPSA91007" })
+    $gameAppName = if ($SaveStorageDiagnostics) {
+        "dist\ps5-save-diagnostic\PPSA91007"
+    } elseif ($SkipPs5Keyboard -and $StartupDiagnostics) {
+        "dist\ps5-diagnostic-no-keyboard\PPSA91007"
+    } elseif ($SkipPs5Keyboard) {
+        "dist\ps5-controller\PPSA91007"
+    } elseif ($StartupDiagnostics) {
+        "dist\ps5-diagnostic\PPSA91007"
+    } else {
+        "dist\ps5\PPSA91007"
+    }
+    $gameApp = Join-Path $root $gameAppName
     New-Item -ItemType Directory -Force -Path $gameApp, (Join-Path $gameApp "sce_sys"),
         (Join-Path $gameApp "sce_module"), (Join-Path $gameApp "licenses") | Out-Null
     Invoke-Native "game-sign" $nativeTool @("self", "--sign", "--in", $gameElf, "--out",
@@ -277,6 +307,10 @@ if ($Target -eq "Game") {
         Write-Host "Diagnostic build: note the last ECHO DIAG notification or retrieve project_echo-startup.log."
         Write-Host "On initialization failure, this build stays open for log collection; close it manually."
         if ($SkipPs5Keyboard) { Write-Host "Diagnostic limitation: PS5 hardware keyboard and IME are disabled; controller path is unchanged." }
+    }
+    if ($SaveStorageDiagnostics) {
+        Write-Host "Save-storage diagnostic writes/replaces the reserved framework_probe.sav in /data/project_echo/saves."
+        Write-Host "After running, inspect /data/project_echo/logs/project_echo.log for probe results."
     }
     if ($SkipPs5Keyboard -and -not $StartupDiagnostics) {
         Write-Host "PS5 controller build: physical keyboard and IME are disabled by explicit request."
