@@ -1,0 +1,192 @@
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -34,6 +34,13 @@
+ #include "../timer/SDL_timer_c.h"
+ 
++#ifdef ECHO_PS5_STARTUP_DIAGNOSTICS
++extern void echo_ps5_video_checkpoint(const char *message);
++#define ECHO_VIDEO_CHECKPOINT(message) echo_ps5_video_checkpoint(message)
++#else
++#define ECHO_VIDEO_CHECKPOINT(message) ((void)0)
++#endif
++
+ #include "SDL_syswm.h"
+@@ -471,6 +478,7 @@
+     /* Start the event loop */
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03a: before SDL events");
+     if (SDL_InitSubSystem(SDL_INIT_EVENTS) < 0) {
+@@ -478,6 +486,7 @@
+     init_events = SDL_TRUE;
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03b: before SDL keyboard");
+     if (SDL_KeyboardInit() < 0) {
+@@ -482,6 +491,7 @@
+     init_keyboard = SDL_TRUE;
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03c: before SDL mouse");
+     if (SDL_MousePreInit() < 0) {
+@@ -486,6 +496,7 @@
+     init_mouse = SDL_TRUE;
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03d: before SDL touch");
+     if (SDL_TouchInit() < 0) {
+@@ -491,6 +502,7 @@
+     init_touch = SDL_TRUE;
+ 
+     /* Select the proper video driver */
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03e: before driver selection");
+     video = NULL;
+@@ -558,6 +570,7 @@
+     _this = video;
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03k: driver created; before video setup");
+     _this->name = bootstrap[i]->name;
+@@ -570,6 +583,7 @@
+     /* Initialize the video subsystem */
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03l: before driver VideoInit");
+     if (_this->VideoInit(_this) < 0) {
+@@ -576,6 +590,7 @@
+ 
+     /* Make sure some displays were added */
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03v: driver VideoInit returned");
+     if (_this->num_displays == 0) {
+@@ -601,6 +616,7 @@
+ 
+     SDL_MousePostInit();
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03w: SDL video complete");
+ 
+     /* We're ready to go! */
+diff --git a/src/video/ps5/SDL_ps5video.c b/src/video/ps5/SDL_ps5video.c
+--- a/src/video/ps5/SDL_ps5video.c
++++ b/src/video/ps5/SDL_ps5video.c
+@@ -29,6 +29,13 @@
+ #include "SDL_ps5osmesa.h"
+ 
++#ifdef ECHO_PS5_STARTUP_DIAGNOSTICS
++extern void echo_ps5_video_checkpoint(const char *message);
++#define ECHO_VIDEO_CHECKPOINT(message) echo_ps5_video_checkpoint(message)
++#else
++#define ECHO_VIDEO_CHECKPOINT(message) ((void)0)
++#endif
++
+ static void PS5_DestroyWindowFramebuffer(_THIS, SDL_Window *window)
+@@ -204,6 +211,7 @@
+     memset(&vattr, 0, sizeof(vattr));
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03m: before VideoOut open");
+     sceSystemServiceHideSplashScreen();
+@@ -211,6 +219,7 @@
+     }
+     device_data->memsize = 0x4000000;
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03n: before direct memory allocation");
+     if (sceKernelAllocateMainDirectMemory(device_data->memsize, 0x20000, 3,
+@@ -219,6 +228,7 @@
+     }
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03o: before direct memory map");
+     if (sceKernelMapDirectMemory(&vaddr, device_data->memsize, 0x33, 0,
+@@ -226,6 +236,7 @@
+     device_data->vbuf[1].data = vaddr + (device_data->memsize / 2);
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03p: before video event queue");
+     if (sceKernelCreateEqueue(&device_data->evt_queue, "flip queue")) {
+@@ -237,6 +248,7 @@
+     }
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03q: before buffer attributes");
+     sceVideoOutSetBufferAttribute2(&vattr, 0x8000000022000000UL, 0,
+@@ -239,6 +251,7 @@
+                                    mode.w, mode.h, 0, 0, 0);
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03r: before buffer registration");
+     if (sceVideoOutRegisterBuffers2(device_data->handle, 0, 0,
+@@ -245,6 +258,7 @@
+     }
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03s: before video surface allocation");
+     device_data->surface = SDL_CreateRGBSurfaceWithFormat(0, mode.w, mode.h, 32,
+@@ -256,6 +270,7 @@
+     display.current_mode = mode;
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03t: before tilemap allocation");
+     device_data->tmap = PS5_Tilemap_Create(mode.w, mode.h);
+@@ -262,6 +277,7 @@
+     }
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03u: before adding display");
+     SDL_AddVideoDisplay(&display, SDL_FALSE);
+@@ -301,6 +317,8 @@
+ static void PS5_PumpEvents(_THIS)
+ {
++#ifndef ECHO_PS5_DIAGNOSTIC_NO_KEYBOARD
+     PS5_Keyboard_PumpEvents();
++#endif
+     PS5_Remote_PumpEvents();
+ }
+@@ -313,6 +329,7 @@
+     SDL_VideoDevice *device;
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03f: before video device allocation");
+     device = (SDL_VideoDevice *)SDL_calloc(1, sizeof(SDL_VideoDevice));
+@@ -328,6 +345,7 @@
+     }
+ 
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03g: before PS5 remote init");
+     PS5_Remote_Init();
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03h: before PS5 keyboard init");
++#ifdef ECHO_PS5_DIAGNOSTIC_NO_KEYBOARD
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03h-skip: keyboard and IME disabled for diagnostic");
++#else
+     PS5_Keyboard_Init();
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03i: before PS5 keyboard open");
+     PS5_Keyboard_Open();
++#endif
++    ECHO_VIDEO_CHECKPOINT("ECHO DIAG 03j: PS5 input setup returned");
+ 
+@@ -340,10 +363,12 @@
+     device->UpdateWindowFramebuffer = PS5_UpdateWindowFramebuffer;
+     device->DestroyWindowFramebuffer = PS5_DestroyWindowFramebuffer;
++#ifndef ECHO_PS5_DIAGNOSTIC_NO_KEYBOARD
+     device->HasScreenKeyboardSupport = PS5_HasScreenKeyboardSupport;
+     device->ShowScreenKeyboard = PS5_ShowScreenKeyboard;
+     device->HideScreenKeyboard = PS5_HideScreenKeyboard;
+     device->IsScreenKeyboardShown = PS5_IsScreenKeyboardShown;
++#endif
+     device->free = PS5_DestroyDevice;
+diff --git a/src/video/ps5/SDL_ps5keyboard.c b/src/video/ps5/SDL_ps5keyboard.c
+--- a/src/video/ps5/SDL_ps5keyboard.c
++++ b/src/video/ps5/SDL_ps5keyboard.c
+@@ -31,6 +31,15 @@
+ #include "SDL_ps5keyboard.h"
+ 
++#ifdef ECHO_PS5_STARTUP_DIAGNOSTICS
++extern void echo_ps5_video_checkpoint(const char *message);
++extern void echo_ps5_video_status(const char *label, int result);
++#define ECHO_KEYBOARD_CHECKPOINT(message) echo_ps5_video_checkpoint(message)
++#define ECHO_KEYBOARD_STATUS(label, result) echo_ps5_video_status(label, result)
++#else
++#define ECHO_KEYBOARD_CHECKPOINT(message) ((void)0)
++#define ECHO_KEYBOARD_STATUS(label, result) ((void)0)
++#endif
++
+ typedef struct keyboard_state
+@@ -171,15 +180,22 @@
+ {
+     int err;
+ 
++    ECHO_KEYBOARD_CHECKPOINT("ECHO DIAG 03h1: before keyboard user service");
+     err = sceUserServiceInitialize(0);
++    ECHO_KEYBOARD_STATUS("ECHO DIAG 03h2: user service result", err);
+     if (err != 0 && err != 0x80960003) {
++        ECHO_KEYBOARD_CHECKPOINT("ECHO DIAG 03h2e: before user service SDL error");
+         return SDL_SetError("sceUserServiceInitialize: 0x%08x", err);
+     }
+ 
++    ECHO_KEYBOARD_CHECKPOINT("ECHO DIAG 03h3: before sceKeyboardInit");
+     err = sceKeyboardInit();
++    ECHO_KEYBOARD_STATUS("ECHO DIAG 03h4: sceKeyboardInit result", err);
+     if (err != 0) {
++        ECHO_KEYBOARD_CHECKPOINT("ECHO DIAG 03h4e: before keyboard SDL error");
+         return SDL_SetError("sceKeyboardInit: 0x%08x", err);
+     }
+ 
++    ECHO_KEYBOARD_CHECKPOINT("ECHO DIAG 03h5: keyboard init complete");
+     return 0;
+ }

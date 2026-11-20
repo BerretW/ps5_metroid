@@ -1,0 +1,35 @@
+# Development notes
+
+## Verified workflow
+
+Use the native Windows entry points:
+
+```powershell
+.\scripts\doctor.ps1 -Target Windows
+.\scripts\build-windows.ps1 -Configuration Debug -RunTests
+```
+
+The Windows app and gameplay tests compile the same `echo_game` library. The test executable does not initialize SDL or create a window.
+
+## Playable development baseline
+
+The project is at a playable prototype milestone and is suitable as the starting point for further Windows development. The Windows application builds and launches, while the shared simulation has headless tests for movement, combat, the five-room route, Echo Step progression, damage, death and respawn. Run the application and tests before and after gameplay changes:
+
+```powershell
+.\scripts\build-windows.ps1 -Configuration Debug -RunTests
+.\build\windows\project_echo.exe
+```
+
+Gameplay belongs in `src/game/`; SDL-specific input and presentation belong in `src/platform/sdl/`. Keep simulation behavior testable without opening a window. The PS5 target reuses the gameplay library but has platform-specific SDL and packaging changes; see [PS5 compatibility](PS5_COMPATIBILITY.md).
+
+## Prototype scope
+
+The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate.
+
+The visual and audio assets are intentionally original placeholders. Settings currently reset between launches. Sprite animation, full remapping persistence, and comprehensive input-device QA are follow-up work.
+
+## PS5 milestone
+
+Native Windows Hello World and PROJECT ECHO PS5 artifacts now pass static validation. Use `scripts\build-ps5.ps1`, not the upstream WSL/Bash wrappers. The unchanged shared gameplay builds for both targets; PS5-specific adapter branches avoid unsupported full libc++ logging/localization and force software rendering.
+
+Run `tests\ps5_package_tests.ps1` after packaging changes. It verifies a valid package, isolated validation reports, and rejection of both a corrupt FSELF digest and a correctly wrapped ELF with invalid load-segment alignment. Uploads remain manual. The controller-only PROJECT ECHO build is reported playable on the operator's PS5; the keyboard-enabled build still crashes at `sceKeyboardInit`. Record each remaining console result separately in [acceptance status](STATUS.md). The Windows build host does not execute PS5 binaries.

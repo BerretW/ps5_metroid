@@ -1,0 +1,30 @@
+diff --git a/src/video/ps5/SDL_ps5video.c b/src/video/ps5/SDL_ps5video.c
+--- a/src/video/ps5/SDL_ps5video.c
++++ b/src/video/ps5/SDL_ps5video.c
+@@ -301,6 +301,8 @@
+ static void PS5_PumpEvents(_THIS)
+ {
++#ifndef ECHO_PS5_NO_KEYBOARD
+     PS5_Keyboard_PumpEvents();
++#endif
+     PS5_Remote_PumpEvents();
+ }
+@@ -323,6 +325,8 @@
+ 
+     PS5_Remote_Init();
++#ifndef ECHO_PS5_NO_KEYBOARD
+     PS5_Keyboard_Init();
+     PS5_Keyboard_Open();
++#endif
+ 
+     device->VideoInit = PS5_VideoInit;
+@@ -340,10 +344,12 @@
+     device->UpdateWindowFramebuffer = PS5_UpdateWindowFramebuffer;
+     device->DestroyWindowFramebuffer = PS5_DestroyWindowFramebuffer;
++#ifndef ECHO_PS5_NO_KEYBOARD
+     device->HasScreenKeyboardSupport = PS5_HasScreenKeyboardSupport;
+     device->ShowScreenKeyboard = PS5_ShowScreenKeyboard;
+     device->HideScreenKeyboard = PS5_HideScreenKeyboard;
+     device->IsScreenKeyboardShown = PS5_IsScreenKeyboardShown;
++#endif
+     device->free = PS5_DestroyDevice;

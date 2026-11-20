@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PROJECT ECHO (Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\build\\windows\\project_echo.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build PROJECT ECHO (Debug)",
+      "stopAtEntry": false,
+      "console": "externalTerminal"
+    }
+  ]
+}

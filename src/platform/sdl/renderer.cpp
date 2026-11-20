@@ -1,0 +1,321 @@
+#include "platform/sdl/renderer.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdint>
+#include <string>
+
+namespace echo::platform {
+namespace {
+
+constexpr SDL_Color kBackground{7, 12, 22, 255};
+constexpr SDL_Color kPanel{17, 29, 45, 255};
+constexpr SDL_Color kPanelLight{29, 48, 65, 255};
+constexpr SDL_Color kText{220, 234, 239, 255};
+constexpr SDL_Color kMuted{115, 145, 158, 255};
+constexpr SDL_Color kCyan{61, 227, 216, 255};
+constexpr SDL_Color kOrange{255, 164, 83, 255};
+constexpr SDL_Color kRed{238, 82, 92, 255};
+constexpr SDL_Color kGreen{107, 221, 153, 255};
+
+struct Glyph {
+    char character;
+    std::array<std::uint8_t, 7> rows;
+};
+
+constexpr Glyph kGlyphs[] = {
+    {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
+    {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
+    {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
+    {'G', {14, 17, 16, 23, 17, 17, 15}}, {'H', {17, 17, 17, 31, 17, 17, 17}},
+    {'I', {31, 4, 4, 4, 4, 4, 31}}, {'J', {7, 2, 2, 2, 18, 18, 12}},
+    {'K', {17, 18, 20, 24, 20, 18, 17}}, {'L', {16, 16, 16, 16, 16, 16, 31}},
+    {'M', {17, 27, 21, 21, 17, 17, 17}}, {'N', {17, 25, 21, 19, 17, 17, 17}},
+    {'O', {14, 17, 17, 17, 17, 17, 14}}, {'P', {30, 17, 17, 30, 16, 16, 16}},
+    {'Q', {14, 17, 17, 17, 21, 18, 13}}, {'R', {30, 17, 17, 30, 20, 18, 17}},
+    {'S', {15, 16, 16, 14, 1, 1, 30}}, {'T', {31, 4, 4, 4, 4, 4, 4}},
+    {'U', {17, 17, 17, 17, 17, 17, 14}}, {'V', {17, 17, 17, 17, 17, 10, 4}},
+    {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
+    {'Y', {17, 17, 10, 4, 4, 4, 4}}, {'Z', {31, 1, 2, 4, 8, 16, 31}},
+    {'0', {14, 17, 19, 21, 25, 17, 14}}, {'1', {4, 12, 4, 4, 4, 4, 14}},
+    {'2', {14, 17, 1, 2, 4, 8, 31}}, {'3', {30, 1, 1, 14, 1, 1, 30}},
+    {'4', {2, 6, 10, 18, 31, 2, 2}}, {'5', {31, 16, 16, 30, 1, 1, 30}},
+    {'6', {14, 16, 16, 30, 17, 17, 14}}, {'7', {31, 1, 2, 4, 8, 8, 8}},
+    {'8', {14, 17, 17, 14, 17, 17, 14}}, {'9', {14, 17, 17, 15, 1, 1, 14}},
+    {':', {0, 4, 4, 0, 4, 4, 0}}, {'-', {0, 0, 0, 31, 0, 0, 0}},
+    {'.', {0, 0, 0, 0, 0, 12, 12}}, {'/', {1, 2, 2, 4, 8, 8, 16}},
+};
+
+void setColor(SDL_Renderer* renderer, SDL_Color color) noexcept {
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+}
+
+} // namespace
+
+bool Renderer::create() noexcept {
+    window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                               1280, 720, SDL_WINDOW_RESIZABLE);
+    if (window_ == nullptr) {
+        return false;
+    }
+
+#ifdef __PROSPERO__
+    renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
+#else
+    renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (renderer_ == nullptr) {
+        SDL_Log("Accelerated renderer unavailable, using SDL software renderer: %s", SDL_GetError());
+        renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
+    }
+#endif
+    if (renderer_ == nullptr) {
+        SDL_DestroyWindow(window_);
+        window_ = nullptr;
+        return false;
+    }
+
+    SDL_RenderSetLogicalSize(renderer_, 640, 360);
+    SDL_RenderSetIntegerScale(renderer_, SDL_TRUE);
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    return true;
+}
+
+void Renderer::destroy() noexcept {
+    if (renderer_ != nullptr) {
+        SDL_DestroyRenderer(renderer_);
+        renderer_ = nullptr;
+    }
+    if (window_ != nullptr) {
+        SDL_DestroyWindow(window_);
+        window_ = nullptr;
+    }
+}
+
+void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
+    setColor(renderer_, color);
+    SDL_RenderFillRect(renderer_, &bounds);
+}
+
+void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept {
+    setColor(renderer_, color);
+    for (char character : value) {
+        const char upper = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        if (upper == ' ') {
+            x += 6 * scale;
+            continue;
+        }
+
+        const auto glyph = std::find_if(std::begin(kGlyphs), std::end(kGlyphs), [upper](const Glyph& item) {
+            return item.character == upper;
+        });
+        if (glyph != std::end(kGlyphs)) {
+            for (int row = 0; row < 7; ++row) {
+                for (int column = 0; column < 5; ++column) {
+                    if ((glyph->rows[static_cast<std::size_t>(row)] & (1U << (4 - column))) == 0) {
+                        continue;
+                    }
+                    SDL_Rect pixel{x + column * scale, y + row * scale, scale, scale};
+                    SDL_RenderFillRect(renderer_, &pixel);
+                }
+            }
+        }
+        x += 6 * scale;
+    }
+}
+
+void Renderer::drawMenu(int selection) noexcept {
+    SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
+    SDL_RenderClear(renderer_);
+    for (int y = 34; y < 360; y += 32) {
+        panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
+    }
+    panel({74, 62, 492, 242}, kPanel);
+    panel({74, 62, 492, 3}, kCyan);
+    text(120, 94, "PROJECT ECHO", 4, kText);
+    text(122, 135, "FACILITY 07  /  SIGNAL LOST", 1, kMuted);
+
+    constexpr std::array<std::string_view, 3> labels{"PLAY", "OPTIONS", "EXIT"};
+    for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
+        const int y = 180 + index * 36;
+        if (index == selection) {
+            panel({112, y - 6, 176, 26}, kPanelLight);
+            panel({112, y - 6, 3, 26}, kCyan);
+        }
+        text(128, y, labels[static_cast<std::size_t>(index)], 2,
+             index == selection ? kCyan : kText);
+    }
+
+    text(86, 326, "ARROWS MOVE  SPACE JUMP  J FIRE  E INTERACT", 1, kMuted);
+    SDL_RenderPresent(renderer_);
+}
+
+void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
+                           std::string_view jumpKey, std::string_view shootKey,
+                           std::string_view interactKey) noexcept {
+    SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
+    SDL_RenderClear(renderer_);
+    panel({74, 38, 492, 284}, kPanel);
+    panel({74, 38, 492, 3}, kCyan);
+    text(110, 62, "OPTIONS", 3, kText);
+
+    const std::array<std::string_view, 5> rows{
+        "VOLUME", "JUMP", "FIRE", "INTERACT", "BACK"
+    };
+    for (int index = 0; index < static_cast<int>(rows.size()); ++index) {
+        const int y = 120 + index * 34;
+        if (selection == index) {
+            panel({102, y - 5, 436, 25}, kPanelLight);
+            panel({102, y - 5, 3, 25}, kCyan);
+        }
+        text(118, y, rows[static_cast<std::size_t>(index)], 2,
+             selection == index ? kCyan : kText);
+        if (index == 0) {
+#ifdef __PROSPERO__
+            std::array<char, 16> percentage{};
+            SDL_snprintf(percentage.data(), percentage.size(), "%d%%", volume);
+            text(390, y, percentage.data(), 2, kText);
+#else
+            text(390, y, std::to_string(volume) + "%", 2, kText);
+#endif
+        } else if (index < 4) {
+            const std::string_view keyName = index == 1 ? jumpKey : index == 2 ? shootKey : interactKey;
+            text(390, y, keyName, 2, kText);
+        }
+    }
+    text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL" : "ENTER REBIND  LEFT RIGHT VOLUME", 1, kMuted);
+    SDL_RenderPresent(renderer_);
+}
+
+void Renderer::drawGame(const Game& game, bool showMap, bool paused) noexcept {
+    SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
+    SDL_RenderClear(renderer_);
+
+    const float cameraX = game.cameraX();
+    const int roomTone = static_cast<int>(game.roomId());
+    const SDL_Color roomTint = roomTone == 3 ? SDL_Color{20, 38, 42, 255}
+                                : roomTone == 2 ? SDL_Color{28, 27, 47, 255}
+                                                : SDL_Color{13, 30, 43, 255};
+    panel({0, 0, 640, 360}, roomTint);
+
+    for (int column = 0; column < kRoomColumns; ++column) {
+        const int screenX = static_cast<int>(column * kTileSize - cameraX);
+        if (screenX < -kTileSize || screenX > 640) {
+            continue;
+        }
+        for (int row = 0; row < kRoomRows; ++row) {
+            const Tile tile = game.tileAt(column, row);
+            if (tile == Tile::Empty) {
+                continue;
+            }
+            const int screenY = row * kTileSize;
+            if (tile == Tile::Hazard) {
+                panel({screenX, screenY + 9, kTileSize, 23}, SDL_Color{121, 43, 51, 255});
+                panel({screenX + 3, screenY + 5, 5, 10}, kOrange);
+                panel({screenX + 15, screenY + 1, 5, 14}, kRed);
+                panel({screenX + 25, screenY + 6, 4, 9}, kOrange);
+            } else {
+                panel({screenX, screenY, kTileSize, kTileSize}, SDL_Color{37, 61, 74, 255});
+                panel({screenX, screenY, kTileSize, 3}, SDL_Color{62, 106, 115, 255});
+                panel({screenX + 5, screenY + 9, 2, 2}, SDL_Color{51, 79, 91, 255});
+            }
+        }
+    }
+
+    if (game.roomId() == RoomId::MaintenanceTunnel) {
+        const int doorX = static_cast<int>(970.0F - cameraX);
+        panel({doorX, 272, 44, 48}, SDL_Color{32, 63, 76, 255});
+        panel({doorX + 5, 278, 34, 36}, SDL_Color{19, 39, 49, 255});
+        panel({doorX + 32, 294, 3, 3}, kCyan);
+    } else if (game.roomId() == RoomId::ResearchLab && !game.abilityCollected()) {
+        const Rect pickup = game.abilityPickup();
+        const int pickupX = static_cast<int>(pickup.x - cameraX);
+        panel({pickupX - 7, static_cast<int>(pickup.y) - 7, 34, 34}, SDL_Color{23, 59, 67, 255});
+        panel({pickupX, static_cast<int>(pickup.y), 20, 20}, kCyan);
+        panel({pickupX + 6, static_cast<int>(pickup.y) - 6, 8, 8}, kText);
+    }
+
+    for (const Enemy& enemy : game.enemies()) {
+        if (!enemy.alive || enemy.room != game.roomId()) {
+            continue;
+        }
+        const int x = static_cast<int>(enemy.bounds.x - cameraX);
+        const int y = static_cast<int>(enemy.bounds.y);
+        panel({x, y + 8, static_cast<int>(enemy.bounds.width), 20}, SDL_Color{135, 80, 99, 255});
+        panel({x + 4, y + 2, 20, 14}, SDL_Color{202, 111, 121, 255});
+        panel({x + 8, y + 7, 4, 4}, kOrange);
+        panel({x + 18, y + 7, 4, 4}, kOrange);
+    }
+
+    for (const Projectile& projectile : game.projectiles()) {
+        if (projectile.active && projectile.room == game.roomId()) {
+            panel({static_cast<int>(projectile.bounds.x - cameraX), static_cast<int>(projectile.bounds.y),
+                   static_cast<int>(projectile.bounds.width), static_cast<int>(projectile.bounds.height)}, kOrange);
+        }
+    }
+
+    const Player& player = game.player();
+    const int playerX = static_cast<int>(player.position.x - cameraX);
+    const int playerY = static_cast<int>(player.position.y);
+    const bool flashing = (SDL_GetTicks64() / 90U) % 2U == 0U;
+    if (player.health > 0 && (flashing || !paused)) {
+        panel({playerX, playerY + 5, 20, 23}, SDL_Color{105, 163, 172, 255});
+        panel({playerX + 3, playerY, 14, 10}, SDL_Color{174, 211, 207, 255});
+        panel({playerX + (player.facing > 0 ? 13 : 3), playerY + 3, 5, 3}, kCyan);
+        panel({playerX + 5, playerY + 27, 4, 3}, SDL_Color{35, 52, 65, 255});
+        panel({playerX + 12, playerY + 27, 4, 3}, SDL_Color{35, 52, 65, 255});
+    }
+
+    panel({12, 12, 184, 38}, SDL_Color{4, 10, 17, 218});
+    text(22, 19, "VITALS", 1, kMuted);
+    for (int index = 0; index < 5; ++index) {
+        panel({22 + index * 22, 32, 16, 8}, index < player.health ? kRed : SDL_Color{55, 60, 67, 255});
+    }
+    panel({470, 12, 158, 38}, SDL_Color{4, 10, 17, 218});
+    text(481, 18, game.roomName(), 1, kText);
+    text(481, 32, player.hasDoubleJump ? "ECHO STEP ONLINE" : "ECHO STEP LOCKED", 1,
+         player.hasDoubleJump ? kCyan : kMuted);
+
+    if (game.gateBlocked()) {
+        panel({188, 274, 264, 42}, SDL_Color{4, 10, 17, 230});
+        text(211, 290, "POWER GATE NEEDS ECHO STEP", 1, kOrange);
+    }
+    if (game.roomId() == RoomId::MaintenanceTunnel && player.position.x > 900.0F &&
+        player.position.x < 1040.0F) {
+        text(520, 285, "E", 2, kCyan);
+    }
+    text(12, 340, "ARROWS MOVE  SPACE JUMP  J FIRE  E USE  M MAP  ESC PAUSE", 1, kMuted);
+
+    if (showMap) {
+        panel({151, 92, 338, 172}, SDL_Color{4, 10, 17, 238});
+        text(174, 109, "FACILITY MAP", 2, kText);
+        constexpr std::array<SDL_Rect, 5> rooms{{
+            {170, 170, 48, 28}, {236, 170, 65, 28}, {320, 170, 58, 28},
+            {236, 124, 65, 28}, {397, 170, 74, 28},
+        }};
+        panel({218, 182, 18, 3}, kMuted);
+        panel({301, 182, 19, 3}, kMuted);
+        panel({269, 152, 3, 18}, kMuted);
+        panel({378, 182, 19, 3}, player.hasDoubleJump ? kCyan : kRed);
+        for (int index = 0; index < static_cast<int>(rooms.size()); ++index) {
+            panel(rooms[static_cast<std::size_t>(index)],
+                  static_cast<int>(game.roomId()) == index ? kCyan : kPanelLight);
+        }
+        text(172, 238, player.hasDoubleJump ? "GATE OPEN" : "RED LINE LOCKED", 1,
+             player.hasDoubleJump ? kGreen : kOrange);
+    }
+
+    if (game.completed()) {
+        panel({128, 128, 384, 106}, SDL_Color{4, 10, 17, 242});
+        text(194, 153, "SIGNAL RESTORED", 3, kCyan);
+        text(185, 196, "FACILITY EXIT REACHED", 1, kText);
+    }
+    if (paused) {
+        panel({172, 125, 296, 112}, SDL_Color{4, 10, 17, 238});
+        text(245, 146, "PAUSED", 3, kText);
+        text(195, 199, "ENTER RESUME  ESC MENU", 1, kMuted);
+    }
+    SDL_RenderPresent(renderer_);
+}
+
+} // namespace echo::platform

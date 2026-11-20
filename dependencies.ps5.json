@@ -1,0 +1,43 @@
+{
+  "llvm": {
+    "version": "18.1.8",
+    "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang%2Bllvm-18.1.8-x86_64-pc-windows-msvc.tar.xz",
+    "sha256": "22c5907db053026cc2a8ff96d21c0f642a90d24d66c23c6d28ee7b1d572b82e8",
+    "archive": "llvm-18.1.8-windows.tar.xz",
+    "prefix": "clang+llvm-18.1.8-x86_64-pc-windows-msvc",
+    "provenance": "Official LLVM release; SHA256 measured on the HTTPS release download."
+  },
+  "sdk": {
+    "version": "0.42",
+    "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip",
+    "sha256": "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da",
+    "archive": "ps5-payload-sdk-v0.42.zip"
+  },
+  "zlib": {
+    "version": "1.3.2",
+    "url": "https://zlib.net/fossils/zlib-1.3.2.tar.gz",
+    "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16",
+    "archive": "zlib-1.3.2.tar.gz"
+  },
+  "boilerplate": {
+    "url": "https://github.com/drakmor/ps5-native-app-boilerplate.git",
+    "commit": "470695e0c557f99ff2df0e36e4df713c5e636526"
+  },
+  "sdl": {
+    "url": "https://github.com/ps5-payload-dev/SDL.git",
+    "commit": "ee4c47dc0d617b3bc8f35108f9956baf228a1322",
+    "version": "2.30.12"
+  },
+  "pacbrew": {
+    "usage": "Research-only archive; software SDL build does not require it",
+    "version": "0.40.2",
+    "url": "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.40.2/ps5-payload-dev.tar.gz",
+    "sha256": "a85f65de418a8e6a898c6c3e3c870d50fff7618a200e4dd59ea9692af6ecec4d",
+    "archive": "pacbrew-v0.40.2.tar.gz"
+  },
+  "runtime": {
+    "rawSha256": "8ee6e124993e1af26420cb455890fd002f5d6c7e78883c860ce45734e7d002bb",
+    "signedSha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036",
+    "signedBytes": 1284674
+  }
+}

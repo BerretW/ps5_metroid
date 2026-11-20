@@ -1,0 +1,59 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1484,4 +1484,6 @@
+     list(APPEND EXTRA_LIBS SceAudioOut)
+-    list(APPEND EXTRA_LIBS samplerate) # FIXME
++    if(SDL_LIBSAMPLERATE)
++      list(APPEND EXTRA_LIBS samplerate)
++    endif()
+   endif()
+diff --git a/src/dynapi/SDL_dynapi.h b/src/dynapi/SDL_dynapi.h
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -55,6 +55,8 @@
+ #elif defined(__PSP__) && __PSP__
+ #define SDL_DYNAMIC_API 0
++#elif defined(__PROSPERO__)
++#define SDL_DYNAMIC_API 0 /* PROJECT ECHO: native static app has no payload dlopen. */
+ #elif defined(__riscos__) && __riscos__ /* probably not useful on RISC OS, since dlopen() can't be used when using static linking. */
+ #define SDL_DYNAMIC_API 0
+diff --git a/src/video/ps5/SDL_ps5video.c b/src/video/ps5/SDL_ps5video.c
+--- a/src/video/ps5/SDL_ps5video.c
++++ b/src/video/ps5/SDL_ps5video.c
+@@ -35,6 +35,6 @@
+-    surface = window->surface;
++    surface = (SDL_Surface *)window->driverdata;
+     SDL_FreeSurface(surface);
++    window->driverdata = NULL;
+ }
+@@ -49,17 +49,17 @@
+-    // PS5_DestroyWindowFramebuffer(window);
+-    SDL_assert(window->surface == NULL);
++    PS5_DestroyWindowFramebuffer(_this, window);
+ 
+-    SDL_GetWindowSizeInPixels(window, &w, &h);
+-    surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 0, surface_format);
++    SDL_GetWindowSizeInPixels(window, &w, &h);
++    surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, surface_format);
+     if (!surface) {
+         return -1;
+     }
+ 
+     /* Save the info and return! */
+-    window->surface = surface;
+-    // *format = surface_format;
+-    // *pixels = surface->pixels;
+-    // *pitch = surface->pitch;
++    window->driverdata = surface;
++    *format = surface_format;
++    *pixels = surface->pixels;
++    *pitch = surface->pitch;
+     return 0;
+ }
+@@ -80,6 +80,6 @@
+-    surface = window->surface;
++    surface = (SDL_Surface *)window->driverdata;
+     if (!surface) {
+         return SDL_SetError("Couldn't find surface for window");
+     }
