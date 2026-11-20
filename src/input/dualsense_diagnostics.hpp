@@ -23,6 +23,13 @@ struct TouchSample {
     float pressure{};
 };
 
+enum class OutputTest {
+    None,
+    Rumble,
+    TriggerRumble,
+    Led
+};
+
 struct ControllerSnapshot {
     bool connected{};
     std::array<char, 128> name{};
@@ -66,6 +73,8 @@ struct ControllerSnapshot {
     bool triggerRumbleHardwareFailed{};
     bool ledHardwareConfirmed{};
     bool ledHardwareFailed{};
+    // Last successful output test still awaiting the operator's OK/FAIL verdict.
+    OutputTest pendingConfirmation{OutputTest::None};
     int outputDeviceCount{};
     int captureDeviceCount{};
 };

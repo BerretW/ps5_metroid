@@ -16,7 +16,7 @@ DualSense Lab is an interactive diagnostics screen inside PROJECT ECHO, not a se
 | Select another connected controller | D-pad left/right | Left/right arrows |
 | Adjust radial stick dead zone (5%-40%) | D-pad up/down | Up/down arrows |
 
-Rumble tests last at most 250 ms and are never started automatically. Leaving the lab, disconnecting the controller, or shutting down attempts to stop effects. A lightbar test cycles through explicit colors and black; leaving the lab attempts a black reset because SDL does not provide a query for the previous system-selected color. On Windows, press P to confirm an observed output or F to record a failed physical effect.
+Rumble tests last at most 250 ms and are never started automatically. Leaving the lab, disconnecting the controller, or shutting down attempts to stop effects. A lightbar test cycles through explicit colors and black; leaving the lab attempts a black reset because SDL does not provide a query for the previous system-selected color. On Windows, press P to confirm an observed output or F to record a failed physical effect. After a successful rumble, trigger-rumble or LED test, its capability line reads `CHECK L1 OK / R1 FAIL` (Windows: `P OK / F FAIL`) until you answer; other actions in between do not discard the pending test. The line then shows `CONFIRMED` or `FAILED`, and the next export records it.
 
 The button diagram lights for currently pressed buttons. Stick and trigger values are sampled live. Sticks show raw values, normalized values after the configurable radial dead zone, and observed axis extrema. Trigger values are shown raw and as a percentage. Battery is displayed only as the SDL-reported category; no percentage is invented.
 

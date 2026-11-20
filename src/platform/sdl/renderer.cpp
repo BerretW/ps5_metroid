@@ -528,12 +528,34 @@ void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
                      static_cast<double>(controller.accelerometer[2]));
         text(344, 229, line.data(), 1, kText);
     }
-    text(344, 246, controller.rumbleAvailable ? "RUMBLE API AVAILABLE" : "RUMBLE UNSUPPORTED", 1,
-         controller.rumbleAvailable ? kGreen : kOrange);
-    text(344, 259, controller.triggerRumbleAvailable ? "TRIGGER RUMBLE AVAILABLE" : "TRIGGER RUMBLE UNSUPPORTED", 1,
-         controller.triggerRumbleAvailable ? kGreen : kOrange);
-    text(344, 272, controller.ledAvailable ? "RGB LED API AVAILABLE" : "RGB LED UNSUPPORTED", 1,
-         controller.ledAvailable ? kGreen : kOrange);
+    const auto outputStatus = [&](bool available, bool confirmed, bool failed, bool pending,
+                                  const char* label, int y) {
+        std::array<char, 48> line{};
+        SDL_Color color = kOrange;
+        if (confirmed) {
+            SDL_snprintf(line.data(), line.size(), "%s CONFIRMED", label);
+            color = kGreen;
+        } else if (failed) {
+            SDL_snprintf(line.data(), line.size(), "%s FAILED", label);
+        } else if (pending) {
+            SDL_snprintf(line.data(), line.size(), "%s CHECK %s", label,
+                         controls_ == ControlScheme::PlayStation ? "L1 OK / R1 FAIL" : "P OK / F FAIL");
+            color = kCyan;
+        } else if (available) {
+            SDL_snprintf(line.data(), line.size(), "%s API AVAILABLE", label);
+            color = kGreen;
+        } else {
+            SDL_snprintf(line.data(), line.size(), "%s UNSUPPORTED", label);
+        }
+        text(344, y, line.data(), 1, color);
+    };
+    outputStatus(controller.rumbleAvailable, controller.rumbleHardwareConfirmed, controller.rumbleHardwareFailed,
+                 controller.pendingConfirmation == input::OutputTest::Rumble, "RUMBLE", 246);
+    outputStatus(controller.triggerRumbleAvailable, controller.triggerRumbleHardwareConfirmed,
+                 controller.triggerRumbleHardwareFailed,
+                 controller.pendingConfirmation == input::OutputTest::TriggerRumble, "TRIGGER RUMBLE", 259);
+    outputStatus(controller.ledAvailable, controller.ledHardwareConfirmed, controller.ledHardwareFailed,
+                 controller.pendingConfirmation == input::OutputTest::Led, "RGB LED", 272);
     text(344, 285, "ADAPTIVE TRIGGERS UNSUPPORTED", 1, kOrange);
     std::array<char, 88> audioLine{};
     SDL_snprintf(audioLine.data(), audioLine.size(), "AUDIO OUT %d  CAPTURE %d",

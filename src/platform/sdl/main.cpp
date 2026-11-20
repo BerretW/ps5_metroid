@@ -276,11 +276,6 @@ void setLabResult(echo::input::ControllerSnapshot& snapshot, std::string_view ac
     echo::input::setText(snapshot.lastError, error);
 }
 
-template <std::size_t Size>
-bool textEquals(const std::array<char, Size>& value, std::string_view expected) noexcept {
-    return std::string_view(value.data()) == expected;
-}
-
 } // namespace
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -486,6 +481,7 @@ int main(int, char**) {
         controllerSnapshot.triggerRumbleHardwareFailed = false;
         controllerSnapshot.ledHardwareConfirmed = false;
         controllerSnapshot.ledHardwareFailed = false;
+        controllerSnapshot.pendingConfirmation = echo::input::OutputTest::None;
     };
 
     const auto refreshControllerSnapshot = [&]() {
@@ -701,6 +697,8 @@ int main(int, char**) {
         controllerSnapshot.rumbleCallFailed = result != 0;
         controllerSnapshot.rumbleHardwareConfirmed = false;
         controllerSnapshot.rumbleHardwareFailed = false;
+        controllerSnapshot.pendingConfirmation =
+            result == 0 ? echo::input::OutputTest::Rumble : echo::input::OutputTest::None;
         labRumbleActive = result == 0;
         labRumbleStopAt = result == 0 ? SDL_GetTicks64() + echo::input::kMaxTestEffectDurationMs : 0;
         if (result != 0) {
@@ -727,6 +725,8 @@ int main(int, char**) {
         controllerSnapshot.triggerRumbleCallFailed = result != 0;
         controllerSnapshot.triggerRumbleHardwareConfirmed = false;
         controllerSnapshot.triggerRumbleHardwareFailed = false;
+        controllerSnapshot.pendingConfirmation =
+            result == 0 ? echo::input::OutputTest::TriggerRumble : echo::input::OutputTest::None;
         labTriggerRumbleActive = result == 0;
         labTriggerRumbleStopAt = result == 0 ? SDL_GetTicks64() + echo::input::kMaxTestEffectDurationMs : 0;
         if (result != 0) {
@@ -756,6 +756,8 @@ int main(int, char**) {
         controllerSnapshot.ledCallFailed = result != 0;
         controllerSnapshot.ledHardwareConfirmed = false;
         controllerSnapshot.ledHardwareFailed = false;
+        controllerSnapshot.pendingConfirmation =
+            result == 0 ? echo::input::OutputTest::Led : echo::input::OutputTest::None;
         labLedChanged = result == 0 && labLedColor != static_cast<int>(colors.size()) - 1;
         if (result != 0) {
             logMessage(controllerSnapshot.lastError.data());
@@ -763,27 +765,29 @@ int main(int, char**) {
     };
 
     const auto confirmLastOutputTest = [&](bool passed) {
-        if (!controllerSnapshot.hasResult || controllerSnapshot.lastResult != 0) {
-            setLabResult(controllerSnapshot, "VERIFY OUTPUT", -1,
-                         "Run a supported output test successfully before confirming it");
-            return;
-        }
-        if (textEquals(controllerSnapshot.lastAction, "RUMBLE TEST")) {
+        switch (controllerSnapshot.pendingConfirmation) {
+        case echo::input::OutputTest::Rumble:
             controllerSnapshot.rumbleHardwareConfirmed = passed;
             controllerSnapshot.rumbleHardwareFailed = !passed;
             setLabResult(controllerSnapshot, passed ? "RUMBLE CONFIRMED" : "RUMBLE FAILED", 0);
-        } else if (textEquals(controllerSnapshot.lastAction, "TRIGGER RUMBLE TEST")) {
+            break;
+        case echo::input::OutputTest::TriggerRumble:
             controllerSnapshot.triggerRumbleHardwareConfirmed = passed;
             controllerSnapshot.triggerRumbleHardwareFailed = !passed;
             setLabResult(controllerSnapshot, passed ? "TRIGGER RUMBLE CONFIRMED" : "TRIGGER RUMBLE FAILED", 0);
-        } else if (textEquals(controllerSnapshot.lastAction, "LED TEST")) {
+            break;
+        case echo::input::OutputTest::Led:
             controllerSnapshot.ledHardwareConfirmed = passed;
             controllerSnapshot.ledHardwareFailed = !passed;
             setLabResult(controllerSnapshot, passed ? "LED CONFIRMED" : "LED FAILED", 0);
-        } else {
-            setLabResult(controllerSnapshot, "VERIFY OUTPUT", -1,
-                         "The last action was not an output test");
+            break;
+        case echo::input::OutputTest::None:
+        default:
+            setLabResult(controllerSnapshot, "RUN A TEST FIRST", -1,
+                         "Run a supported output test successfully before confirming it");
+            return;
         }
+        controllerSnapshot.pendingConfirmation = echo::input::OutputTest::None;
     };
 
     const auto adjustDeadZone = [&](int direction) {

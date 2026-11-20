@@ -147,6 +147,19 @@ int main() {
               "DualSense Lab highlights an observed button press");
         check(centeredStick != capture(keyboardWindow, {63, 267, 38, 38}),
               "DualSense Lab moves the live stick indicator");
+        simulatedController.rumbleAvailable = true;
+        keyboard.drawDualSenseLab(simulatedController, 1);
+        const auto rumbleAvailable = capture(keyboardWindow, {344, 246, 270, 10});
+        simulatedController.pendingConfirmation = echo::input::OutputTest::Rumble;
+        keyboard.drawDualSenseLab(simulatedController, 1);
+        const auto rumblePending = capture(keyboardWindow, {344, 246, 270, 10});
+        simulatedController.pendingConfirmation = echo::input::OutputTest::None;
+        simulatedController.rumbleHardwareConfirmed = true;
+        keyboard.drawDualSenseLab(simulatedController, 1);
+        const auto rumbleConfirmed = capture(keyboardWindow, {344, 246, 270, 10});
+        check(rumblePending != rumbleAvailable && rumbleConfirmed != rumbleAvailable &&
+                 rumbleConfirmed != rumblePending,
+              "DualSense Lab shows pending and recorded output confirmations");
         keyboard.drawGame(game, false, true, "SPACE", "J", "E");
         pad.drawGame(game, false, true, "SPACE", "J", "E");
         check(capture(keyboardWindow, {195, 199, 260, 14}) != capture(padWindow, {195, 199, 260, 14}),
