@@ -23,9 +23,11 @@ See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [controls](doc
 
 Double-click [build.bat](build.bat), or run `.\build.bat` from a terminal:
 
-- **1 - Windows:** Release build and tests, keyboard prompts and editable keyboard bindings. Existing Windows controller input remains supported.
-- **2 - PS5:** restore pinned dependencies if needed, validate Hello first, then build the controller variant with keyboard/IME disabled. The game uses drawn PlayStation button symbols, touchpad for the map and circle to return from options or a paused game.
-- **0 - Cancel:** exit without building.
+- **W (or 1) - Windows:** Release build and tests, keyboard prompts and editable keyboard bindings. Existing Windows controller input remains supported.
+- **P (or 2) - PS5:** restore pinned dependencies if needed, validate Hello first, then build the controller variant with keyboard/IME disabled. The game uses drawn PlayStation button symbols, touchpad for the map and circle to return from options or a paused game.
+- **Q (or 0) - Cancel:** exit without building.
+
+Use the letters on a Czech keyboard: its top row types `+ ě š` instead of `1 2 3` without Shift, so `choice` only beeps. Numpad digits also work.
 
 The batch file only selects a platform and calls the existing PowerShell scripts. It reports failures, never runs a PS5 binary and never uploads to a console. The target itself selects its control scheme, so direct PowerShell builds behave the same way.
 

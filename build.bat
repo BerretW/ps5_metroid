@@ -5,14 +5,15 @@ if errorlevel 1 exit /b 1
 
 echo PROJECT ECHO
 echo.
-echo 1 - Windows: Release, keyboard prompts, tests
-echo 2 - PS5: controller prompts, keyboard/IME disabled
-echo 0 - Cancel
+echo W or 1 - Windows: Release, keyboard prompts, tests
+echo P or 2 - PS5: controller prompts, keyboard/IME disabled
+echo Q or 0 - Cancel
 echo.
-choice /C 120 /N /M "Select platform: "
+rem Letters work on every layout; Czech keyboards type +/e-caron instead of 1/2 on the top row.
+choice /C W1P2Q0 /N /M "Select platform [W/P/Q]: "
 if errorlevel 255 goto choice_failed
-if errorlevel 3 goto cancelled
-if errorlevel 2 goto ps5
+if errorlevel 5 goto cancelled
+if errorlevel 3 goto ps5
 if errorlevel 1 goto windows
 goto cancelled
 

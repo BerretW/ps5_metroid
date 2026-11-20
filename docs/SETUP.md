@@ -30,7 +30,7 @@ Install Visual Studio Build Tools from Microsoft's official installer and select
 
 ## Build, test, run
 
-For an interactive platform selector, double-click `build.bat` in the repository root, or run `.\build.bat`. Select **1** for Windows Release plus tests, **2** for the PS5 controller build and **0** to cancel. Both options call the existing PowerShell scripts; all listed prerequisites still apply.
+For an interactive platform selector, double-click `build.bat` in the repository root, or run `.\build.bat`. Press **W** (or **1**) for Windows Release plus tests, **P** (or **2**) for the PS5 controller build and **Q** (or **0**) to cancel. On Czech or other layouts where the top row does not type digits, use the letters or the numpad; an unaccepted key only beeps. Both options call the existing PowerShell scripts; all listed prerequisites still apply.
 
 ```powershell
 .\scripts\build-windows.ps1 -Configuration Debug -RunTests
