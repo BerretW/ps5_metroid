@@ -38,10 +38,27 @@ if (Test-Path -LiteralPath $assetDir) {
                 [BitConverter]::ToUInt16($head, 20) -ne 1) {
                 throw "Asset is not a PCM WAV file: $($asset.Name)"
             }
+        } elseif ($asset.Extension -eq ".json" -and
+                  $asset.FullName -eq (Join-Path $assetDir "framework\game.json")) {
+            if ($asset.Length -gt 16KB) { throw "Framework game configuration exceeds 16 KiB." }
+            try {
+                $gameConfig = Get-Content -LiteralPath $asset.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid framework game configuration: $($_.Exception.Message)"
+            }
+            if ($gameConfig.game -ne "echo.project_echo" -or
+                @($gameConfig.modules) -notcontains "echo.state" -or
+                @($gameConfig.modules) -notcontains "echo.project_echo" -or
+                -not ($gameConfig.resources -is [array])) {
+                throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
         } else {
             throw "Unexpected asset type: $($asset.Name)"
         }
         $assetCount++
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\game.json") -PathType Leaf)) {
+        throw "Packaged framework game configuration is missing."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\stb.txt") -PathType Leaf)) {
         throw "Packaged PNG decoder license is missing: licenses\stb.txt"

@@ -12,6 +12,12 @@ if (-not (Test-Path -LiteralPath $projectLicense -PathType Leaf) -or
     throw "Package is missing the current PROJECT ECHO license."
 }
 $sdlVersion = (Get-Content -LiteralPath (Join-Path $root "dependencies.ps5.json") -Raw | ConvertFrom-Json).sdl.version
+$jsonLicense = Join-Path $package "licenses\yyjson.txt"
+if (-not (Test-Path -LiteralPath $jsonLicense -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $jsonLicense -Algorithm SHA256).Hash -ne
+    (Get-FileHash -LiteralPath (Join-Path $root "licenses\yyjson.txt") -Algorithm SHA256).Hash) {
+    throw "Package is missing the current yyjson license."
+}
 $sdlRevision = Join-Path $root "build\ps5\game\sdl\include\SDL2\SDL_revision.h"
 $expectedRevision = '#define SDL_REVISION "SDL-' + $sdlVersion + '-no-vcs"'
 if (-not ((Get-Content -LiteralPath $sdlRevision) -ccontains $expectedRevision)) {
@@ -48,6 +54,11 @@ try {
     [IO.File]::WriteAllBytes($asset, [Text.Encoding]::ASCII.GetBytes("not a png image, only text data"))
     Expect-Rejection "Invalid PNG asset"
     [IO.File]::WriteAllBytes($asset, $original)
+    $gameConfig = Join-Path $fixture "assets\framework\game.json"
+    $originalConfig = [IO.File]::ReadAllBytes($gameConfig)
+    [IO.File]::WriteAllText($gameConfig, "{ not valid json")
+    Expect-Rejection "Invalid framework game configuration"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -81,4 +92,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 package tests PASS: project license, SDL revision, isolated reports, valid package, corrupt asset, digest corruption, signed misaligned ELF."
+Write-Host "PS5 package tests PASS: project/yyjson licenses, SDL revision, isolated reports, valid package, corrupt PNG/config, digest corruption, signed misaligned ELF."

@@ -1,0 +1,72 @@
+#pragma once
+
+#include "echo/framework/core.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
+namespace echo::platform {
+
+namespace framework_detail {
+
+struct AbilityUnlocked {
+    std::uint32_t actorIndex{};
+    std::uint32_t actorGeneration{};
+    std::array<char, 32> ability{};
+};
+
+class StateModule final : public framework::IModule {
+public:
+    [[nodiscard]] const framework::ModuleInfo& info() const noexcept override;
+    bool initialize(framework::ModuleContext&) noexcept override { return true; }
+    void shutdown() noexcept override {}
+
+    framework::GameState state{};
+};
+
+class ProjectEchoModule final : public framework::IModule {
+public:
+    [[nodiscard]] const framework::ModuleInfo& info() const noexcept override;
+    bool initialize(framework::ModuleContext&) noexcept override { return true; }
+    void shutdown() noexcept override {}
+};
+
+class UnlockListener final : public framework::IEventListener<AbilityUnlocked> {
+public:
+    void onEvent(const AbilityUnlocked& event) noexcept override;
+    [[nodiscard]] std::size_t count() const noexcept { return count_; }
+
+private:
+    std::size_t count_{};
+};
+
+} // namespace framework_detail
+
+class FrameworkIntegration {
+public:
+    FrameworkIntegration() noexcept = default;
+    ~FrameworkIntegration();
+
+    FrameworkIntegration(const FrameworkIntegration&) = delete;
+    FrameworkIntegration& operator=(const FrameworkIntegration&) = delete;
+
+    [[nodiscard]] framework::Status initialize(const char* configPath) noexcept;
+    [[nodiscard]] framework::Status beginGame() noexcept;
+    [[nodiscard]] framework::Status notifyEchoStepUnlocked() noexcept;
+    void shutdown() noexcept;
+    [[nodiscard]] std::size_t unlockEventCount() const noexcept;
+
+private:
+    framework_detail::StateModule stateModule_{};
+    framework_detail::ProjectEchoModule projectModule_{};
+    framework::ModuleRegistry modules_{};
+    framework::ActionRegistry actions_{};
+    framework::EventBus<8, 8, 64> events_{};
+    framework_detail::UnlockListener unlockListener_{};
+    framework::Subscription unlockSubscription_{};
+    bool initialized_{};
+};
+
+} // namespace echo::platform

@@ -36,6 +36,14 @@
     "sha256": "dfc2aadda6295f67f677587773f25e5bf8c8ad427ed0db7c518525c91e72e020",
     "license": "MIT or Public Domain (licenses/stb.txt)"
   },
+  "yyjson": {
+    "usage": "Pinned JSON parser for Echo Framework data and save APIs; static C library, file APIs disabled",
+    "version": "0.13.0",
+    "url": "https://github.com/ibireme/yyjson.git",
+    "tag": "0.13.0",
+    "commit": "6447536015f3d600f3d65323b10976103b337ca7",
+    "license": "MIT (licenses/yyjson.txt)"
+  },
   "pacbrew": {
     "usage": "Research-only archive; software SDL build does not require it",
     "version": "0.40.2",

@@ -1,5 +1,6 @@
 #include "game/game.hpp"
 #include "platform/sdl/assets.hpp"
+#include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <SDL.h>
@@ -486,6 +487,32 @@ int main(int, char**) {
 #endif
     logMessage("SDL video and game-controller subsystems initialized");
 
+    std::array<char, 512> assetsRoot{};
+    std::array<char, 512> gameConfigPath{};
+    if (!echo::platform::assetRoot(assetsRoot.data(), assetsRoot.size())) {
+        logMessage("Framework initialization failed: asset directory is unavailable");
+        SDL_Quit();
+        return 1;
+    }
+    const int configPathLength = std::snprintf(
+        gameConfigPath.data(), gameConfigPath.size(), "%sframework/game.json", assetsRoot.data());
+    if (configPathLength <= 0 ||
+        static_cast<std::size_t>(configPathLength) >= gameConfigPath.size()) {
+        logMessage("Framework initialization failed: game configuration path is too long");
+        SDL_Quit();
+        return 1;
+    }
+    echo::platform::FrameworkIntegration framework;
+    const echo::framework::Status frameworkStatus =
+        framework.initialize(gameConfigPath.data());
+    if (!frameworkStatus) {
+        logMessage("Framework initialization failed");
+        logMessage(frameworkStatus.detail);
+        SDL_Quit();
+        return 1;
+    }
+    logMessage("Echo Framework core initialized from assets/framework/game.json");
+
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");
 #endif
@@ -833,6 +860,13 @@ int main(int, char**) {
 
     const auto selectMenu = [&]() {
         if (menuSelection == 0) {
+            const echo::framework::Status status = framework.beginGame();
+            if (!status) {
+                logMessage("Framework game-state reset failed");
+                logMessage(status.detail);
+                running = false;
+                return;
+            }
             game.start();
             screen = Screen::Playing;
             paused = false;
@@ -1275,7 +1309,15 @@ int main(int, char**) {
             };
             const SoundState before = captureSoundState(game);
             game.update(input);
-            soundEvents |= soundEventsBetween(before, captureSoundState(game));
+            const SoundState after = captureSoundState(game);
+            soundEvents |= soundEventsBetween(before, after);
+            if (!before.abilityCollected && after.abilityCollected) {
+                const echo::framework::Status status = framework.notifyEchoStepUnlocked();
+                if (!status) {
+                    logMessage("Framework ability synchronization failed");
+                    logMessage(status.detail);
+                }
+            }
             pendingJump = false;
             pendingInteract = false;
             accumulator -= echo::kFixedStep;
@@ -1322,6 +1364,7 @@ int main(int, char**) {
     SDL_free(controllerSnapshot.touches);
     audio.close();
     renderer.destroy();
+    framework.shutdown();
     SDL_Quit();
     logMessage("Application shutdown");
     return 0;

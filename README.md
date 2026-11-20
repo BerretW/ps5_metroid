@@ -1,23 +1,25 @@
 # PROJECT ECHO
 
-PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the baseline for continued Windows development. Gameplay is shared C++20 code; the SDL2 application uses original procedurally generated PNG sprites and WAV sound effects (see [assets](docs/ASSETS.md)) rather than third-party game assets.
+PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the reference integration game for **Echo Framework 0.2**, a modular C++20 foundation. Gameplay is shared code; the SDL2 application uses original procedurally generated PNG sprites and WAV sound effects (see [assets](docs/ASSETS.md)) rather than third-party game assets.
 
 ## What this repository is ready for
 
 - **Play and develop on Windows 11 x64:** build and run the SDL2 game, run headless gameplay tests, and extend the shared simulation or SDL front end.
 - **Build a PS5 application on Windows:** the native PowerShell pipeline cross-compiles, links and statically validates the application package. The `playable` milestone controller build has been reported playable on PS5 with firmware 13.60 and Kraken Mount 0.3.1; console upload is manual. The subsequent controller-symbol UI and map/back bindings need another hardware check.
 - **Use the tests as a gameplay safety net:** simulation tests run without SDL or a window and cover movement, combat, room progression, ability unlocks, damage and respawn.
+- **Build on a reusable framework core:** headless modules, entities/components, events, actions, typed state, conditions, bounded JSON/content validation and versioned state serialization are available independently of SDL. Dialogue, inventory, combat and other genre systems remain future modules.
 
-This is a playable prototype, not a finished game. Settings do not persist, visuals are placeholders, and PS5 physical keyboard/IME are disabled because the keyboard-enabled build crashes during `sceKeyboardInit`. Full PS5 controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. DualSense Lab provides live SDL diagnostics and guarded output tests; hardware-dependent results remain unverified until tested. See [DualSense Lab](docs/DUALSENSE_LAB.md), [compatibility](docs/DUALSENSE_COMPATIBILITY.md), [hardware checklist](docs/DUALSENSE_HARDWARE_TESTS.md), [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
+This is a playable prototype, not a finished game. Framework saves have no platform storage provider yet, and the PS5 writable data path has not been verified. PS5 physical keyboard/IME remain disabled because the keyboard-enabled build crashes during `sceKeyboardInit`; full controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. DualSense Lab provides live SDL diagnostics and guarded output tests; hardware-dependent results remain unverified until tested. See [Echo Framework](docs/framework/README.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [compatibility](docs/DUALSENSE_COMPATIBILITY.md), [hardware checklist](docs/DUALSENSE_HARDWARE_TESTS.md), [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
 ## Current technical assessment
 
 - Native Windows CMake/Ninja build: supported through installed Visual Studio C++ tools.
 - SDL2: pinned to the PS5 SDL fork commit `ee4c47dc0d617b3bc8f35108f9956baf228a1322` (SDL 2.30.12).
 - Native Windows PS5 cross-compilation and application-directory packaging: PASS for standalone Hello World and PROJECT ECHO.
+- Echo Framework core and data targets: see the current [framework validation status](docs/STATUS.md); the PS5 executable still requires a separate hardware run.
 - PS5 hardware (user-reported, firmware 13.60 / Kraken Mount 0.3.1): Hello World and the `playable` milestone controller build launch; the user confirms the game is playable and supplied a gameplay screenshot. PS5 keyboard/IME are intentionally disabled in controller builds. The original keyboard-enabled build still fails with CE-108255-1. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
-See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
+See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [Echo Framework](docs/framework/README.md), [controls](docs/CONTROLS.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
 
 ## Simple platform selector
 
@@ -64,17 +66,20 @@ Landing Bay -> Maintenance Tunnel -> Power Station (locked) -> backtrack to the 
 
 `src/game/` contains the deterministic, shared gameplay simulation. `src/platform/sdl/` handles the window, input, rendering, menus, HUD and audio; `src/input/` contains reusable diagnostics math and report serialization. The Windows application and headless tests link the same game library; PS5 uses the same gameplay code with a native SDL backend and a separate application toolchain/package. See [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), and [development notes](docs/DEVELOPMENT.md).
 
+`framework/core/` is a reusable SDL-free static library, and `framework/data/` adds the pinned yyjson wrapper, content registry and save codec. The game adapter uses `assets/framework/game.json` and mirrors the Echo Step unlock; the existing `echo::Game` remains authoritative. See [framework architecture](docs/framework/ARCHITECTURE.md) and the [headless example](framework/examples/core_demo/).
+
 ## Repository map
 
 - `src/game/` — gameplay state and simulation
 - `src/platform/sdl/` — SDL application, input and rendering
 - `src/input/` — controller diagnostic data and reporting
-- `tests/` — headless gameplay and PS5 package checks
-- `assets/` — original sprites and sounds, regenerated by `scripts/generate-assets.ps1`
+- `framework/` — reusable framework libraries, headless tests and example
+- `tests/` — gameplay, integration, and PS5 package checks
+- `assets/` — original sprites/sounds and the game module/content manifest
 - `third_party/` — pinned vendored sources (stb_image PNG decoder)
 - `scripts/` — Windows and PS5 build, diagnostics, validation and manual deployment helpers
 - `platform/ps5/`, `cmake/`, `patches/` — PS5 target configuration and SDL adaptations
-- `docs/` — setup, architecture, controls, compatibility and evidence-based status
+- `docs/` — setup, architecture, framework guides, controls, compatibility and evidence-based status
 - `LICENSE`, `licenses/` — project and third-party license notices
 
 Generated builds, packages, logs and restored dependencies are excluded from Git. Recreate them with the commands above; see [Windows setup](docs/SETUP.md) and [development notes](docs/DEVELOPMENT.md).

@@ -1,0 +1,11 @@
+add_executable(echo_framework_core_tests core_tests.cpp)
+target_link_libraries(echo_framework_core_tests PRIVATE EchoFramework::Core EchoFramework::Entities EchoFramework::Events)
+target_compile_features(echo_framework_core_tests PRIVATE cxx_std_20)
+add_test(NAME echo_framework_core COMMAND echo_framework_core_tests)
+
+if(TARGET EchoFramework::Data)
+    add_executable(echo_framework_data_tests data_tests.cpp)
+    target_link_libraries(echo_framework_data_tests PRIVATE EchoFramework::Data)
+    target_compile_features(echo_framework_data_tests PRIVATE cxx_std_20)
+    add_test(NAME echo_framework_data COMMAND echo_framework_data_tests)
+endif()

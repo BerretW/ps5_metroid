@@ -1,4 +1,5 @@
 *.png binary
 *.wav binary
+*.json text eol=lf
 # Vendored sources are byte-pinned by SHA256; never normalize them.
 third_party/** -text -whitespace

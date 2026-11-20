@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(ProjectEcho VERSION 0.1.0 LANGUAGES C CXX)
 
 include(FetchContent)
+include(CTest)
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
@@ -14,6 +15,10 @@ FetchContent_Declare(
     GIT_SHALLOW FALSE
 )
 FetchContent_MakeAvailable(SDL2)
+
+option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" ${BUILD_TESTING})
+option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" ${BUILD_TESTING})
+add_subdirectory(framework)
 
 add_library(echo_game
     src/game/game.cpp
@@ -37,12 +42,14 @@ target_link_libraries(echo_assets PUBLIC SDL2-static)
 
 add_executable(project_echo
     src/platform/sdl/main.cpp
+    src/platform/sdl/framework_integration.cpp
     src/platform/sdl/renderer.cpp
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(project_echo PRIVATE cxx_std_20)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static)
+target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
+    EchoFramework::Core EchoFramework::Data)
 # Runtime assets are loaded from <executable dir>/assets.
 add_custom_command(TARGET project_echo POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -75,6 +82,23 @@ else()
     target_compile_options(echo_sdl_tests PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 add_test(NAME echo_control_prompts COMMAND echo_sdl_tests)
+
+add_executable(echo_framework_integration_tests
+    tests/framework_integration_tests.cpp
+    src/platform/sdl/framework_integration.cpp
+)
+target_include_directories(echo_framework_integration_tests PRIVATE src)
+target_compile_features(echo_framework_integration_tests PRIVATE cxx_std_20)
+target_compile_definitions(echo_framework_integration_tests PRIVATE SDL_MAIN_HANDLED
+    ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
+target_link_libraries(echo_framework_integration_tests PRIVATE
+    SDL2-static EchoFramework::Data)
+if(MSVC)
+    target_compile_options(echo_framework_integration_tests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_integration_tests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME echo_framework_game_integration COMMAND echo_framework_integration_tests)
 
 add_executable(echo_dualsense_tests
     tests/dualsense_diagnostics_tests.cpp

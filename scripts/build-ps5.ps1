@@ -251,6 +251,7 @@ if ($Target -eq "Game") {
         throw "third_party\stb\stb_image.h does not match the pinned stb version."
     }
     Copy-Item -LiteralPath (Join-Path $root "licenses\stb.txt") -Destination (Join-Path $gameApp "licenses\stb.txt")
+    Copy-Item -LiteralPath (Join-Path $root "licenses\yyjson.txt") -Destination (Join-Path $gameApp "licenses\yyjson.txt")
     # Replace only the game's own asset folder so stale files never ship.
     $packagedAssets = Join-Path $gameApp "assets"
     if (Test-Path -LiteralPath $packagedAssets) { Remove-Item -LiteralPath $packagedAssets -Recurse -Force }

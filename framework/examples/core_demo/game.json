@@ -1,0 +1,20 @@
+{
+  "game": "echo.framework_demo",
+  "modules": [
+    "echo.core",
+    "echo.demo"
+  ],
+  "resources": [
+    {
+      "id": "echo:ability/demo_step",
+      "type": "ability"
+    },
+    {
+      "id": "echo:dialogue/demo_intro",
+      "type": "dialogue",
+      "dependsOn": [
+        "echo:ability/demo_step"
+      ]
+    }
+  ]
+}

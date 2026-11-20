@@ -26,6 +26,8 @@ target_link_libraries(hello PRIVATE --as-needed ${stubs})
 
 if(ECHO_PS5_GAME)
     file(TO_CMAKE_PATH "${SDL_SOURCE}" SDL_SOURCE)
+    get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+    add_subdirectory("${echo_root}/framework" framework)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
@@ -44,10 +46,10 @@ if(ECHO_PS5_GAME)
     # The patched SDL copy has no .git; do not discover the parent repository.
     set(CMAKE_DISABLE_FIND_PACKAGE_Git TRUE)
     add_subdirectory("${SDL_SOURCE}" sdl)
-    get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
     add_executable(project_echo_ps5
         "${echo_root}/src/game/game.cpp"
         "${echo_root}/src/platform/sdl/main.cpp"
+        "${echo_root}/src/platform/sdl/framework_integration.cpp"
         "${echo_root}/src/platform/sdl/renderer.cpp"
         "${echo_root}/src/input/dualsense_diagnostics.cpp"
         "${echo_root}/src/platform/sdl/assets.cpp"
@@ -55,7 +57,10 @@ if(ECHO_PS5_GAME)
         "${native}/app_crt.cpp"
         "${native}/app_cpp_runtime.cpp")
     set_target_properties(project_echo_ps5 PROPERTIES SUFFIX ".llvm.elf")
-    target_include_directories(project_echo_ps5 PRIVATE "${echo_root}/src" "${echo_root}/third_party")
+    target_include_directories(project_echo_ps5 PRIVATE
+        "${echo_root}/src"
+        "${echo_root}/third_party"
+        "${echo_root}/framework/core/include")
     target_compile_definitions(project_echo_ps5 PRIVATE SDL_MAIN_HANDLED)
     if(ECHO_PS5_STARTUP_DIAGNOSTICS)
         target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -73,5 +78,6 @@ if(ECHO_PS5_GAME)
         "-T${native}/ps5-pie.ld" "--version-script=${native}/app-symbols.map" -e _start)
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
     target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
+        EchoFramework::Core EchoFramework::Data
         --end-group --as-needed ${stubs})
 endif()

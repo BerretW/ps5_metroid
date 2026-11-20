@@ -1,0 +1,21 @@
+{
+  "game": "echo.project_echo",
+  "modules": [
+    "echo.state",
+    "echo.project_echo"
+  ],
+  "resources": [
+    {
+      "id": "echo:ability/echo_step",
+      "type": "ability"
+    },
+    {
+      "id": "echo:sprite/player",
+      "type": "sprite"
+    },
+    {
+      "id": "echo:sound/shot",
+      "type": "sound"
+    }
+  ]
+}

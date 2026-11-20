@@ -1,0 +1,38 @@
+option(ECHO_FRAMEWORK_ENABLE_DATA "Build JSON, content and save services" ON)
+option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" OFF)
+option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" OFF)
+
+add_subdirectory(core)
+
+if(ECHO_FRAMEWORK_ENABLE_DATA)
+    include(FetchContent)
+    set(YYJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(YYJSON_BUILD_FUZZER OFF CACHE BOOL "" FORCE)
+    set(YYJSON_BUILD_MISC OFF CACHE BOOL "" FORCE)
+    set(YYJSON_BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(YYJSON_INSTALL OFF CACHE BOOL "" FORCE)
+    set(YYJSON_DISABLE_FILE ON CACHE BOOL "" FORCE)
+    set(YYJSON_DISABLE_INCR_READER ON CACHE BOOL "" FORCE)
+    set(YYJSON_DISABLE_UTILS ON CACHE BOOL "" FORCE)
+    set(YYJSON_READER_DEPTH_LIMIT 64 CACHE STRING "" FORCE)
+    set(YYJSON_WRITER_DEPTH_LIMIT 64 CACHE STRING "" FORCE)
+    FetchContent_Declare(
+        yyjson
+        GIT_REPOSITORY https://github.com/ibireme/yyjson.git
+        GIT_TAG 6447536015f3d600f3d65323b10976103b337ca7
+        GIT_SHALLOW FALSE
+    )
+    FetchContent_MakeAvailable(yyjson)
+    add_subdirectory(data)
+endif()
+
+if(ECHO_FRAMEWORK_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
+if(ECHO_FRAMEWORK_BUILD_EXAMPLE)
+    if(NOT ECHO_FRAMEWORK_ENABLE_DATA)
+        message(FATAL_ERROR "The headless example requires ECHO_FRAMEWORK_ENABLE_DATA.")
+    endif()
+    add_subdirectory(examples/core_demo)
+endif()
