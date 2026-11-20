@@ -19,6 +19,34 @@ if ($icon.Length -lt 24 -or [BitConverter]::ToString($icon, 0, 8) -ne "89-50-4E-
     [BitConverter]::ToString($icon, 16, 8) -ne "00-00-02-00-00-00-02-00") {
     throw "Application icon must be a 512x512 PNG."
 }
+# Game packages carry runtime assets; the Hello World package does not.
+$assetDir = Join-Path $app "assets"
+$assetCount = 0
+if (Test-Path -LiteralPath $assetDir) {
+    foreach ($asset in Get-ChildItem -LiteralPath $assetDir -Recurse -File) {
+        if ($asset.Length -gt 4MB) { throw "Asset exceeds the 4 MiB runtime limit: $($asset.Name)" }
+        $head = New-Object byte[] 36
+        $stream = [IO.File]::OpenRead($asset.FullName)
+        try { $read = $stream.Read($head, 0, $head.Length) } finally { $stream.Dispose() }
+        if ($asset.Extension -eq ".png") {
+            if ($read -lt 24 -or [BitConverter]::ToString($head, 0, 8) -ne "89-50-4E-47-0D-0A-1A-0A") {
+                throw "Invalid PNG asset: $($asset.Name)"
+            }
+        } elseif ($asset.Extension -eq ".wav") {
+            if ($read -lt 36 -or [Text.Encoding]::ASCII.GetString($head, 0, 4) -ne "RIFF" -or
+                [Text.Encoding]::ASCII.GetString($head, 8, 8) -ne "WAVEfmt " -or
+                [BitConverter]::ToUInt16($head, 20) -ne 1) {
+                throw "Asset is not a PCM WAV file: $($asset.Name)"
+            }
+        } else {
+            throw "Unexpected asset type: $($asset.Name)"
+        }
+        $assetCount++
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\stb.txt") -PathType Leaf)) {
+        throw "Packaged PNG decoder license is missing: licenses\stb.txt"
+    }
+}
 $neededLibraries = @()
 $knownSystemModules = @("libSceLibcInternal.prx", "libSceSystemService.prx", "libSceVideoOut.prx",
     "libkernel.prx", "libScePad.prx", "libSceUserService.prx", "libSceAudioOut.prx",
@@ -114,6 +142,7 @@ $report = [ordered]@{
     ebootSha256 = (Get-FileHash -LiteralPath (Join-Path $app "eboot.bin") -Algorithm SHA256).Hash
     runtimeSha256 = $manifest.runtime.signedSha256
     systemRuntimeModules = $neededLibraries
+    assetFiles = $assetCount
     staticValidation = "PASS"
     hardwareExecution = "NOT TESTED"
 }

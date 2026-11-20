@@ -27,6 +27,14 @@ else()
     target_compile_options(echo_game PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_library(echo_assets STATIC
+    src/platform/sdl/assets.cpp
+    src/platform/sdl/stb_image_impl.c
+)
+target_include_directories(echo_assets PUBLIC src PRIVATE third_party)
+target_compile_features(echo_assets PUBLIC cxx_std_20)
+target_link_libraries(echo_assets PUBLIC SDL2-static)
+
 add_executable(project_echo
     src/platform/sdl/main.cpp
     src/platform/sdl/renderer.cpp
@@ -34,7 +42,11 @@ add_executable(project_echo
 )
 target_compile_features(project_echo PRIVATE cxx_std_20)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(project_echo PRIVATE echo_game SDL2-static)
+target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static)
+# Runtime assets are loaded from <executable dir>/assets.
+add_custom_command(TARGET project_echo POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:project_echo>/assets")
 
 if(MSVC)
     target_compile_options(project_echo PRIVATE /W4 /permissive-)
@@ -54,8 +66,9 @@ add_executable(echo_sdl_tests
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
-target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(echo_sdl_tests PRIVATE echo_game SDL2-static)
+target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED
+    ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
+target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static)
 if(MSVC)
     target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
 else()

@@ -32,7 +32,7 @@ Gameplay belongs in `src/game/`; SDL-specific input and presentation belong in `
 
 The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate.
 
-The visual and audio assets are intentionally original placeholders. Settings currently reset between launches. Sprite animation, full remapping persistence, and comprehensive input-device QA are follow-up work.
+Sprites and sounds are original, procedurally generated assets (see [ASSETS.md](ASSETS.md)); the player has idle/run/jump/fall animation frames. Settings currently reset between launches. Final art, music, full remapping persistence, and comprehensive input-device QA are follow-up work.
 
 ## PS5 milestone
 

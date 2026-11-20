@@ -43,6 +43,11 @@ try {
         (Get-FileHash -LiteralPath $defaultReport -Algorithm SHA256).Hash -ne $defaultReportHash) {
         throw "Isolated validation did not preserve the default package report."
     }
+    $asset = Join-Path $fixture "assets\sprites\player.png"
+    $original = [IO.File]::ReadAllBytes($asset)
+    [IO.File]::WriteAllBytes($asset, [Text.Encoding]::ASCII.GetBytes("not a png image, only text data"))
+    Expect-Rejection "Invalid PNG asset"
+    [IO.File]::WriteAllBytes($asset, $original)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -76,4 +81,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 package tests PASS: project license, SDL revision, isolated reports, valid package, digest corruption, signed misaligned ELF."
+Write-Host "PS5 package tests PASS: project license, SDL revision, isolated reports, valid package, corrupt asset, digest corruption, signed misaligned ELF."

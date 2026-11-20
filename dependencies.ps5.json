@@ -28,6 +28,14 @@
     "commit": "ee4c47dc0d617b3bc8f35108f9956baf228a1322",
     "version": "2.30.12"
   },
+  "stb": {
+    "usage": "Vendored PNG decoder (third_party/stb/stb_image.h), compiled PNG-only without stdio or TLS",
+    "version": "2.34",
+    "url": "https://raw.githubusercontent.com/nothings/stb/6b5799bae8a1fe3792691ef4b72ae26434c3e799/stb_image.h",
+    "commit": "6b5799bae8a1fe3792691ef4b72ae26434c3e799",
+    "sha256": "dfc2aadda6295f67f677587773f25e5bf8c8ad427ed0db7c518525c91e72e020",
+    "license": "MIT or Public Domain (licenses/stb.txt)"
+  },
   "pacbrew": {
     "usage": "Research-only archive; software SDL build does not require it",
     "version": "0.40.2",

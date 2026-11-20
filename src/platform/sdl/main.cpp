@@ -1,4 +1,5 @@
 #include "game/game.hpp"
+#include "platform/sdl/assets.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <SDL.h>
@@ -7,7 +8,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <string_view>
+#include <utility>
 #ifdef __PROSPERO__
 #include <cerrno>
 #include <cstdio>
@@ -163,6 +166,8 @@ auto keyName(SDL_Keycode key) {
 #endif
 }
 
+enum class SoundId { Shot, Jump, Hurt, EnemyHit, EnemyDefeat, Pickup, Door, GateDenied, Count };
+
 class Audio {
 public:
     bool open() noexcept {
@@ -171,43 +176,191 @@ public:
         desired.format = AUDIO_S16SYS;
         desired.channels = 1;
         desired.samples = 512;
+        desired.callback = &Audio::mix;
+        desired.userdata = this;
         device_ = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained_, 0);
         if (device_ == 0) {
             SDL_Log("Audio unavailable; continuing without sound: %s", SDL_GetError());
             return false;
         }
+        createFallbackShot();
         SDL_PauseAudioDevice(device_, 0);
         return true;
     }
 
-    void playShot(int volume) noexcept {
-        if (device_ == 0 || SDL_GetQueuedAudioSize(device_) > 8192) {
+    // Loads packaged WAV effects; any missing file leaves that effect silent
+    // (the shot keeps its synthesized fallback). Returns the number loaded.
+    int loadSounds(const char* assetDirectory) noexcept {
+        static constexpr std::array<const char*, static_cast<int>(SoundId::Count)> files{
+            "sounds/shot.wav", "sounds/jump.wav", "sounds/hurt.wav", "sounds/enemy_hit.wav",
+            "sounds/enemy_defeat.wav", "sounds/pickup.wav", "sounds/door.wav", "sounds/gate_denied.wav"};
+        if (device_ == 0 || assetDirectory == nullptr) {
+            return 0;
+        }
+        int loaded = 0;
+        for (std::size_t index = 0; index < files.size(); ++index) {
+            char path[512];
+            const int written = std::snprintf(path, sizeof(path), "%s%s", assetDirectory, files[index]);
+            echo::platform::SoundBuffer sound;
+            if (written > 0 && written < static_cast<int>(sizeof(path)) &&
+                echo::platform::loadWavMono16(path, obtained_.freq, sound)) {
+                SDL_LockAudioDevice(device_);
+                std::swap(sounds_[index], sound);
+                SDL_UnlockAudioDevice(device_);
+                echo::platform::freeSound(sound);
+                ++loaded;
+            }
+        }
+        return loaded;
+    }
+
+    void play(SoundId id, int volume) noexcept {
+        const auto index = static_cast<std::size_t>(id);
+        if (device_ == 0 || volume <= 0 || sounds_[index].samples == nullptr) {
             return;
         }
-        std::array<std::int16_t, 640> samples{};
-        constexpr double twoPi = 6.283185307179586;
-        for (std::size_t index = 0; index < samples.size(); ++index) {
-            const double envelope = 1.0 - static_cast<double>(index) / samples.size();
-            const double wave = std::sin(twoPi * 560.0 * static_cast<double>(index) / obtained_.freq);
-            samples[index] = static_cast<std::int16_t>(wave * envelope * volume * 85.0);
+        SDL_LockAudioDevice(device_);
+        Voice* target = &voices_[0];
+        for (Voice& voice : voices_) {
+            if (voice.sound == nullptr) {
+                target = &voice;
+                break;
+            }
+            if (voice.position > target->position) {
+                target = &voice;
+            }
         }
-        if (SDL_QueueAudio(device_, samples.data(), static_cast<Uint32>(sizeof(samples))) != 0) {
-            SDL_Log("Could not queue shot audio: %s", SDL_GetError());
-        }
+        *target = {&sounds_[index], 0, std::clamp(volume, 0, 100) * 256 / 100};
+        SDL_UnlockAudioDevice(device_);
     }
 
     void close() noexcept {
         if (device_ != 0) {
-            SDL_ClearQueuedAudio(device_);
             SDL_CloseAudioDevice(device_);
             device_ = 0;
+        }
+        voices_ = {};
+        for (echo::platform::SoundBuffer& sound : sounds_) {
+            echo::platform::freeSound(sound);
         }
     }
 
 private:
+    struct Voice {
+        const echo::platform::SoundBuffer* sound{};
+        Uint32 position{};
+        int gain{};
+    };
+
+    // Runs on SDL's audio thread: no allocation, no logging.
+    static void SDLCALL mix(void* userdata, Uint8* stream, int length) {
+        auto* audio = static_cast<Audio*>(userdata);
+        auto* output = reinterpret_cast<Sint16*>(stream);
+        const int count = length / static_cast<int>(sizeof(Sint16));
+        for (int index = 0; index < count; ++index) {
+            int sum = 0;
+            for (Voice& voice : audio->voices_) {
+                if (voice.sound == nullptr) {
+                    continue;
+                }
+                sum += voice.sound->samples[voice.position] * voice.gain / 256;
+                if (++voice.position >= voice.sound->count) {
+                    voice = {};
+                }
+            }
+            output[index] = static_cast<Sint16>(std::clamp(sum, -32768, 32767));
+        }
+    }
+
+    void createFallbackShot() noexcept {
+        constexpr Uint32 count = 640;
+        auto& shot = sounds_[static_cast<std::size_t>(SoundId::Shot)];
+        shot.samples = static_cast<Sint16*>(SDL_malloc(count * sizeof(Sint16)));
+        if (shot.samples == nullptr) {
+            return;
+        }
+        shot.count = count;
+        constexpr double twoPi = 6.283185307179586;
+        for (Uint32 index = 0; index < count; ++index) {
+            const double envelope = 1.0 - static_cast<double>(index) / count;
+            const double wave = std::sin(twoPi * 560.0 * static_cast<double>(index) / obtained_.freq);
+            shot.samples[index] = static_cast<Sint16>(wave * envelope * 8500.0);
+        }
+    }
+
     SDL_AudioDeviceID device_{};
     SDL_AudioSpec obtained_{};
+    std::array<echo::platform::SoundBuffer, static_cast<int>(SoundId::Count)> sounds_{};
+    std::array<Voice, 8> voices_{};
 };
+
+// Gameplay stays sound-agnostic; the platform layer derives effects from state changes.
+struct SoundState {
+    unsigned activeProjectiles{};
+    float velocityY{};
+    int health{};
+    int deaths{};
+    int enemyHealth{};
+    int livingEnemies{};
+    echo::RoomId room{};
+    bool abilityCollected{};
+    bool gateBlocked{};
+    bool completed{};
+};
+
+SoundState captureSoundState(const echo::Game& game) noexcept {
+    SoundState state;
+    for (std::size_t index = 0; index < game.projectiles().size(); ++index) {
+        if (game.projectiles()[index].active) {
+            state.activeProjectiles |= 1U << index;
+        }
+    }
+    for (const echo::Enemy& enemy : game.enemies()) {
+        if (enemy.alive) {
+            state.enemyHealth += enemy.health;
+            ++state.livingEnemies;
+        }
+    }
+    state.velocityY = game.player().velocity.y;
+    state.health = game.player().health;
+    state.deaths = game.deaths();
+    state.room = game.roomId();
+    state.abilityCollected = game.abilityCollected();
+    state.gateBlocked = game.gateBlocked();
+    state.completed = game.completed();
+    return state;
+}
+
+unsigned soundEventsBetween(const SoundState& before, const SoundState& after) noexcept {
+    const auto bit = [](SoundId id) { return 1U << static_cast<unsigned>(id); };
+    unsigned events = 0;
+    if ((after.activeProjectiles & ~before.activeProjectiles) != 0U) {
+        events |= bit(SoundId::Shot);
+    }
+    // Gravity only increases downward speed, so a sharp upward change is a jump impulse.
+    if (after.velocityY < before.velocityY - 200.0F) {
+        events |= bit(SoundId::Jump);
+    }
+    const bool died = after.deaths != before.deaths;
+    if (after.health < before.health || died) {
+        events |= bit(SoundId::Hurt);
+    }
+    if (after.livingEnemies < before.livingEnemies) {
+        events |= bit(SoundId::EnemyDefeat);
+    } else if (after.enemyHealth < before.enemyHealth) {
+        events |= bit(SoundId::EnemyHit);
+    }
+    if ((after.abilityCollected && !before.abilityCollected) || (after.completed && !before.completed)) {
+        events |= bit(SoundId::Pickup);
+    }
+    if (after.room != before.room && !died) {
+        events |= bit(SoundId::Door);
+    }
+    if (after.gateBlocked && !before.gateBlocked) {
+        events |= bit(SoundId::GateDenied);
+    }
+    return events;
+}
 
 bool writeDualSenseReport(const echo::input::ControllerSnapshot& controller,
                           std::array<char, 256>& error) {
@@ -365,6 +518,21 @@ int main(int, char**) {
     }
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 08: audio attempt completed; before game state");
+#endif
+    {
+        std::array<char, 512> assets{};
+        if (echo::platform::assetRoot(assets.data(), assets.size())) {
+            const int sprites = renderer.loadSprites(assets.data());
+            const int sounds = audio.loadSounds(assets.data());
+            std::array<char, 160> summary{};
+            std::snprintf(summary.data(), summary.size(), "Assets loaded: %d/6 sprites, %d/8 sounds", sprites, sounds);
+            logMessage(summary.data());
+        } else {
+            logMessage("Asset directory unavailable; using built-in art");
+        }
+    }
+#if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
+    diagnosticCheckpoint("ECHO DIAG 08a: assets attempted; before game state");
 #endif
 
     echo::Game game;
@@ -1079,7 +1247,7 @@ int main(int, char**) {
             paused = !paused;
             pendingPause = false;
         }
-        bool shotThisFrame = false;
+        unsigned soundEvents = 0;
         while (screen == Screen::Playing && !paused && accumulator >= echo::kFixedStep) {
             const auto isDown = [&keys](SDL_Keycode key) {
                 const SDL_Scancode scan = SDL_GetScancodeFromKey(key);
@@ -1105,22 +1273,17 @@ int main(int, char**) {
                 shootHeld,
                 pendingInteract,
             };
-            const int previousProjectiles = static_cast<int>(std::count_if(
-                game.projectiles().begin(), game.projectiles().end(), [](const echo::Projectile& projectile) {
-                    return projectile.active;
-                }));
+            const SoundState before = captureSoundState(game);
             game.update(input);
-            const int currentProjectiles = static_cast<int>(std::count_if(
-                game.projectiles().begin(), game.projectiles().end(), [](const echo::Projectile& projectile) {
-                    return projectile.active;
-                }));
-            shotThisFrame = shotThisFrame || currentProjectiles > previousProjectiles;
+            soundEvents |= soundEventsBetween(before, captureSoundState(game));
             pendingJump = false;
             pendingInteract = false;
             accumulator -= echo::kFixedStep;
         }
-        if (shotThisFrame) {
-            audio.playShot(volume);
+        for (int index = 0; index < static_cast<int>(SoundId::Count); ++index) {
+            if ((soundEvents & (1U << index)) != 0U) {
+                audio.play(static_cast<SoundId>(index), volume);
+            }
         }
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)

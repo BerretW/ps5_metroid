@@ -1,9 +1,13 @@
 #include "platform/sdl/renderer.hpp"
 
+#include "platform/sdl/assets.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 namespace echo::platform {
@@ -57,6 +61,32 @@ void setColor(SDL_Renderer* renderer, SDL_Color color) noexcept {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
 }
 
+struct SpriteSheet {
+    const char* file;
+    int frameWidth;
+    int frameHeight;
+};
+
+constexpr std::array<SpriteSheet, static_cast<int>(Sprite::Count)> kSpriteSheets{{
+    {"sprites/player.png", 24, 32},
+    {"sprites/enemy.png", 32, 32},
+    {"sprites/tiles.png", 32, 32},
+    {"sprites/projectile.png", 12, 8},
+    {"sprites/pickup.png", 32, 32},
+    {"sprites/door.png", 44, 48},
+}};
+
+// Player sheet layout: idle 0-1, run 2-5, jump 6, fall 7.
+int playerFrame(const Player& player, Uint64 ticks) noexcept {
+    if (!player.onGround) {
+        return player.velocity.y < 0.0F ? 6 : 7;
+    }
+    if (std::abs(player.velocity.x) > 20.0F) {
+        return 2 + static_cast<int>((ticks / 90U) % 4U);
+    }
+    return static_cast<int>((ticks / 500U) % 2U);
+}
+
 } // namespace
 
 bool Renderer::create() noexcept {
@@ -88,6 +118,7 @@ bool Renderer::create() noexcept {
 }
 
 void Renderer::destroy() noexcept {
+    releaseSprites();
     if (renderer_ != nullptr) {
         SDL_DestroyRenderer(renderer_);
         renderer_ = nullptr;
@@ -96,6 +127,62 @@ void Renderer::destroy() noexcept {
         SDL_DestroyWindow(window_);
         window_ = nullptr;
     }
+}
+
+void Renderer::releaseSprites() noexcept {
+    for (SDL_Texture*& texture : sprites_) {
+        if (texture != nullptr) {
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }
+    }
+}
+
+int Renderer::loadSprites(const char* assetDirectory) noexcept {
+    releaseSprites();
+    if (renderer_ == nullptr || assetDirectory == nullptr) {
+        return 0;
+    }
+    int loaded = 0;
+    for (std::size_t index = 0; index < kSpriteSheets.size(); ++index) {
+        char path[512];
+        const int written = std::snprintf(path, sizeof(path), "%s%s", assetDirectory, kSpriteSheets[index].file);
+        if (written <= 0 || written >= static_cast<int>(sizeof(path))) {
+            continue;
+        }
+        SDL_Texture* texture = loadPngTexture(renderer_, path);
+        int width = 0;
+        int height = 0;
+        if (texture != nullptr &&
+            (SDL_QueryTexture(texture, nullptr, nullptr, &width, &height) != 0 ||
+             height != kSpriteSheets[index].frameHeight || width % kSpriteSheets[index].frameWidth != 0)) {
+            SDL_Log("Sprite sheet has unexpected dimensions %dx%d: %s", width, height, path);
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }
+        sprites_[index] = texture;
+        loaded += texture != nullptr ? 1 : 0;
+    }
+    return loaded;
+}
+
+bool Renderer::hasSprite(Sprite sprite) const noexcept {
+    return sprites_[static_cast<std::size_t>(sprite)] != nullptr;
+}
+
+bool Renderer::sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip) noexcept {
+    const auto index = static_cast<std::size_t>(sprite);
+    SDL_Texture* texture = sprites_[index];
+    if (texture == nullptr) {
+        return false;
+    }
+    int width = 0;
+    SDL_QueryTexture(texture, nullptr, nullptr, &width, nullptr);
+    const SpriteSheet& sheet = kSpriteSheets[index];
+    const int frames = std::max(1, width / sheet.frameWidth);
+    const SDL_Rect source{(frame % frames) * sheet.frameWidth, 0, sheet.frameWidth, sheet.frameHeight};
+    return SDL_RenderCopyEx(renderer_, texture, &source, &destination, 0.0, nullptr,
+                            flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE) == 0;
 }
 
 void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
@@ -230,6 +317,9 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                 continue;
             }
             const int screenY = row * kTileSize;
+            if (sprite(Sprite::Tiles, tile == Tile::Hazard ? 1 : 0, {screenX, screenY, kTileSize, kTileSize})) {
+                continue;
+            }
             if (tile == Tile::Hazard) {
                 panel({screenX, screenY + 9, kTileSize, 23}, SDL_Color{121, 43, 51, 255});
                 panel({screenX + 3, screenY + 5, 5, 10}, kOrange);
@@ -243,17 +333,23 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         }
     }
 
+    const Uint64 ticks = SDL_GetTicks64();
     if (game.roomId() == RoomId::MaintenanceTunnel) {
         const int doorX = static_cast<int>(970.0F - cameraX);
-        panel({doorX, 272, 44, 48}, SDL_Color{32, 63, 76, 255});
-        panel({doorX + 5, 278, 34, 36}, SDL_Color{19, 39, 49, 255});
-        panel({doorX + 32, 294, 3, 3}, kCyan);
+        if (!sprite(Sprite::Door, 0, {doorX, 272, 44, 48})) {
+            panel({doorX, 272, 44, 48}, SDL_Color{32, 63, 76, 255});
+            panel({doorX + 5, 278, 34, 36}, SDL_Color{19, 39, 49, 255});
+            panel({doorX + 32, 294, 3, 3}, kCyan);
+        }
     } else if (game.roomId() == RoomId::ResearchLab && !game.abilityCollected()) {
         const Rect pickup = game.abilityPickup();
         const int pickupX = static_cast<int>(pickup.x - cameraX);
-        panel({pickupX - 7, static_cast<int>(pickup.y) - 7, 34, 34}, SDL_Color{23, 59, 67, 255});
-        panel({pickupX, static_cast<int>(pickup.y), 20, 20}, kCyan);
-        panel({pickupX + 6, static_cast<int>(pickup.y) - 6, 8, 8}, kText);
+        if (!sprite(Sprite::Pickup, static_cast<int>((ticks / 300U) % 2U),
+                    {pickupX - 6, static_cast<int>(pickup.y) - 10, 32, 32})) {
+            panel({pickupX - 7, static_cast<int>(pickup.y) - 7, 34, 34}, SDL_Color{23, 59, 67, 255});
+            panel({pickupX, static_cast<int>(pickup.y), 20, 20}, kCyan);
+            panel({pickupX + 6, static_cast<int>(pickup.y) - 6, 8, 8}, kText);
+        }
     }
 
     for (const Enemy& enemy : game.enemies()) {
@@ -262,7 +358,12 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         }
         const int x = static_cast<int>(enemy.bounds.x - cameraX);
         const int y = static_cast<int>(enemy.bounds.y);
-        panel({x, y + 8, static_cast<int>(enemy.bounds.width), 20}, SDL_Color{135, 80, 99, 255});
+        const int width = static_cast<int>(enemy.bounds.width);
+        if (sprite(Sprite::Enemy, static_cast<int>((ticks / 180U) % 2U),
+                   {x + (width - 32) / 2, y + static_cast<int>(enemy.bounds.height) - 32, 32, 32})) {
+            continue;
+        }
+        panel({x, y + 8, width, 20}, SDL_Color{135, 80, 99, 255});
         panel({x + 4, y + 2, 20, 14}, SDL_Color{202, 111, 121, 255});
         panel({x + 8, y + 7, 4, 4}, kOrange);
         panel({x + 18, y + 7, 4, 4}, kOrange);
@@ -270,16 +371,22 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
 
     for (const Projectile& projectile : game.projectiles()) {
         if (projectile.active && projectile.room == game.roomId()) {
-            panel({static_cast<int>(projectile.bounds.x - cameraX), static_cast<int>(projectile.bounds.y),
-                   static_cast<int>(projectile.bounds.width), static_cast<int>(projectile.bounds.height)}, kOrange);
+            const SDL_Rect bounds{static_cast<int>(projectile.bounds.x - cameraX), static_cast<int>(projectile.bounds.y),
+                                  static_cast<int>(projectile.bounds.width), static_cast<int>(projectile.bounds.height)};
+            if (!sprite(Sprite::Projectile, static_cast<int>((ticks / 60U) % 2U),
+                        {bounds.x + bounds.w / 2 - 6, bounds.y + bounds.h / 2 - 4, 12, 8},
+                        projectile.velocityX < 0.0F)) {
+                panel(bounds, kOrange);
+            }
         }
     }
 
     const Player& player = game.player();
     const int playerX = static_cast<int>(player.position.x - cameraX);
     const int playerY = static_cast<int>(player.position.y);
-    const bool flashing = (SDL_GetTicks64() / 90U) % 2U == 0U;
-    if (player.health > 0 && (flashing || !paused)) {
+    const bool flashing = (ticks / 90U) % 2U == 0U;
+    if (player.health > 0 && (flashing || !paused) &&
+        !sprite(Sprite::Player, playerFrame(player, ticks), {playerX - 2, playerY - 2, 24, 32}, player.facing < 0)) {
         panel({playerX, playerY + 5, 20, 23}, SDL_Color{105, 163, 172, 255});
         panel({playerX + 3, playerY, 14, 10}, SDL_Color{174, 211, 207, 255});
         panel({playerX + (player.facing > 0 ? 13 : 3), playerY + 3, 5, 3}, kCyan);

@@ -1,3 +1,4 @@
+#include "platform/sdl/assets.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <SDL.h>
@@ -164,6 +165,32 @@ int main() {
         pad.drawGame(game, false, true, "SPACE", "J", "E");
         check(capture(keyboardWindow, {195, 199, 260, 14}) != capture(padWindow, {195, 199, 260, 14}),
               "pause menu uses platform-specific resume and back prompts");
+
+        const SDL_Rect playerRegion{static_cast<int>(game.player().position.x - game.cameraX()) - 2,
+                                    static_cast<int>(game.player().position.y) - 2, 24, 32};
+        pad.drawGame(game, false, false, "SPACE", "J", "E");
+        const auto fallbackPlayer = capture(padWindow, playerRegion);
+        check(pad.loadSprites("Z:/project-echo-missing-assets/") == 0 &&
+                  !pad.hasSprite(echo::platform::Sprite::Player),
+              "missing asset directory keeps the built-in art");
+        pad.drawGame(game, false, false, "SPACE", "J", "E");
+        check(fallbackPlayer == capture(padWindow, playerRegion), "fallback art renders without sprites");
+        check(pad.loadSprites(ECHO_SOURCE_ASSETS) == static_cast<int>(echo::platform::Sprite::Count),
+              "all packaged PNG sprite sheets decode with expected dimensions");
+        pad.drawGame(game, false, false, "SPACE", "J", "E");
+        check(fallbackPlayer != capture(padWindow, playerRegion), "player is drawn from the PNG sprite sheet");
+
+        echo::platform::SoundBuffer sound;
+        check(echo::platform::loadWavMono16(ECHO_SOURCE_ASSETS "sounds/shot.wav", 48000, sound) &&
+                  sound.count == 4320,
+              "48 kHz WAV loads without resampling");
+        check(echo::platform::loadWavMono16(ECHO_SOURCE_ASSETS "sounds/shot.wav", 44100, sound) &&
+                  sound.count > 3900 && sound.count < 4100,
+              "WAV is converted to the audio device rate");
+        echo::platform::freeSound(sound);
+        check(echo::platform::loadPngTexture(SDL_GetRenderer(padWindow), ECHO_SOURCE_ASSETS "sounds/shot.wav") ==
+                  nullptr,
+              "non-PNG data is rejected by the sprite decoder");
     } catch (const std::exception& error) {
         ++failures;
         std::cerr << "SDL prompt test failed: " << error.what() << '\n';

@@ -50,10 +50,12 @@ if(ECHO_PS5_GAME)
         "${echo_root}/src/platform/sdl/main.cpp"
         "${echo_root}/src/platform/sdl/renderer.cpp"
         "${echo_root}/src/input/dualsense_diagnostics.cpp"
+        "${echo_root}/src/platform/sdl/assets.cpp"
+        "${echo_root}/src/platform/sdl/stb_image_impl.c"
         "${native}/app_crt.cpp"
         "${native}/app_cpp_runtime.cpp")
     set_target_properties(project_echo_ps5 PROPERTIES SUFFIX ".llvm.elf")
-    target_include_directories(project_echo_ps5 PRIVATE "${echo_root}/src")
+    target_include_directories(project_echo_ps5 PRIVATE "${echo_root}/src" "${echo_root}/third_party")
     target_compile_definitions(project_echo_ps5 PRIVATE SDL_MAIN_HANDLED)
     if(ECHO_PS5_STARTUP_DIAGNOSTICS)
         target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_STARTUP_DIAGNOSTICS)
