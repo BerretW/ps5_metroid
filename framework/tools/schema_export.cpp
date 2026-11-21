@@ -2,6 +2,15 @@
 #ifdef ECHO_MANIFEST_HAS_INVENTORY
 #include "echo/framework/inventory.hpp"
 #endif
+#ifdef ECHO_MANIFEST_HAS_ATTRIBUTES
+#include "echo/framework/attributes.hpp"
+#endif
+#ifdef ECHO_MANIFEST_HAS_EQUIPMENT
+#include "echo/framework/equipment.hpp"
+#endif
+#ifdef ECHO_MANIFEST_HAS_ABILITIES
+#include "echo/framework/abilities.hpp"
+#endif
 #ifdef ECHO_PROJECT_COMPONENTS
 #include "game/project_components.hpp"
 #endif
@@ -31,7 +40,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    std::array<echo::framework::CapabilityManifestFragment, 4> fragments{{
+    std::array<echo::framework::CapabilityManifestFragment, 7> fragments{{
         echo::framework::frameworkCapabilityManifestFragment(),
     }};
 #ifdef ECHO_MANIFEST_HAS_NARRATIVE
@@ -42,6 +51,15 @@ int main(int argc, char** argv) {
 #endif
 #ifdef ECHO_MANIFEST_HAS_INVENTORY
     fragments[fragmentCount++] = echo::framework::inventoryCapabilityManifestFragment();
+#endif
+#ifdef ECHO_MANIFEST_HAS_ATTRIBUTES
+    fragments[fragmentCount++] = echo::framework::attributesCapabilityManifestFragment();
+#endif
+#ifdef ECHO_MANIFEST_HAS_EQUIPMENT
+    fragments[fragmentCount++] = echo::framework::equipmentCapabilityManifestFragment();
+#endif
+#ifdef ECHO_MANIFEST_HAS_ABILITIES
+    fragments[fragmentCount++] = echo::framework::abilitiesCapabilityManifestFragment();
 #endif
 #ifdef ECHO_PROJECT_COMPONENTS
     fragments[fragmentCount++] = echo::projectCapabilityManifestFragment();

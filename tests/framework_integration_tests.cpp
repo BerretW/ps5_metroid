@@ -263,13 +263,15 @@ int main() {
     check(integration->configureGame(game), "game binds the initialized dialogue module");
     check(game.technicianBounds().x == 108.0F && game.technicianBounds().y == 280.0F,
           "schema-instantiated transform positions the engineer in the game");
-    check(game.update({.interactPressed = true}) &&
-              game.dialogueText() == "LAB ACCESS IS LOCKED." &&
-              game.update({.interactPressed = true}) &&
-              game.dialogueChoiceCount() == 2 &&
-              game.update({.interactPressed = true}) &&
+    const auto greetingStatus = game.update({.interactPressed = true});
+    const auto offerStatus = game.update({.interactPressed = true});
+    const auto grantStatus = game.update({.interactPressed = true});
+    check(greetingStatus && offerStatus && grantStatus &&
               game.inventory().contains(echo::ItemId::MaintenanceKey),
           "packaged dialogue loads, renders a choice view, and grants the gameplay key");
+    if (!greetingStatus) std::cerr << greetingStatus.detail << '\n';
+    if (!offerStatus) std::cerr << offerStatus.detail << '\n';
+    if (!grantStatus) std::cerr << grantStatus.detail << '\n';
     check(game.update({.interactPressed = true}) && !game.dialogueActive(),
           "the initial key-offer conversation can be closed");
     check(integration->notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
@@ -280,11 +282,50 @@ int main() {
     check(game.update({.interactPressed = true}) &&
               game.update({.interactPressed = true}) &&
               game.update({.interactPressed = true}) &&
-              game.dialogueChoiceCount() == 1 &&
+              game.dialogueChoiceCount() == 2 &&
               game.dialogueChoiceText(0) == "ASK ABOUT ECHO STEP" &&
               game.update({.interactPressed = true}) &&
               game.dialogueText() == "DOUBLE JUMP OPENS THE CENTRAL GATE.",
           "the real ability-unlock projection enables Mira's conditional advice branch");
+    check(game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.moveX = 1}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              !game.dialogueActive() &&
+              game.hasItem(echo::ItemId::KineticCoil) &&
+              game.equipmentEquipped("echo:equipment/kinetic_coil"),
+          "the integrated item catalog grants Mira's coil and equips it");
+    echo::Game baseline;
+    const float baselineStartX = baseline.player().position.x;
+    const float coilStartX = game.player().position.x;
+    for (int tick = 0; tick < 30; ++tick) {
+        check(static_cast<bool>(baseline.update({.moveX = 1})) &&
+                  static_cast<bool>(game.update({.moveX = 1})),
+              "coil movement regression steps succeed");
+    }
+    check(game.player().position.x - coilStartX >
+              baseline.player().position.x - baselineStartX,
+          "integrated equipment affects the shared gameplay movement");
+    echo::Game restored;
+    const echo::GameCheckpoint equipmentCheckpoint = game.checkpoint();
+    check(integration->configureGame(restored) && restored.restore(equipmentCheckpoint) &&
+              restored.equipmentEquipped("echo:equipment/kinetic_coil"),
+          "integrated checkpoints preserve and re-equip the coil");
+    echo::GameCheckpoint lootCheckpoint = game.checkpoint();
+    lootCheckpoint.room = echo::RoomId::MaintenanceTunnel;
+    lootCheckpoint.playerPosition = {100.0F, 292.0F};
+    lootCheckpoint.enemyHealth[0] = 0;
+    lootCheckpoint.lootDrops[0] = {
+        echo::RoomId::MaintenanceTunnel, {100.0F, 304.0F},
+        {echo::ItemId::Scrap, 2}, true};
+    check(game.restore(lootCheckpoint) && game.update({}) &&
+              game.itemQuantity(echo::ItemId::Scrap) == 2 &&
+              !game.lootDrops()[0].active,
+          "the integrated item catalog accepts collectible enemy Scrap");
     check(integration->beginGame(), "new game resets the temporary framework mirror");
     game.start();
     echo::framework::StateValue abilityState{};

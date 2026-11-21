@@ -12,10 +12,12 @@ Echo Framework is a statically composed C++20 foundation. PROJECT ECHO remains t
 - A bounded yyjson-backed JSON wrapper, content registry/manifest validation, versioned state saves, migration callback, storage callbacks, and an opt-in Windows Local AppData provider.
 - A fixed-capacity component metadata registry with bounded typed instances, schema validation, deterministic JSON export, and native host-side content/schema tools.
 - An optional bounded dialogue module with owned per-dialogue JSON loading, conditional choices, validated transitions, and registered action dispatch.
-- An optional bounded inventory module with a versioned item catalog and deterministic, stack-aware fixed-capacity inventories.
+- An optional bounded inventory module with a versioned item catalog and deterministic compact or stable-slot stacks. PROJECT ECHO uses a 20-slot backpack, four separate equipment slots and one physical active-item stack.
+- An optional bounded attributes module with fixed-capacity definitions and modifiers; PROJECT ECHO uses it for player health, movement, jumping, and healing.
+- An optional bounded equipment module with slot-checked loadouts and attribute modifiers; PROJECT ECHO integrates Mira's Kinetic Coil as a persistent suit upgrade.
 - Headless examples and PROJECT ECHO integrations for ability unlock, Mira's dialogue, and her configured transform.
 
-Dialogue and inventory are optional reusable modules. Combat, equipment, attributes, abilities, quests, world systems, and other genre modules remain future work; do not add placeholders. Register only module implementations that the executable links. Runtime JSON may select registered modules, but cannot load code.
+Dialogue, inventory, attributes, and equipment are optional reusable modules. Combat, reusable abilities, quests, and world systems remain future work; do not add placeholders. Register only module implementations that the executable links. Runtime JSON may select registered modules, but cannot load code.
 
 ## Build and validate
 
@@ -27,11 +29,11 @@ From the repository root on Windows:
 .\build\windows\framework\examples\core_demo\echo_framework_demo.exe
 ```
 
-The PS5 controller application is cross-compiled by the existing native Windows pipeline. Its startup config is `assets/framework/game.json`; PROJECT ECHO links the dialogue and inventory modules and loads Mira's dialogue and item catalog at startup. Mira can give an injured player a catalog-backed Health Cell, which the game consumes through its shared input action. The operator confirmed an earlier controller package works on PS5, but this newer integration needs a separate hardware test.
+The PS5 controller application is cross-compiled by the existing native Windows pipeline. Its startup config is `assets/framework/game.json`; PROJECT ECHO links the dialogue, inventory, attributes, equipment, and abilities modules and loads Mira's dialogue and item catalog at startup. The bounded player attributes drive health limits, movement speed, jump impulse, and Health Cell healing. Mira can give an injured player a catalog-backed Health Cell, or offer one persistent Kinetic Coil that auto-equips and increases movement speed. Echo Step ownership is tracked by the abilities module and controls double jump and central-gate access. This integration needs a separate PS5 hardware test.
 
 ## New game
 
-Link `EchoFramework::Core` for module lifecycle, state, actions, and conditions. Link `EchoFramework::Entities` and `EchoFramework::Events` when using their header-only facilities. Link `EchoFramework::Data` for JSON/content/save support, `EchoFramework::Narrative` for dialogue, and `EchoFramework::Inventory` for item catalogs and inventory stacks. See [modules](MODULES.md), [narrative](NARRATIVE.md), [inventory](INVENTORY.md), and [porting](PORTING.md).
+Link `EchoFramework::Core` for module lifecycle, state, actions, and conditions. Link `EchoFramework::Entities` and `EchoFramework::Events` when using their header-only facilities. Link `EchoFramework::Data` for JSON/content/save support, `EchoFramework::Narrative` for dialogue, `EchoFramework::Inventory` for item catalogs and inventory stacks, `EchoFramework::Attributes` for bounded attribute values and modifiers, `EchoFramework::Equipment` for slot-checked gear, and `EchoFramework::Abilities` for compiled ability definitions and fixed-capacity unlock sets. See [modules](MODULES.md), [narrative](NARRATIVE.md), [inventory](INVENTORY.md), [attributes](ATTRIBUTES.md), [equipment](EQUIPMENT.md), [abilities](ABILITIES.md), and [porting](PORTING.md).
 
 Component descriptors and host tools are described in [component schemas](COMPONENT_SCHEMAS.md). The deterministic, bounded manifest contract is documented in [capability manifests](CAPABILITY_MANIFEST.md); the project exporter includes metadata from the executable's statically registered components and framework modules.
 

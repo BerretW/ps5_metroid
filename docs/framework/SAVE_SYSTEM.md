@@ -10,9 +10,35 @@ On Windows, `WindowsSaveStorage` places slots under `%LOCALAPPDATA%\PROJECT_ECHO
 
 On PS5, `Ps5SaveStorage` uses `/data/project_echo/saves` by default. It creates a private save subdirectory, restricts slot names to single safe identifiers, rejects symlink/non-regular save files, writes through an exclusive temporary file, flushes file contents, and replaces a slot with `rename`. Enumeration returns bounded, NUL-separated slot names. Calls on one provider instance must be serialized. This does not claim directory-entry durability across power loss or enforce a platform save quota.
 
-The SDL application now uses the platform provider for one `autosave` slot. It stores a bounded gameplay checkpoint (room, player position/velocity/health/facing, ability, completion/death progress, enemy health and inventory), exposes **Continue** in the main menu when the slot exists, and rejects corrupt, incompatible or invalid checkpoints without modifying the running game. Version-one checkpoints migrate by granting the Maintenance Key because that route was previously open without it. It saves when a new game starts, on room/death/ability/completion/enemy-defeat/inventory changes, every 30 seconds during play, when returning to the main menu, and on orderly application shutdown. Starting a new game replaces the single autosave. Abrupt termination can lose movement since the last successful autosave; there are no manual slots or platform save quotas.
+The SDL application now uses the platform provider for one `autosave` slot. It stores a bounded gameplay checkpoint (room, player position/velocity/health/facing, ability, completion/death progress, enemy health, uncollected enemy loot and inventory), exposes **Continue** in the main menu when the slot exists, and rejects corrupt, incompatible or invalid checkpoints without modifying the running game. Version-one checkpoints migrate by granting the Maintenance Key because that route was previously open without it. It saves when a new game starts, on room/death/ability/completion/enemy-defeat/inventory changes, every 30 seconds during play, when returning to the main menu, and on orderly application shutdown. Starting a new game replaces the single autosave. Abrupt termination can lose movement since the last successful autosave; there are no manual slots or platform save quotas.
 
 The JSON dialogue integration does not change the autosave version or stored module list. An active conversation is not saved; after Continue, speaking to Mira starts it again and her choices reflect the restored inventory.
+
+Slot-based inventory introduced gameplay autosave **format 3**, with
+`inventory.layout = 2`. It requires all 20 backpack item/quantity pairs,
+an occupied-slot count, four equipment pairs and one active-item pair.
+Empty slots remain at their original indices. Decode rejects missing fields,
+invalid stack sizes, incompatible gear/active items and duplicate unique items
+before changing the game. Successful inventory transfers autosave immediately.
+Formats 1 and 2 migrate through the codec's explicit callback: version 1 keeps
+its Maintenance Key grant, while version 2 retains its existing inventory.
+Legacy compact inventories have at most eight slots and optional quantities
+(default one); game restore moves their Coil to Body and their first Health Cell
+stack to Active. Equipment is rebuilt from equipped slots, not merely owned
+backpack items. Settings retain their independent existing format.
+
+Enemy loot extends autosave to **format 4**. Each fixed enemy drop records its
+active state, room, Scrap stack and position, so a defeat or pickup cannot
+duplicate or erase a drop across Continue. Formats 1–3 migrate with empty loot
+records; old defeated enemies do not produce retroactive Scrap.
+
+Format 5 adds three enemy health values, ten bounded new loot records and
+remaining speed, jump and shield effect durations. Migration from format 4
+preserves its two Scrap drops; formats 1–3 retain their existing migration.
+All older formats start the new enemies alive. New loot records derive their
+item, room and floor height from the compiled drop table and store their active
+state and horizontal position. Enemy movement phases and projectiles are not
+saved and restart on Continue.
 
 The app also stores volume and keyboard bindings in a separate `settings` slot, leaving `autosave` untouched. Settings load at startup, save after changes and again on orderly shutdown, and are range/type checked before applying. Both slots use the same platform storage directory and versioned `SaveCodec`, but distinct game/schema IDs. The operator confirms settings persistence works on the PS5 build; keyboard rebinding itself remains unavailable to test there because PS5 keyboard input is disabled.
 

@@ -69,6 +69,23 @@ int main() {
     check(inventory.size() == 0 && inventory.valid(),
           "inventory clear restores a valid empty state");
 
+    SlotInventory<std::uint32_t, 3> slots{};
+    check(slots.add(1) && slots.add(2, 3, 3) && slots.add(3),
+          "slot inventory fills its fixed slots");
+    check(slots.remove(1) && slots.items[0] == 0 && slots.items[1] == 2 &&
+              slots.items[2] == 3 && slots.count == 2 && slots.valid(),
+          "removal leaves a hole without moving other slots");
+    check(slots.add(4) && slots.items[0] == 4 && slots.items[1] == 2,
+          "new grants reuse the first empty slot");
+    const auto fullSlots = slots;
+    check(slots.add(5).code == ErrorCode::CapacityExceeded &&
+              slots.items == fullSlots.items && slots.quantities == fullSlots.quantities,
+          "a full slot inventory rejects a grant atomically");
+    check(slots.remove(2, 3) && slots.items[1] == 0 && slots.items[2] == 3 &&
+              slots.add(3, 3, 2) && slots.items[2] == 3 && slots.quantities[2] == 3 &&
+              slots.items[1] == 0 && slots.valid(),
+          "grants fill existing stacks without compacting empty slots");
+
     for (const std::string_view invalid : {
              R"({"schemaVersion":2,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1}]})",
              R"({"schemaVersion":1,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1},{"id":"echo:item/a","key":2,"displayName":"B","maxStack":1}]})",

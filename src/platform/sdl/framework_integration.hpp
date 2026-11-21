@@ -1,8 +1,12 @@
 #pragma once
 
+#include "echo/framework/abilities.hpp"
 #include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
+#include "echo/framework/attributes.hpp"
+#include "echo/framework/equipment.hpp"
 #include "game/project_components.hpp"
+#include "game/project_abilities.hpp"
 
 #include <array>
 #include <cstddef>
@@ -74,6 +78,8 @@ private:
     framework_detail::StateModule stateModule_{};
     framework_detail::ProjectEchoModule projectModule_{};
     framework::InventoryModule inventoryModule_{};
+    framework::AttributesModule attributesModule_{};
+    framework::EquipmentModule equipmentModule_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};
@@ -81,6 +87,7 @@ private:
     framework::EventBus<8, 8, 64> events_{};
     framework_detail::UnlockListener unlockListener_{};
     framework::Subscription unlockSubscription_{};
+    framework::AbilityModule abilitiesModule_{kProjectAbilityDefinitions};
     std::array<float, 2> technicianPosition_{};
     float technicianInteractionReach_{kDefaultInteractionReach};
     bool initialized_{};

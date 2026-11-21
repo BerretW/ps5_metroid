@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "echo:dialogue/engineer",
-  "version": 4,
+  "version": 6,
   "startNode": "greeting",
   "nodes": [
     {
@@ -120,6 +120,25 @@
               {"name": "item", "value": "echo:item/health_cell"}
             ]
           }
+        },
+        {
+          "id": "take_kinetic_coil",
+          "label": "TAKE KINETIC COIL",
+          "labelCs": "VEZMI SI CÍVKU",
+          "targetNode": "kinetic_coil_granted",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "equipment.kinetic_coil",
+            "comparison": "eq",
+            "value": false
+          },
+          "onSelect": {
+            "id": "echo.inventory.grant",
+            "parameters": [
+              {"name": "item", "value": "echo:item/kinetic_coil"}
+            ]
+          }
         }
       ]
     },
@@ -127,8 +146,15 @@
       "id": "health_cell_granted",
       "speaker": "ENGINEER MIRA",
       "speakerCs": "INŽENÝRKA MÍRA",
-      "text": "USE THE HEALTH CELL WHEN YOU NEED IT.",
-      "textCs": "POUZIJ ZDRAVOTNI CLANEK AZ BUDE TREBA."
+      "text": "PUT THE CELL IN YOUR ACTIVE SLOT.",
+      "textCs": "DEJ ČLÁNEK DO AKTIVNÍHO SLOTU."
+    },
+    {
+      "id": "kinetic_coil_granted",
+      "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
+      "text": "THE KINETIC COIL BOOSTS YOUR MOVEMENT SPEED.",
+      "textCs": "CÍVKA ZVÝŠÍ TVOU RYCHLOST."
     },
     {
       "id": "echo_step_hint",

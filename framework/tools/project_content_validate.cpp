@@ -1,4 +1,7 @@
 #include "capability_manifest_input.hpp"
+#include "echo/framework/abilities.hpp"
+#include "echo/framework/attributes.hpp"
+#include "echo/framework/equipment.hpp"
 #include "echo/framework/narrative.hpp"
 #include "game/game.hpp"
 #include "game/project_components.hpp"
@@ -284,7 +287,8 @@ constexpr std::array<std::string_view, 2> kComponentFields{
                 }
                 if (item == nullptr || item->value.type != ValueType::String ||
                     (item->value.stringValue() != "echo:item/maintenance_key" &&
-                     item->value.stringValue() != "echo:item/health_cell")) {
+                     item->value.stringValue() != "echo:item/health_cell" &&
+                     item->value.stringValue() != "echo:item/kinetic_coil")) {
                     return {ErrorCode::InvalidValue, request.id,
                                 "Dialogue grants must reference a compiled project item."};
                 }
@@ -335,7 +339,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateGameConfig(
     JsonValue root, const ComponentTypeRegistry& components,
-    const std::array<CapabilityManifestFragment, 4>& fragments,
+    const std::array<CapabilityManifestFragment, 7>& fragments,
     const CapabilityManifestFragment& project,
     const ItemCatalog& itemCatalog,
     ContentRegistry& resources) noexcept {
@@ -369,6 +373,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     for (const std::string_view requiredModule :
          {std::string_view{"echo.state"},
           std::string_view{"echo.narrative.dialogue"},
+          std::string_view{"echo.rpg.abilities"},
           std::string_view{"echo.project_echo"}}) {
         if (std::find(selected.begin(), selected.begin() +
                           static_cast<std::ptrdiff_t>(modules.size()),
@@ -420,6 +425,17 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     status = requireResource(resources, "echo:item/health_cell",
                              ResourceType::Item);
     if (!status) return status;
+    status = requireResource(resources, "echo:item/kinetic_coil",
+                             ResourceType::Item);
+    if (!status) return status;
+    status = requireResource(resources, "echo:item/scrap", ResourceType::Item);
+    if (!status) return status;
+    for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
+         id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
+        status = requireResource(resources, echo::Game::itemResource(static_cast<echo::ItemId>(id)),
+                                 ResourceType::Item);
+        if (!status) return status;
+    }
     status = requireResource(resources, "echo:dialogue/engineer",
                              ResourceType::Dialogue);
     if (!status) return status;
@@ -499,10 +515,13 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    const std::array<CapabilityManifestFragment, 4> fragments{{
+    const std::array<CapabilityManifestFragment, 7> fragments{{
         frameworkCapabilityManifestFragment(),
         narrativeCapabilityManifestFragment(),
         inventoryCapabilityManifestFragment(),
+        attributesCapabilityManifestFragment(),
+        equipmentCapabilityManifestFragment(),
+        abilitiesCapabilityManifestFragment(),
         echo::projectCapabilityManifestFragment(),
     }};
     const CapabilityManifestFragment project =
@@ -538,6 +557,35 @@ int main(int argc, char** argv) {
         tools::reportStatus({ErrorCode::MissingDependency, "echo:item/health_cell",
                              "Item catalog must define the compiled three-stack health cell."});
         return 1;
+    }
+    const ItemDefinition* kineticCoil =
+        itemModule.catalog().find("echo:item/kinetic_coil");
+    if (kineticCoil == nullptr ||
+        kineticCoil->key != static_cast<std::uint32_t>(echo::ItemId::KineticCoil) ||
+        kineticCoil->maxStack != 1) {
+        tools::reportStatus({ErrorCode::MissingDependency, "echo:item/kinetic_coil",
+                             "Item catalog must define the compiled single-slot kinetic coil."});
+        return 1;
+    }
+    const ItemDefinition* scrap = itemModule.catalog().find("echo:item/scrap");
+    if (scrap == nullptr ||
+        scrap->key != static_cast<std::uint32_t>(echo::ItemId::Scrap) ||
+        scrap->maxStack != 99) {
+        tools::reportStatus({ErrorCode::MissingDependency, "echo:item/scrap",
+                             "Item catalog must define the compiled 99-stack enemy loot."});
+        return 1;
+    }
+    for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
+         id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
+        const auto itemId = static_cast<echo::ItemId>(id);
+        const std::string_view resource = echo::Game::itemResource(itemId);
+        const ItemDefinition* item = itemModule.catalog().find(resource);
+        if (item == nullptr || item->key != id ||
+            item->maxStack != echo::Game::itemStackLimit(itemId)) {
+            tools::reportStatus({ErrorCode::MissingDependency, resource,
+                                 "Item catalog must match the compiled gameplay item."});
+            return 1;
+        }
     }
 
     status = tools::readJsonFile(argv[4], manifestDocument, error);
@@ -650,7 +698,8 @@ int main(int argc, char** argv) {
     std::printf("Validated PROJECT ECHO content: %zu modules, %zu resources, "
                 "%zu dialogue nodes.\n",
                 fragments[0].modules.size() + fragments[1].modules.size() +
-                    fragments[2].modules.size() + fragments[3].modules.size(),
+                    fragments[2].modules.size() + fragments[3].modules.size() +
+                    fragments[4].modules.size() + fragments[5].modules.size(),
                 resources.size(), definition->nodes.size());
     return 0;
 }

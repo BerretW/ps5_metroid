@@ -72,6 +72,24 @@ try {
     [IO.File]::WriteAllText($gameConfig, "{ not valid json")
     Expect-Rejection "Invalid framework game configuration"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.modules = @($gameConfigData.modules | Where-Object {
+        $_ -ne "echo.rpg.abilities"
+    })
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "required game modules or resources are missing"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.resources = @($gameConfigData.resources | Where-Object {
+        $_.id -ne "echo:ability/echo_step"
+    })
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "required game modules or resources are missing"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $dialogue = Join-Path $fixture "assets\framework\engineer.json"
     $originalDialogue = [IO.File]::ReadAllBytes($dialogue)
     [IO.File]::WriteAllText($dialogue, "{ not valid json")
@@ -93,6 +111,14 @@ try {
     [IO.File]::WriteAllText($dialogue, $invalidHealthCellCondition,
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "Health Cell offer"
+    $invalidCoilCondition = $validDialogue.Replace(
+        '"key": "equipment.kinetic_coil"', '"key": "player.unknown_flag"')
+    if ($invalidCoilCondition -eq $validDialogue) {
+        throw "Could not create an invalid Kinetic Coil dialogue fixture."
+    }
+    [IO.File]::WriteAllText($dialogue, $invalidCoilCondition,
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Kinetic Coil offer"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
     Remove-Item -LiteralPath $dialogue -Force
     Expect-Rejection "Packaged engineer dialogue is missing"
@@ -102,6 +128,33 @@ try {
     $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
     $itemDocument.items = @($itemDocument.items | Where-Object {
         $_.id -ne "echo:item/health_cell"
+    })
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $itemDocument.items = @($itemDocument.items | Where-Object {
+        $_.id -ne "echo:item/scrap"
+    })
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $itemDocument.items = @($itemDocument.items | Where-Object {
+        $_.id -ne "echo:item/kinetic_coil"
+    })
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $itemDocument.items = @($itemDocument.items | Where-Object {
+        $_.id -ne "echo:item/jump_visor"
     })
     [IO.File]::WriteAllText($itemCatalog,
         (ConvertTo-Json -InputObject $itemDocument -Depth 16),
@@ -147,4 +200,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, invalid ability/Health Cell conditions, missing item definitions/dialogue/catalog, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, digest corruption, signed misaligned ELF."

@@ -53,6 +53,13 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'unknown module'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.modules = @($config.modules | Where-Object {
+        $_ -ne 'echo.rpg.abilities'
+    })
+    $path = Write-JsonFixture 'missing-abilities-module.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'missing abilities module'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.technician.interaction.horizontalReach = 129
     $path = Write-JsonFixture 'invalid-component.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'out-of-range component'
@@ -63,6 +70,13 @@ try {
     })
     $path = Write-JsonFixture 'missing-resource.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'missing resource dependency'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.resources = @($config.resources | Where-Object {
+        $_.id -ne 'echo:ability/echo_step'
+    })
+    $path = Write-JsonFixture 'missing-ability-resource.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'missing ability resource'
 
     $dialogueData = Get-Content -LiteralPath $Dialogue -Raw | ConvertFrom-Json
     $dialogueData.id = 'echo:dialogue/not_engineer'
@@ -105,12 +119,33 @@ try {
     $path = Write-JsonFixture 'missing-health-cell.json' $itemData
     Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing Health Cell definition' $path
 
+    $itemData = Get-Content -LiteralPath $ItemCatalog -Raw | ConvertFrom-Json
+    $itemData.items = @($itemData.items | Where-Object {
+        $_.id -ne 'echo:item/kinetic_coil'
+    })
+    $path = Write-JsonFixture 'missing-kinetic-coil.json' $itemData
+    Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing Kinetic Coil definition' $path
+
+    $itemData = Get-Content -LiteralPath $ItemCatalog -Raw | ConvertFrom-Json
+    $itemData.items = @($itemData.items | Where-Object {
+        $_.id -ne 'echo:item/scrap'
+    })
+    $path = Write-JsonFixture 'missing-scrap.json' $itemData
+    Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing enemy loot definition' $path
+
+    $itemData = Get-Content -LiteralPath $ItemCatalog -Raw | ConvertFrom-Json
+    $itemData.items = @($itemData.items | Where-Object {
+        $_.id -ne 'echo:item/jump_visor'
+    })
+    $path = Write-JsonFixture 'missing-jump-visor.json' $itemData
+    Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing new loot definition' $path
+
     $oversizedPath = Join-Path $testDirectory 'oversized-game.json'
     [System.IO.File]::WriteAllText($oversizedPath, (' ' * 16385), $encoding)
     $createdFiles.Add($oversizedPath)
     Invoke-Validator $oversizedPath $Dialogue $Manifest $false 'oversized game config'
 
-    Write-Output 'Project content validator accepted valid content and rejected 11 invalid cases.'
+    Write-Output 'Project content validator accepted valid content and rejected 15 invalid cases.'
 }
 finally {
     foreach ($path in $createdFiles) {

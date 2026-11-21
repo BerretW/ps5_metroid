@@ -6,7 +6,10 @@
 | Jump / double jump | Space (configurable) | A | Cross × |
 | Fire | J (configurable) | X | Square □ |
 | Interact / advance dialogue / use door | E (configurable) | Y | Triangle △ |
-| Use Health Cell | H | Right shoulder | R1 |
+| Use active item | H | Right shoulder | R1 |
+| Open inventory | I (also from pause) | Y while paused | Triangle △ while paused |
+| Inventory navigate / select / move | Arrows/WASD, Enter/Space | D-pad, A | D-pad, Cross × |
+| Inventory cancel selection / close to pause | Escape / I | B / Start | Circle ○ / Options |
 | Select dialogue choice | Left/Right arrows or A/D | Left stick or D-pad left/right | Left stick or D-pad left/right |
 | Pause / resume | Escape / Enter | Start / A | Options / Cross × |
 | Toggle map | M | Not assigned | Touchpad press |
@@ -22,6 +25,54 @@ Options lets you select EN or CS for Mira's dialogue with left/right (D-pad left
 
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
 
-After collecting a Health Cell from Mira while injured, press H on keyboard or R1 on DualSense to restore up to two health. A cell is not consumed at full health. Mira only offers another while you are injured and have none in inventory. Her horizontal interaction reach is configurable in [game.json](../assets/framework/game.json); see [component schemas](framework/COMPONENT_SCHEMAS.md) for limits and how to try a different value.
+Inventory contains 20 fixed backpack slots, separate Head/Body/Weapon/Accessory
+equipment slots, and one physical active-item stack. Select an occupied slot,
+confirm, navigate to a destination, then confirm to move, swap or merge a
+complete stack. Incompatible transfers and stack overflow do not change either
+slot. Back first cancels the selected source; pressing it again closes to pause.
+Inventory freezes gameplay and successful moves autosave. If I is already bound
+to jump/fire/interact, that action keeps working during gameplay; open inventory
+with I from pause instead.
+
+After collecting a Health Cell from Mira while injured, move its backpack stack
+to Active, then press H or R1 to restore up to two health. Backpack cells cannot
+be used directly. A cell is not consumed at full health; the active stack holds
+up to three. Mira only offers another while injured and owning none across
+compartments. Her horizontal interaction reach is configurable in
+[game.json](../assets/framework/game.json); see
+[component schemas](framework/COMPONENT_SCHEMAS.md) for limits.
+
+Equipment auto-equips when its compatible slot is empty; otherwise it goes to
+the backpack. Move it to the correct slot to use its bonus. Mira's Kinetic Coil
+and the Vital Vest both use Body, so only one can be equipped at a time. Legacy
+saves move their Coil to Body and first cell stack to Active automatically.
+
+Defeated enemies leave visible Scrap piles where they fall: two in the
+Maintenance Tunnel and three in the Power Station. Walk over a pile to collect
+it; Scrap stacks to 99 and its total appears in the HUD. If the backpack is
+full, the pile stays available until you make room.
+
+Three additional enemies carry ten new items. The orange-marked Charger in the
+Maintenance Tunnel pursues nearby players; the cyan Armored enemy in the Power
+Station periodically stops and guards (white marker); the red Sentry in the
+Research Laboratory fires projectiles. Their drops are collected by touch:
+
+| Enemy | Item | Effect |
+| --- | --- | --- |
+| Charger | Jump Visor | Head: jump impulse +40 |
+| Charger | Med Patch | Active: heal 1 |
+| Charger | Speed Charge | Active: speed +25 for 8 seconds |
+| Armored | Vital Vest | Body: maximum health +1 |
+| Armored | Power Barrel | Weapon: shot damage +1 |
+| Armored | Med Kit | Active: heal up to 4 |
+| Sentry | Sprint Module | Accessory: speed +15 |
+| Sentry | Shield Cell | Active: prevent damage for 4 seconds |
+| Sentry | Jump Charge | Active: jump impulse +60 for 8 seconds |
+| Sentry | Blast Charge | Active: deal 2 damage to nearby enemies |
+
+Move consumables from the backpack to Active before using H/R1. Healing items
+are not consumed at full health; other charges are consumed on use. Armored
+guard reduces each hit by one damage. Item descriptions also appear in the
+inventory screen.
 
 PS5 physical keyboard and IME support remain disabled. SDL's PS5 backend maps cross to A, circle to B, square to X, triangle to Y, touchpad to TOUCHPAD and Options to START. The lab queries actual SDL backend capabilities; its rumble/lightbar tests need hardware confirmation. See [DualSense Lab](DUALSENSE_LAB.md), [compatibility findings](DUALSENSE_COMPATIBILITY.md) and the [hardware checklist](DUALSENSE_HARDWARE_TESTS.md).

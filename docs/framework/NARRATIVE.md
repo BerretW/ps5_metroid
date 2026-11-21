@@ -65,9 +65,14 @@ The module does not persist conversation progress or execute scripts from conten
 
 ## PROJECT ECHO integration
 
-The reusable module is selectable with `ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON` and depends on `ECHO_FRAMEWORK_ENABLE_DATA`. PROJECT ECHO requires and links both. Startup loads [game configuration](../../assets/framework/game.json), [Mira's dialogue](../../assets/framework/engineer.json), and, when selected, the [item catalog](../../assets/framework/items.json), each limited to 16 KiB. It fails explicitly if required content or modules are invalid. The game projects ownership into `inventory.maintenance_key`; its compiled `echo.inventory.grant` action accepts only the compiled key resource and resolves the matching definition in the selected inventory module. Content cannot execute scripts or select arbitrary actions.
+The reusable module is selectable with `ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON` and depends on `ECHO_FRAMEWORK_ENABLE_DATA`. PROJECT ECHO requires and links both. Startup loads [game configuration](../../assets/framework/game.json), [Mira's dialogue](../../assets/framework/engineer.json), and, when selected, the [item catalog](../../assets/framework/items.json), each limited to 16 KiB. It fails explicitly if required content or modules are invalid. The game projects ownership into `inventory.maintenance_key`; its compiled `echo.inventory.grant` action accepts only compiled project items and resolves matching definitions in the selected inventory module. Content cannot execute scripts or select arbitrary actions.
 
-Mira's content revision 4 includes an Echo Step advice choice gated by the existing `player.echo_step_unlocked` state, plus a Health Cell offer gated on the player being injured and not already carrying a cell. The SDL host mirrors these values from authoritative game health and inventory before a conversation. The cell grant is resolved through the selected item catalog; using it consumes one and heals up to two health.
+Mira's content revision 6 includes Echo Step advice, conditional Health Cell and
+unique Kinetic Coil offers. Conditions reflect authoritative health and ownership
+across backpack, equipment and active compartments; storing the Coil unequipped
+does not enable another grant. New cells enter the backpack and Mira instructs
+the player to move them to Active before use. H/R1 consumes one active cell and
+heals up to two health. The Coil auto-equips into an empty Body slot.
 
 The current dialogue panel supports single-line ASCII letters, digits, space, `+`, `%`, `:`, `-`, `.`, `/`, and the Czech accented letters rendered by its bitmap font. Speaker names may contain at most 39 Unicode code points, lines 80, and choices 72; the adapter rejects malformed UTF-8, unsupported glyphs, or oversized text. PROJECT ECHO's Options screen selects EN/CS, and the choice is stored with existing settings; old settings without a language field default to English.
 

@@ -110,6 +110,7 @@ enum class Screen {
     MainMenu,
     Options,
     Playing,
+    Inventory,
     DualSenseLab
 };
 
@@ -124,7 +125,7 @@ using Bindings = echo::platform::Bindings;
 
 constexpr std::string_view kGameId = "echo.project_echo";
 constexpr std::string_view kAutosaveSlot = "autosave";
-constexpr std::uint32_t kSaveFormatVersion = 2;
+constexpr std::uint32_t kSaveFormatVersion = 5;
 constexpr std::string_view kSettingsGameId = "echo.project_echo.settings";
 constexpr std::string_view kSettingsSlot = "settings";
 constexpr std::uint32_t kSettingsFormatVersion = 1;
@@ -422,6 +423,10 @@ struct SoundState {
     int enemyHealth{};
     int livingEnemies{};
     std::uint32_t healthCellCount{};
+    std::uint32_t scrapCount{};
+    std::array<std::uint32_t, static_cast<std::size_t>(echo::ItemId::Count)> itemCounts{};
+    std::array<echo::ItemStack, echo::Game::kInventorySlotCount> inventorySlots{};
+    unsigned activeLoot{};
     echo::RoomId room{};
     bool abilityCollected{};
     bool hasMaintenanceKey{};
@@ -447,8 +452,18 @@ SoundState captureSoundState(const echo::Game& game) noexcept {
     state.deaths = game.deaths();
     state.room = game.roomId();
     state.abilityCollected = game.abilityCollected();
-    state.hasMaintenanceKey = game.inventory().contains(echo::ItemId::MaintenanceKey);
-    state.healthCellCount = game.inventory().quantity(echo::ItemId::HealthCell);
+    state.hasMaintenanceKey = game.hasItem(echo::ItemId::MaintenanceKey);
+    state.healthCellCount = game.itemQuantity(echo::ItemId::HealthCell);
+    state.scrapCount = game.itemQuantity(echo::ItemId::Scrap);
+    for (std::size_t index = 1; index < state.itemCounts.size(); ++index) {
+        state.itemCounts[index] = game.itemQuantity(static_cast<echo::ItemId>(index));
+    }
+    for (std::size_t index = 0; index < state.inventorySlots.size(); ++index) {
+        state.inventorySlots[index] = game.inventorySlot(index);
+    }
+    for (std::size_t index = 0; index < game.lootDrops().size(); ++index) {
+        if (game.lootDrops()[index].active) state.activeLoot |= 1U << index;
+    }
     state.gateBlocked = game.gateBlocked();
     state.completed = game.completed();
     return state;
@@ -476,10 +491,15 @@ unsigned soundEventsBetween(const SoundState& before, const SoundState& after) n
     if ((after.abilityCollected && !before.abilityCollected) ||
         (after.hasMaintenanceKey && !before.hasMaintenanceKey) ||
         after.healthCellCount > before.healthCellCount ||
+        after.scrapCount > before.scrapCount ||
         after.health > before.health ||
         (after.completed && !before.completed)) {
         events |= bit(SoundId::Pickup);
     }
+    for (std::size_t index = 1; index < before.itemCounts.size(); ++index) {
+        if (after.itemCounts[index] > before.itemCounts[index]) events |= bit(SoundId::Pickup);
+    }
+    if ((before.activeLoot & ~after.activeLoot) != 0U) events |= bit(SoundId::Pickup);
     if (after.room != before.room && !died) {
         events |= bit(SoundId::Door);
     }
@@ -780,6 +800,8 @@ int main(int, char**) {
     bool pendingInteract = false;
     bool pendingUseItem = false;
     bool pendingPause = false;
+    echo::platform::InventoryMenu inventoryMenu{};
+    std::array<char, 128> inventoryMessage{};
     bool gameSessionActive = false;
     double secondsSinceAutosave = 0.0;
     std::array<bool, SDL_NUM_SCANCODES> keys{};
@@ -1387,6 +1409,53 @@ int main(int, char**) {
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
     double accumulator = 0.0;
 
+    const auto openInventory = [&]() {
+        inventoryMenu.reset();
+        inventoryMessage.fill(0);
+        pendingJump = false;
+        pendingInteract = false;
+        pendingUseItem = false;
+        pendingPause = false;
+        keys.fill(false);
+        accumulator = 0.0;
+        screen = Screen::Inventory;
+    };
+    const auto handleInventory = [&](echo::platform::InventoryCommand command) {
+        using echo::platform::InventoryCommand;
+        if (command == InventoryCommand::Back) {
+            if (inventoryMenu.back()) {
+                screen = Screen::Playing;
+                paused = true;
+            }
+            inventoryMessage.fill(0);
+        } else if (command == InventoryCommand::Confirm) {
+            const bool moving =
+                inventoryMenu.source != echo::platform::InventoryMenu::kNoSource &&
+                inventoryMenu.source != inventoryMenu.selected;
+            const echo::framework::Status status = inventoryMenu.confirm(game);
+            if (!status) {
+                logMessage("Inventory move failed");
+                logMessage(status.detail);
+                SDL_snprintf(inventoryMessage.data(), inventoryMessage.size(), "%.*s",
+                             static_cast<int>(status.detail.size()), status.detail.data());
+            } else {
+                SDL_snprintf(inventoryMessage.data(), inventoryMessage.size(), "%s",
+                             moving ? "ITEM MOVED" :
+                             inventoryMenu.source == echo::platform::InventoryMenu::kNoSource
+                                 ? "SELECTION CLEARED" : "SELECT DESTINATION");
+                if (moving && !saveCurrentGame()) {
+                    SDL_snprintf(inventoryMessage.data(), inventoryMessage.size(),
+                                 "%s", "ITEM MOVED - SAVE FAILED");
+                }
+            }
+        } else {
+            inventoryMenu.navigate(command == InventoryCommand::Left ? -1 :
+                                   command == InventoryCommand::Right ? 1 : 0,
+                                   command == InventoryCommand::Up ? -1 :
+                                   command == InventoryCommand::Down ? 1 : 0);
+        }
+    };
+
     while (running) {
         if (screen == Screen::DualSenseLab) {
             refreshControllerSnapshot();
@@ -1499,6 +1568,22 @@ int main(int, char**) {
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
                         adjustDeadZone(-1);
                     }
+                } else if (screen == Screen::Inventory) {
+                    using echo::platform::InventoryCommand;
+                    if (button == SDL_CONTROLLER_BUTTON_DPAD_LEFT) {
+                        handleInventory(InventoryCommand::Left);
+                    } else if (button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) {
+                        handleInventory(InventoryCommand::Right);
+                    } else if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
+                        handleInventory(InventoryCommand::Up);
+                    } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
+                        handleInventory(InventoryCommand::Down);
+                    } else if (button == SDL_CONTROLLER_BUTTON_A) {
+                        handleInventory(InventoryCommand::Confirm);
+                    } else if (button == SDL_CONTROLLER_BUTTON_B ||
+                               button == SDL_CONTROLLER_BUTTON_START) {
+                        handleInventory(InventoryCommand::Back);
+                    }
                 } else if (screen == Screen::Playing) {
                     if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
                         button == SDL_CONTROLLER_BUTTON_B && paused) {
@@ -1524,6 +1609,8 @@ int main(int, char**) {
                     } else if (!paused &&
                                button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
                         pendingUseItem = true;
+                    } else if (paused && button == SDL_CONTROLLER_BUTTON_Y) {
+                        openInventory();
                     } else if (paused && button == SDL_CONTROLLER_BUTTON_A) {
                         paused = false;
                     }
@@ -1635,8 +1722,26 @@ int main(int, char**) {
                 } else if (key == SDLK_DOWN) {
                     adjustDeadZone(-1);
                 }
+            } else if (screen == Screen::Inventory) {
+                using echo::platform::InventoryCommand;
+                if (key == SDLK_LEFT || key == SDLK_a) {
+                    handleInventory(InventoryCommand::Left);
+                } else if (key == SDLK_RIGHT || key == SDLK_d) {
+                    handleInventory(InventoryCommand::Right);
+                } else if (key == SDLK_UP || key == SDLK_w) {
+                    handleInventory(InventoryCommand::Up);
+                } else if (key == SDLK_DOWN || key == SDLK_s) {
+                    handleInventory(InventoryCommand::Down);
+                } else if (key == SDLK_RETURN || key == SDLK_SPACE) {
+                    handleInventory(InventoryCommand::Confirm);
+                } else if (key == SDLK_ESCAPE || key == SDLK_i) {
+                    handleInventory(InventoryCommand::Back);
+                }
             } else if (screen == Screen::Playing) {
-                if (key == SDLK_ESCAPE) {
+                if (key == SDLK_i && (paused ||
+                    (bindings.jump != key && bindings.shoot != key && bindings.interact != key))) {
+                    openInventory();
+                } else if (key == SDLK_ESCAPE) {
                     if (paused) {
                         if (saveCurrentGame()) {
                             gameSessionActive = false;
@@ -1664,7 +1769,8 @@ int main(int, char**) {
         const std::uint64_t now = SDL_GetPerformanceCounter();
         const double elapsed = std::min(static_cast<double>(now - previousCounter) / frequency, 0.25);
         previousCounter = now;
-        accumulator += elapsed;
+        if (screen == Screen::Playing && !paused) accumulator += elapsed;
+        else accumulator = 0.0;
         if (gameSessionActive && screen == Screen::Playing) {
             secondsSinceAutosave += elapsed;
         }
@@ -1736,6 +1842,10 @@ int main(int, char**) {
                 after.abilityCollected != before.abilityCollected ||
                 after.hasMaintenanceKey != before.hasMaintenanceKey ||
                 after.healthCellCount != before.healthCellCount ||
+                after.scrapCount != before.scrapCount ||
+                after.itemCounts != before.itemCounts ||
+                after.inventorySlots != before.inventorySlots ||
+                after.activeLoot != before.activeLoot ||
                 after.completed != before.completed) {
                 (void)saveCurrentGame();
             }
@@ -1763,6 +1873,8 @@ int main(int, char**) {
         } else if (screen == Screen::DualSenseLab) {
             refreshControllerSnapshot();
             renderer.drawDualSenseLab(controllerSnapshot, SDL_NumJoysticks());
+        } else if (screen == Screen::Inventory) {
+            renderer.drawInventory(game, inventoryMenu, inventoryMessage.data());
         } else {
             const auto jump = keyName(bindings.jump);
             const auto shoot = keyName(bindings.shoot);

@@ -12,6 +12,28 @@
       "key": 2,
       "displayName": "Health Cell",
       "maxStack": 3
-    }
+    },
+    {
+      "id": "echo:item/kinetic_coil",
+      "key": 3,
+      "displayName": "Kinetic Coil",
+      "maxStack": 1
+    },
+    {
+      "id": "echo:item/scrap",
+      "key": 4,
+      "displayName": "Scrap",
+      "maxStack": 99
+    },
+    {"id":"echo:item/jump_visor","key":5,"displayName":"Jump Visor","maxStack":1},
+    {"id":"echo:item/vital_vest","key":6,"displayName":"Vital Vest","maxStack":1},
+    {"id":"echo:item/power_barrel","key":7,"displayName":"Power Barrel","maxStack":1},
+    {"id":"echo:item/sprint_module","key":8,"displayName":"Sprint Module","maxStack":1},
+    {"id":"echo:item/med_patch","key":9,"displayName":"Med Patch","maxStack":3},
+    {"id":"echo:item/med_kit","key":10,"displayName":"Med Kit","maxStack":3},
+    {"id":"echo:item/shield_cell","key":11,"displayName":"Shield Cell","maxStack":3},
+    {"id":"echo:item/speed_charge","key":12,"displayName":"Speed Charge","maxStack":3},
+    {"id":"echo:item/jump_charge","key":13,"displayName":"Jump Charge","maxStack":3},
+    {"id":"echo:item/blast_charge","key":14,"displayName":"Blast Charge","maxStack":3}
   ]
 }

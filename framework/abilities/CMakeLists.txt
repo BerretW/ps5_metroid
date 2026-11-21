@@ -1,0 +1,11 @@
+add_library(echo_framework_abilities STATIC src/abilities.cpp)
+add_library(EchoFramework::Abilities ALIAS echo_framework_abilities)
+target_include_directories(echo_framework_abilities PUBLIC include)
+target_compile_features(echo_framework_abilities PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_abilities PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_abilities PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_abilities PRIVATE -Wall -Wextra -Wpedantic)
+endif()

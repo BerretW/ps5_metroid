@@ -2,6 +2,7 @@
 
 #include "game/game.hpp"
 #include "input/dualsense_diagnostics.hpp"
+#include "platform/sdl/inventory_menu.hpp"
 
 #include <SDL.h>
 
@@ -31,6 +32,8 @@ public:
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey) noexcept;
+    void drawInventory(const Game& game, const InventoryMenu& menu,
+                       std::string_view message) noexcept;
     void drawDualSenseLab(const input::ControllerSnapshot& controller,
                           int connectedControllers) noexcept;
 

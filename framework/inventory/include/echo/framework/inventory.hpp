@@ -37,7 +37,7 @@ private:
     std::size_t count_{};
 };
 
-template <typename ItemId, std::size_t Capacity>
+template <typename ItemId, std::size_t Capacity, bool StableSlots = false>
 class FixedInventory {
     static_assert(Capacity > 0);
 
@@ -46,9 +46,9 @@ public:
 
     [[nodiscard]] Status add(ItemId item, std::uint16_t maxStack = 1,
                              std::uint16_t amount = 1) noexcept {
-        if (count > Capacity) {
+        if (!valid()) {
             return {ErrorCode::InvalidState, "inventory",
-                    "Inventory slot count exceeds its fixed capacity."};
+                    "Inventory slots or occupied count are invalid."};
         }
         if (item == ItemId{} || maxStack == 0 || amount == 0) {
             return {ErrorCode::InvalidValue, "inventory.item",
@@ -56,7 +56,7 @@ public:
         }
 
         std::uint32_t room = 0;
-        for (std::size_t index = 0; index < count; ++index) {
+        for (std::size_t index = 0; index < storageLimit(); ++index) {
             if (items[index] == item) {
                 if (quantities[index] > maxStack) {
                     return {ErrorCode::InvalidState, "inventory.item",
@@ -74,18 +74,19 @@ public:
         }
 
         std::uint32_t remaining = amount;
-        for (std::size_t index = 0; index < count && remaining != 0; ++index) {
+        for (std::size_t index = 0; index < storageLimit() && remaining != 0; ++index) {
             if (items[index] != item) continue;
             const std::uint16_t added = static_cast<std::uint16_t>(
                 std::min<std::uint32_t>(remaining, maxStack - quantities[index]));
             quantities[index] = static_cast<std::uint16_t>(quantities[index] + added);
             remaining -= added;
         }
-        while (remaining != 0) {
+        for (std::size_t index = 0; index < Capacity && remaining != 0; ++index) {
+            if (items[index] != ItemId{}) continue;
             const std::uint16_t added =
                 static_cast<std::uint16_t>(std::min<std::uint32_t>(remaining, maxStack));
-            items[count] = item;
-            quantities[count] = added;
+            items[index] = item;
+            quantities[index] = added;
             ++count;
             remaining -= added;
         }
@@ -93,9 +94,9 @@ public:
     }
 
     [[nodiscard]] Status remove(ItemId item, std::uint16_t amount = 1) noexcept {
-        if (count > Capacity) {
+        if (!valid()) {
             return {ErrorCode::InvalidState, "inventory",
-                    "Inventory slot count exceeds its fixed capacity."};
+                    "Inventory slots or occupied count are invalid."};
         }
         if (item == ItemId{} || amount == 0) {
             return {ErrorCode::InvalidValue, "inventory.item",
@@ -106,7 +107,7 @@ public:
                     "Inventory does not contain the requested quantity."};
         }
         std::uint32_t remaining = amount;
-        for (std::size_t index = 0; index < count && remaining != 0;) {
+        for (std::size_t index = 0; index < storageLimit() && remaining != 0;) {
             if (items[index] != item) {
                 ++index;
                 continue;
@@ -117,6 +118,7 @@ public:
             remaining -= removed;
             if (quantities[index] == 0) {
                 erase(index);
+                if constexpr (StableSlots) ++index;
             } else {
                 ++index;
             }
@@ -131,7 +133,7 @@ public:
     [[nodiscard]] std::uint32_t quantity(ItemId item) const noexcept {
         if (count > Capacity) return 0;
         std::uint32_t total = 0;
-        for (std::size_t index = 0; index < count; ++index) {
+        for (std::size_t index = 0; index < storageLimit(); ++index) {
             if (items[index] == item) total += quantities[index];
         }
         return total;
@@ -147,13 +149,22 @@ public:
 
     [[nodiscard]] bool valid() const noexcept {
         if (count > Capacity) return false;
-        for (std::size_t index = 0; index < count; ++index) {
-            if (items[index] == ItemId{} || quantities[index] == 0) return false;
+        if constexpr (StableSlots) {
+            std::size_t occupied = 0;
+            for (std::size_t index = 0; index < Capacity; ++index) {
+                if ((items[index] == ItemId{}) != (quantities[index] == 0)) return false;
+                if (items[index] != ItemId{}) ++occupied;
+            }
+            return occupied == count;
+        } else {
+            for (std::size_t index = 0; index < count; ++index) {
+                if (items[index] == ItemId{} || quantities[index] == 0) return false;
+            }
+            for (std::size_t index = count; index < Capacity; ++index) {
+                if (items[index] != ItemId{} || quantities[index] != 0) return false;
+            }
+            return true;
         }
-        for (std::size_t index = count; index < Capacity; ++index) {
-            if (items[index] != ItemId{} || quantities[index] != 0) return false;
-        }
-        return true;
     }
 
     std::array<ItemId, Capacity> items{};
@@ -161,16 +172,29 @@ public:
     std::size_t count{};
 
 private:
+    [[nodiscard]] std::size_t storageLimit() const noexcept {
+        return StableSlots ? Capacity : count;
+    }
+
     void erase(std::size_t index) noexcept {
-        for (std::size_t move = index + 1; move < count; ++move) {
-            items[move - 1] = items[move];
-            quantities[move - 1] = quantities[move];
+        if constexpr (StableSlots) {
+            items[index] = {};
+            quantities[index] = 0;
+            --count;
+        } else {
+            for (std::size_t move = index + 1; move < count; ++move) {
+                items[move - 1] = items[move];
+                quantities[move - 1] = quantities[move];
+            }
+            --count;
+            items[count] = {};
+            quantities[count] = 0;
         }
-        --count;
-        items[count] = {};
-        quantities[count] = 0;
     }
 };
+
+template <typename ItemId, std::size_t Capacity>
+using SlotInventory = FixedInventory<ItemId, Capacity, true>;
 
 class InventoryModule final : public IModule {
 public:

@@ -26,10 +26,21 @@ The generic host editor has a manifest discovery/selection mode with manifest-ba
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 
-The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. Attribute, equipment, reusable abilities, quest/cutscene, combat/AI, world/map, and genre-example systems remain future work. Host-tool and headless results do not imply PS5 hardware verification.
+The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. The bounded attributes module drives max health, movement speed, jump impulse, and Health Cell healing. The equipment module adds bounded slot loadouts and is integrated as Mira's persistent Kinetic Coil Body upgrade; equipped checkpoint slots are the source of truth for its modifiers. The abilities module validates compiled definitions and tracks Echo Step ownership, which the shared simulation uses for double jump and central-gate access. Quest/cutscene, combat/AI, world/map, and genre-example systems remain future work. Host-tool and headless results do not imply PS5 hardware verification.
+
+The slot-inventory refinement adds 20 stable backpack slots, separate
+Head/Body/Weapon/Accessory slots and one physical active consumable stack.
+Keyboard/controller inventory navigation supports atomic moves, compatible swaps
+and bounded full-stack merges; the Coil can be unequipped and cells require the
+active slot. Autosave format 3 preserves every compartment and explicitly migrates
+formats 1/2. Both enemies now drop visible Scrap piles (two and three units);
+touch pickup is capacity-safe, stack-limited and checkpoint-persistent.
+Autosave format 4 preserves every compartment and loot state, explicitly
+migrating formats 1–3. Windows tests and native PS5 static package validation
+pass; this gameplay revision still needs a manual console run.
 
 The operator confirmed on 2026-11-20 that the controller-only framework build launches and runs on PS5, reported the PS5 save-provider diagnostic passing on 2026-11-21, and later confirmed gameplay autosaving and settings persistence work on the integrated build. These are operator-reported results; keyboard rebinding itself has not been tested on PS5.
 
 On 2026-11-21, the operator also confirmed an earlier controller package works on PS5. The subsequent schema and dialogue integration requires a separate console test.
 
-PROJECT ECHO uses the bounded dialogue module for Engineer Mira and the bounded inventory module for a progression key and a conditional, consumable Health Cell, with the shared `echo::Game` still authoritative for gameplay progression and health. Equipment, attributes, reusable abilities, quests, RPG, combat, physics, movement, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.
+PROJECT ECHO uses bounded dialogue, inventory, attributes, equipment, and abilities modules, with the shared `echo::Game` still authoritative for gameplay progression and applying player attributes and ability effects. Quests, combat/AI, physics, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.

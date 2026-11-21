@@ -3,6 +3,9 @@
   "modules": [
     "echo.state",
     "echo.narrative.dialogue",
+    "echo.rpg.abilities",
+    "echo.rpg.attributes",
+    "echo.rpg.equipment",
     "echo.rpg.inventory",
     "echo.project_echo"
   ],
@@ -28,12 +31,31 @@
       "type": "item"
     },
     {
+      "id": "echo:item/kinetic_coil",
+      "type": "item"
+    },
+    {
+      "id": "echo:item/scrap",
+      "type": "item"
+    },
+    {"id":"echo:item/jump_visor","type":"item"},
+    {"id":"echo:item/vital_vest","type":"item"},
+    {"id":"echo:item/power_barrel","type":"item"},
+    {"id":"echo:item/sprint_module","type":"item"},
+    {"id":"echo:item/med_patch","type":"item"},
+    {"id":"echo:item/med_kit","type":"item"},
+    {"id":"echo:item/shield_cell","type":"item"},
+    {"id":"echo:item/speed_charge","type":"item"},
+    {"id":"echo:item/jump_charge","type":"item"},
+    {"id":"echo:item/blast_charge","type":"item"},
+    {
       "id": "echo:dialogue/engineer",
       "type": "dialogue",
       "dependsOn": [
         "echo:ability/echo_step",
         "echo:item/maintenance_key",
-        "echo:item/health_cell"
+        "echo:item/health_cell",
+        "echo:item/kinetic_coil"
       ]
     },
     {

@@ -1,0 +1,11 @@
+add_library(echo_framework_equipment STATIC src/equipment.cpp)
+add_library(EchoFramework::Equipment ALIAS echo_framework_equipment)
+target_include_directories(echo_framework_equipment PUBLIC include)
+target_compile_features(echo_framework_equipment PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_equipment PUBLIC EchoFramework::Attributes)
+
+if(MSVC)
+    target_compile_options(echo_framework_equipment PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_equipment PRIVATE -Wall -Wextra -Wpedantic)
+endif()

@@ -49,11 +49,17 @@ if (Test-Path -LiteralPath $assetDir) {
             if ($gameConfig.game -ne "echo.project_echo" -or
                 @($gameConfig.modules) -notcontains "echo.state" -or
                 @($gameConfig.modules) -notcontains "echo.narrative.dialogue" -or
+                @($gameConfig.modules) -notcontains "echo.rpg.abilities" -or
+                @($gameConfig.modules) -notcontains "echo.rpg.attributes" -or
+                @($gameConfig.modules) -notcontains "echo.rpg.equipment" -or
                 @($gameConfig.modules) -notcontains "echo.rpg.inventory" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
                 -not ($gameConfig.resources -is [array]) -or
                 -not ($gameConfig.technician.transform.position -is [array]) -or
                 $gameConfig.technician.transform.position.Count -ne 2 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:ability/echo_step" -and $_.type -eq "ability"
+                }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:dialogue/engineer" -and $_.type -eq "dialogue"
                 }).Count -ne 1 -or
@@ -62,8 +68,23 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:item/health_cell" -and $_.type -eq "item"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:item/kinetic_coil" -and $_.type -eq "item"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:item/scrap" -and $_.type -eq "item"
                 }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
+            foreach ($id in @("jump_visor", "vital_vest", "power_barrel", "sprint_module",
+                              "med_patch", "med_kit", "shield_cell", "speed_charge",
+                              "jump_charge", "blast_charge")) {
+                if (@($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:item/$id" -and $_.type -eq "item" -and -not $_.optional
+                }).Count -ne 1) {
+                    throw "Invalid framework game configuration: missing required item $id."
+                }
             }
         } elseif ($asset.Extension -eq ".json" -and
                   $asset.FullName -eq (Join-Path $assetDir "framework\engineer.json")) {
@@ -115,6 +136,20 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1) {
                 throw "Invalid engineer dialogue: Health Cell offer is missing or incorrectly gated."
             }
+            $kineticCoilChoices = @($dialogue.nodes | ForEach-Object { $_.choices } |
+                Where-Object { $_.id -eq "take_kinetic_coil" })
+            if ($kineticCoilChoices.Count -ne 1 -or
+                $kineticCoilChoices[0].visibleWhen.op -ne "compare" -or
+                $kineticCoilChoices[0].visibleWhen.key -ne "equipment.kinetic_coil" -or
+                $kineticCoilChoices[0].visibleWhen.comparison -ne "eq" -or
+                $kineticCoilChoices[0].visibleWhen.value -ne $false -or
+                $kineticCoilChoices[0].onSelect.id -ne "echo.inventory.grant" -or
+                $kineticCoilChoices[0].onSelect.parameters[0].value -ne "echo:item/kinetic_coil" -or
+                @($dialogue.nodes | Where-Object {
+                    $_.id -eq $kineticCoilChoices[0].targetNode
+                }).Count -ne 1) {
+                throw "Invalid engineer dialogue: Kinetic Coil offer is missing or incorrectly gated."
+            }
         } elseif ($asset.Extension -eq ".json" -and
                   $asset.FullName -eq (Join-Path $assetDir "framework\items.json")) {
             if ($asset.Length -eq 0 -or $asset.Length -gt 16KB) {
@@ -138,8 +173,31 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq "echo:item/health_cell" -and
                     $_.key -eq 2 -and $_.maxStack -eq 3 -and
                     $_.displayName -eq "Health Cell"
+                }).Count -ne 1 -or
+                @($itemCatalog.items | Where-Object {
+                    $_.id -eq "echo:item/kinetic_coil" -and
+                    $_.key -eq 3 -and $_.maxStack -eq 1 -and
+                    $_.displayName -eq "Kinetic Coil"
+                }).Count -ne 1 -or
+                @($itemCatalog.items | Where-Object {
+                    $_.id -eq "echo:item/scrap" -and
+                    $_.key -eq 4 -and $_.maxStack -eq 99 -and
+                    $_.displayName -eq "Scrap"
                 }).Count -ne 1) {
                 throw "Invalid item catalog: schema or required project item definition is missing."
+            }
+            $newItems = @("jump_visor", "vital_vest", "power_barrel", "sprint_module",
+                          "med_patch", "med_kit", "shield_cell", "speed_charge",
+                          "jump_charge", "blast_charge")
+            for ($index = 0; $index -lt $newItems.Count; $index++) {
+                $id = $newItems[$index]
+                $key = $index + 5
+                $stack = if ($index -lt 4) { 1 } else { 3 }
+                if (@($itemCatalog.items | Where-Object {
+                    $_.id -eq "echo:item/$id" -and $_.key -eq $key -and $_.maxStack -eq $stack
+                }).Count -ne 1) {
+                    throw "Invalid item catalog: missing or mismatched item $id."
+                }
             }
         } else {
             throw "Unexpected asset type: $($asset.Name)"

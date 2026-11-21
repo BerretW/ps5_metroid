@@ -19,8 +19,9 @@ namespace {
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
 constexpr std::array<std::string_view, 2> kProjectDependencies{
     "echo.state", "echo.narrative.dialogue"};
-constexpr std::array<std::string_view, 1> kProjectOptionalModules{
-    "echo.rpg.inventory"};
+constexpr std::array<std::string_view, 4> kProjectOptionalModules{
+    "echo.rpg.abilities", "echo.rpg.attributes",
+    "echo.rpg.equipment", "echo.rpg.inventory"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
 constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
@@ -157,6 +158,9 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     bool dialogueSelected = false;
     bool projectSelected = false;
     bool inventorySelected = false;
+    bool attributesSelected = false;
+    bool equipmentSelected = false;
+    bool abilitiesSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
         if (!moduleList.at(index).string(moduleId)) {
@@ -164,7 +168,9 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                     "Configured module IDs must be strings."};
         }
         if (moduleId != "echo.state" && moduleId != "echo.narrative.dialogue" &&
-            moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory") {
+            moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory" &&
+            moduleId != "echo.rpg.attributes" && moduleId != "echo.rpg.equipment" &&
+            moduleId != "echo.rpg.abilities") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
@@ -172,6 +178,9 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         dialogueSelected = dialogueSelected || moduleId == "echo.narrative.dialogue";
         projectSelected = projectSelected || moduleId == "echo.project_echo";
         inventorySelected = inventorySelected || moduleId == "echo.rpg.inventory";
+        attributesSelected = attributesSelected || moduleId == "echo.rpg.attributes";
+        equipmentSelected = equipmentSelected || moduleId == "echo.rpg.equipment";
+        abilitiesSelected = abilitiesSelected || moduleId == "echo.rpg.abilities";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
             (void)moduleList.at(previous).string(previousId);
@@ -218,6 +227,21 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                 "The maintenance key must be a required item resource."};
     }
     if (inventorySelected) {
+        for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
+             id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
+            const auto itemId = static_cast<echo::ItemId>(id);
+            const std::string_view itemResource = Game::itemResource(itemId);
+            framework::ResourceInfo resource{};
+            status = content.find(itemResource, resource);
+            const framework::ItemDefinition* definition =
+                inventoryModule_.catalog().find(itemResource);
+            if (!status || resource.type != framework::ResourceType::Item || resource.optional ||
+                definition == nullptr || definition->key != id ||
+                definition->maxStack != Game::itemStackLimit(itemId)) {
+                return {framework::ErrorCode::MissingDependency, itemResource,
+                        "A required gameplay item or its matching catalog entry is missing."};
+            }
+        }
         const framework::ItemDefinition* key =
             inventoryModule_.catalog().find(keyResource.id);
         if (key == nullptr ||
@@ -324,6 +348,18 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
+    status = modules_.add(attributesModule_, attributesSelected);
+    if (!status) {
+        return status;
+    }
+    status = modules_.add(equipmentModule_, equipmentSelected);
+    if (!status) {
+        return status;
+    }
+    status = modules_.add(abilitiesModule_, abilitiesSelected);
+    if (!status) {
+        return status;
+    }
     framework::ModuleContext context{this};
     status = modules_.initializeAll(context);
     if (!status) {
@@ -356,10 +392,24 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration must initialize before configuring the game."};
     }
-    return game.configureDialogue(
+    framework::Status status = game.configureDialogue(
         dialogueModule_, stateModule_.state,
         {technicianPosition_[0], technicianPosition_[1]}, technicianInteractionReach_,
         inventoryModule_.initialized() ? &inventoryModule_ : nullptr);
+    if (!status) return status;
+    if (abilitiesModule_.initialized()) {
+        status = game.configureAbilities(abilitiesModule_);
+        if (!status) return status;
+    }
+    if (attributesModule_.initialized()) {
+        status = game.configureAttributes(attributesModule_);
+        if (!status) return status;
+        if (equipmentModule_.initialized()) {
+            return game.configureEquipment(equipmentModule_);
+        }
+        return framework::Status::success();
+    }
+    return framework::Status::success();
 }
 
 framework::Status FrameworkIntegration::beginGame() noexcept {

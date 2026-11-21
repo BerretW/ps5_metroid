@@ -437,14 +437,34 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         const int x = static_cast<int>(enemy.bounds.x - cameraX);
         const int y = static_cast<int>(enemy.bounds.y);
         const int width = static_cast<int>(enemy.bounds.width);
-        if (sprite(Sprite::Enemy, static_cast<int>((ticks / 180U) % 2U),
-                   {x + (width - 32) / 2, y + static_cast<int>(enemy.bounds.height) - 32, 32, 32})) {
-            continue;
+        if (!sprite(Sprite::Enemy, static_cast<int>((ticks / 180U) % 2U),
+                    {x + (width - 32) / 2, y + static_cast<int>(enemy.bounds.height) - 32, 32, 32})) {
+            panel({x, y + 8, width, 20}, SDL_Color{135, 80, 99, 255});
+            panel({x + 4, y + 2, 20, 14}, SDL_Color{202, 111, 121, 255});
+            panel({x + 8, y + 7, 4, 4}, kOrange);
+            panel({x + 18, y + 7, 4, 4}, kOrange);
         }
-        panel({x, y + 8, width, 20}, SDL_Color{135, 80, 99, 255});
-        panel({x + 4, y + 2, 20, 14}, SDL_Color{202, 111, 121, 255});
-        panel({x + 8, y + 7, 4, 4}, kOrange);
-        panel({x + 18, y + 7, 4, 4}, kOrange);
+        if (enemy.type != EnemyType::Patrol) {
+            const SDL_Color marker = enemy.type == EnemyType::Charger ? kOrange :
+                                     enemy.type == EnemyType::Armored
+                                         ? (enemy.attackCooldown >= 2.0F ? kText : kCyan)
+                                         : kRed;
+            panel({x, y - 5, width, 3}, marker);
+        }
+    }
+
+    for (const LootDrop& drop : game.lootDrops()) {
+        if (!drop.active || drop.room != game.roomId()) continue;
+        const int x = static_cast<int>(drop.position.x - cameraX);
+        const int y = static_cast<int>(drop.position.y);
+        panel({x - 2, y - 2, 20, 20}, SDL_Color{91, 67, 37, 255});
+        panel({x, y, 16, 16}, SDL_Color{190, 133, 57, 255});
+        panel({x + 3, y + 3, 10, 4}, SDL_Color{235, 190, 93, 255});
+        panel({x + 5, y + 9, 8, 3}, SDL_Color{111, 77, 42, 255});
+        std::array<char, 8> amount{};
+        std::snprintf(amount.data(), amount.size(), "x%u",
+                      static_cast<unsigned>(drop.stack.quantity));
+        text(x + 18, y + 2, amount.data(), 1, kText);
     }
 
     for (const Projectile& projectile : game.projectiles()) {
@@ -456,6 +476,14 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                         projectile.velocityX < 0.0F)) {
                 panel(bounds, kOrange);
             }
+        }
+    }
+    for (const Projectile& projectile : game.enemyProjectiles()) {
+        if (projectile.active && projectile.room == game.roomId()) {
+            panel({static_cast<int>(projectile.bounds.x - cameraX),
+                   static_cast<int>(projectile.bounds.y),
+                   static_cast<int>(projectile.bounds.width),
+                   static_cast<int>(projectile.bounds.height)}, kRed);
         }
     }
 
@@ -474,25 +502,30 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
 
     panel({12, 12, 184, 38}, SDL_Color{4, 10, 17, 218});
     text(22, 19, "VITALS", 1, kMuted);
-    for (int index = 0; index < 5; ++index) {
+    for (int index = 0; index < game.maximumHealth(); ++index) {
         panel({22 + index * 22, 32, 16, 8}, index < player.health ? kRed : SDL_Color{55, 60, 67, 255});
     }
     panel({470, 12, 158, 38}, SDL_Color{4, 10, 17, 218});
     text(481, 18, game.roomName(), 1, kText);
     text(481, 32, player.hasDoubleJump ? "ECHO STEP ONLINE" : "ECHO STEP LOCKED", 1,
          player.hasDoubleJump ? kCyan : kMuted);
-    panel({206, 12, 152, 38}, SDL_Color{4, 10, 17, 218});
-    text(218, 18, "INVENTORY", 1, kMuted);
-    const bool hasMaintenanceKey = game.inventory().contains(ItemId::MaintenanceKey);
-    std::array<char, 32> inventoryText{};
-    std::snprintf(inventoryText.data(), inventoryText.size(), "KEY %s CELL %u",
+    panel({206, 12, 252, 38}, SDL_Color{4, 10, 17, 218});
+    const bool hasMaintenanceKey = game.hasItem(ItemId::MaintenanceKey);
+    std::array<char, 40> inventoryText{};
+    std::snprintf(inventoryText.data(), inventoryText.size(), "KEY %s BAG %02u/20 COIL %s",
                   hasMaintenanceKey ? "YES" : "NO",
-                  static_cast<unsigned>(game.inventory().quantity(ItemId::HealthCell)));
-    text(218, 32, inventoryText.data(), 1,
-         hasMaintenanceKey || game.inventory().contains(ItemId::HealthCell) ? kCyan : kMuted);
-    if (!paused && !game.dialogueActive() && player.health < 5 &&
-        game.inventory().contains(ItemId::HealthCell)) {
-        text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 HEAL" : "H HEAL",
+                  static_cast<unsigned>(game.inventory().size()),
+                  game.equipmentEquipped("echo:equipment/kinetic_coil") ? "ON" : "OFF");
+    text(218, 18, inventoryText.data(), 1, kMuted);
+    const ItemStack activeItem = game.inventorySlot(Game::kActiveItemSlot);
+    const std::string_view activeName = Game::itemName(activeItem.item);
+    std::snprintf(inventoryText.data(), inventoryText.size(), "ACTIVE %.*s X%u SCRAP %u",
+                  static_cast<int>(activeName.size()), activeName.data(),
+                  static_cast<unsigned>(activeItem.quantity),
+                  static_cast<unsigned>(game.itemQuantity(ItemId::Scrap)));
+    text(218, 32, inventoryText.data(), 1, activeItem.quantity != 0 ? kCyan : kMuted);
+    if (!paused && !game.dialogueActive() && activeItem.item != ItemId::None) {
+        text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
              1, kCyan);
     }
 
@@ -573,10 +606,63 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(538, 296, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (paused) {
-        panel({172, 125, 296, 112}, SDL_Color{4, 10, 17, 238});
+        panel({172, 125, 296, 132}, SDL_Color{4, 10, 17, 238});
         text(245, 146, "PAUSED", 3, kText);
         text(195, 199, controls_ == ControlScheme::PlayStation ? "\x01 RESUME  \x04 MENU" : "ENTER RESUME  ESC MENU", 1, kMuted);
+        text(245, 224, controls_ == ControlScheme::PlayStation
+                          ? "\x03 INVENTORY" : "I INVENTORY", 1, kCyan);
     }
+    SDL_RenderPresent(renderer_);
+}
+
+void Renderer::drawInventory(const Game& game, const InventoryMenu& menu,
+                             std::string_view message) noexcept {
+    SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
+    SDL_RenderClear(renderer_);
+    panel({16, 16, 608, 328}, kPanel);
+    panel({16, 16, 608, 3}, kCyan);
+    text(28, 28, "INVENTORY", 2, kText);
+    text(230, 30, Game::itemName(game.inventorySlot(menu.selected).item), 1, kCyan);
+    text(28, 54, "BACKPACK 20 SLOTS", 1, kMuted);
+    for (std::size_t slot = 0; slot < Game::kInventorySlotCount; ++slot) {
+        const int column = static_cast<int>(slot % 5);
+        const int row = static_cast<int>(slot / 5);
+        const int x = 28 + column * 116;
+        const int y = row < 4 ? 72 + row * 42 : 264;
+        if (row == 4) text(x, 247, Game::inventorySlotName(slot), 1, kMuted);
+        const SDL_Color border = slot == menu.selected ? kCyan :
+                                 slot == menu.source ? kOrange : kPanelLight;
+        panel({x, y, 108, 36}, border);
+        panel({x + 2, y + 2, 104, 32}, kBackground);
+        const ItemStack stack = game.inventorySlot(slot);
+        text(x + 5, y + 6, Game::itemName(stack.item), 1,
+             stack.item == ItemId::None ? kMuted : kText);
+        std::array<char, 32> quantity{};
+        std::snprintf(quantity.data(), quantity.size(), "%02u QTY %u",
+                      static_cast<unsigned>(slot + 1), static_cast<unsigned>(stack.quantity));
+        text(x + 5, y + 22, quantity.data(), 1, slot == menu.source ? kOrange : kMuted);
+    }
+    const std::size_t length = std::min<std::size_t>(message.size(), 94);
+    text(28, 311, {message.data(), length}, 1, kOrange);
+    const ItemId selected = game.inventorySlot(menu.selected).item;
+    std::string_view effect{};
+    switch (selected) {
+    case ItemId::JumpVisor: effect = "HEAD: JUMP +40"; break;
+    case ItemId::VitalVest: effect = "BODY: MAX HEALTH +1"; break;
+    case ItemId::PowerBarrel: effect = "WEAPON: SHOT DAMAGE +1"; break;
+    case ItemId::SprintModule: effect = "ACCESSORY: SPEED +15"; break;
+    case ItemId::MedPatch: effect = "ACTIVE: HEAL 1"; break;
+    case ItemId::MedKit: effect = "ACTIVE: HEAL 4"; break;
+    case ItemId::ShieldCell: effect = "ACTIVE: SHIELD 4 SECONDS"; break;
+    case ItemId::SpeedCharge: effect = "ACTIVE: SPEED +25 FOR 8 SECONDS"; break;
+    case ItemId::JumpCharge: effect = "ACTIVE: JUMP +60 FOR 8 SECONDS"; break;
+    case ItemId::BlastCharge: effect = "ACTIVE: NEARBY ENEMIES TAKE 2 DAMAGE"; break;
+    default: break;
+    }
+    text(28, 321, effect, 1, kCyan);
+    text(28, 333, controls_ == ControlScheme::PlayStation
+                     ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/BACK"
+                     : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/BACK", 1, kMuted);
     SDL_RenderPresent(renderer_);
 }
 

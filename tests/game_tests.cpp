@@ -41,15 +41,30 @@ public:
         if (!module_.initialize(context)) {
             status_ = {echo::framework::ErrorCode::InitializationFailed, "dialogue",
                        "Dialogue test module could not initialize."};
+            return;
+        }
+        if (!attributesModule_.initialize(context) ||
+            !equipmentModule_.initialize(context)) {
+            status_ = {echo::framework::ErrorCode::InitializationFailed, "equipment",
+                       "Equipment test modules could not initialize."};
         }
     }
 
-    ~DialogueFixture() { module_.shutdown(); }
+    ~DialogueFixture() {
+        equipmentModule_.shutdown();
+        attributesModule_.shutdown();
+        module_.shutdown();
+    }
 
     [[nodiscard]] echo::framework::Status bind(
-        echo::Game& game, float reach = echo::kDefaultInteractionReach) noexcept {
-        return status_ ? game.configureDialogue(module_, state_, {108.0F, 280.0F}, reach)
-                       : status_;
+        echo::Game& game, float reach = echo::kDefaultInteractionReach,
+        bool withEquipment = false) noexcept {
+        if (!status_) return status_;
+        echo::framework::Status status =
+            game.configureDialogue(module_, state_, {108.0F, 280.0F}, reach);
+        if (!status || !withEquipment) return status;
+        status = game.configureAttributes(attributesModule_);
+        return status ? game.configureEquipment(equipmentModule_) : status;
     }
 
     [[nodiscard]] echo::framework::Status setEchoStepUnlocked(bool unlocked) noexcept {
@@ -61,6 +76,8 @@ public:
 private:
     std::unique_ptr<echo::framework::DialogueDocument> document_{};
     echo::framework::DialogueModule module_{};
+    echo::framework::AttributesModule attributesModule_{};
+    echo::framework::EquipmentModule equipmentModule_{};
     echo::framework::GameState state_{};
     echo::framework::Status status_{};
 };
@@ -124,6 +141,47 @@ void testMovementJumpAndFloorCollision() {
     check(game.player().position.y == 292.0F, "floor collision resolves to the tile surface");
 }
 
+void testAttributeModifiersAffectGameplay() {
+    echo::framework::AttributesModule module;
+    echo::framework::ModuleContext context{};
+    check(module.initialize(context), "attributes module initializes for gameplay");
+    echo::Game game;
+    check(static_cast<bool>(game.configureAttributes(module)),
+          "game configures its bounded player attributes");
+    check(static_cast<bool>(game.addAttributeModifier(
+              "echo:attribute/player.max_health", "echo:upgrade/vitality", 2)) &&
+              game.maximumHealth() == 7,
+          "a bounded max-health modifier changes the gameplay health limit");
+    check(game.addAttributeModifier(
+              "echo:attribute/player.max_health", "echo:upgrade/overload", 2).code ==
+              echo::framework::ErrorCode::InvalidValue &&
+              game.maximumHealth() == 7,
+          "out-of-range gameplay modifiers fail without changing player attributes");
+    check(static_cast<bool>(game.addAttributeModifier(
+              "echo:attribute/player.max_health", "echo:upgrade/overload", -4)) &&
+              game.maximumHealth() == 3 && game.player().health == 3 &&
+              static_cast<bool>(game.removeAttributeModifier(
+                  "echo:attribute/player.max_health", "echo:upgrade/overload")) &&
+              game.maximumHealth() == 7 && game.player().health == 3 &&
+              static_cast<bool>(game.removeAttributeModifier(
+                  "echo:attribute/player.max_health", "echo:upgrade/vitality")) &&
+              game.maximumHealth() == 5,
+          "bounded max-health reductions clamp health without healing on removal");
+
+    echo::Game baseline;
+    const float baselineX = baseline.player().position.x;
+    const float upgradedX = game.player().position.x;
+    check(static_cast<bool>(game.addAttributeModifier(
+              "echo:attribute/player.move_speed", "echo:upgrade/mobility", 60)),
+          "a bounded movement modifier can be applied");
+    step(baseline, {.moveX = 1}, 30);
+    step(game, {.moveX = 1}, 30);
+    check(game.player().position.x - upgradedX >
+              baseline.player().position.x - baselineX,
+          "the movement attribute changes deterministic player movement");
+    module.shutdown();
+}
+
 void testCheckpointRoundTrip() {
     echo::Game source;
     step(source, {.moveX = 1}, 24);
@@ -172,6 +230,68 @@ void testCheckpointRoundTrip() {
     missingAbility.completed = false;
     check(!restored.restore(missingAbility),
           "checkpoint rejects access to the central chamber without its ability");
+}
+
+void testEnemyLootDrops() {
+    echo::Game game;
+    echo::GameCheckpoint checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::MaintenanceTunnel;
+    checkpoint.playerPosition = {650.0F, 292.0F};
+    checkpoint.enemyHealth[2] = 0;
+    check(checkpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+              game.restore(checkpoint),
+          "loot test enters the tunnel with valid room access");
+    for (int tick = 0; tick < 120 &&
+         game.livingEnemies(echo::RoomId::MaintenanceTunnel) != 0; ++tick) {
+        check(static_cast<bool>(game.update({.shootHeld = true})),
+              "combat update succeeds while defeating a loot-bearing enemy");
+    }
+    check(game.livingEnemies(echo::RoomId::MaintenanceTunnel) == 0 &&
+              game.lootDrops()[0].active &&
+              game.lootDrops()[0].stack == echo::ItemStack{echo::ItemId::Scrap, 2},
+          "defeating the tunnel enemy spawns its deterministic scrap drop");
+
+    checkpoint = game.checkpoint();
+    checkpoint.inventory.clear();
+    check(checkpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+              checkpoint.inventory.add(echo::ItemId::HealthCell, 3, 57),
+          "loot test fills all backpack slots while preserving a key");
+    checkpoint.playerPosition = {game.lootDrops()[0].position.x, 292.0F};
+    check(game.restore(checkpoint) &&
+              static_cast<bool>(game.update({})) &&
+              game.lootDrops()[0].active &&
+              game.itemQuantity(echo::ItemId::Scrap) == 0,
+          "a full backpack leaves the world drop available instead of losing loot");
+
+    checkpoint = game.checkpoint();
+    check(checkpoint.inventory.remove(echo::ItemId::HealthCell, 3) &&
+              game.restore(checkpoint) &&
+              static_cast<bool>(game.update({})) &&
+              !game.lootDrops()[0].active &&
+              game.itemQuantity(echo::ItemId::Scrap) == 2,
+          "touching the drop collects scrap into a newly freed stable backpack slot");
+    const echo::GameCheckpoint collected = game.checkpoint();
+    echo::Game restored;
+    check(restored.restore(collected) &&
+              !restored.lootDrops()[0].active &&
+              restored.itemQuantity(echo::ItemId::Scrap) == 2,
+          "checkpoint restore preserves collected loot without respawning it");
+
+    auto invalidDrop = collected;
+    invalidDrop.lootDrops[0].active = true;
+    invalidDrop.lootDrops[0].stack = {echo::ItemId::HealthCell, 2};
+    check(!game.restore(invalidDrop),
+          "checkpoint validation rejects an unsupported enemy drop item");
+    auto powerStationDrop = collected;
+    powerStationDrop.room = echo::RoomId::PowerStation;
+    powerStationDrop.enemyHealth = {2, 0};
+    powerStationDrop.lootDrops[0] = {};
+    powerStationDrop.lootDrops[1] = {
+        echo::RoomId::PowerStation, {820.0F, 304.0F},
+        {echo::ItemId::Scrap, 3}, true};
+    check(game.restore(powerStationDrop) && game.lootDrops()[1].active &&
+              game.lootDrops()[1].stack.quantity == 3,
+          "the Power Station enemy checkpoint carries its three-scrap drop");
 }
 
 void testRoomTransition() {
@@ -309,13 +429,18 @@ void testHealthCellDialogueAndUse() {
           "Mira offers a health cell only when the player is hurt and has none");
     step(game, {.interactPressed = true});
     check(game.inventory().quantity(echo::ItemId::HealthCell) == 1 &&
-              game.dialogueText() == "USE THE HEALTH CELL WHEN YOU NEED IT.",
+              game.dialogueText() == "PUT THE CELL IN YOUR ACTIVE SLOT.",
           "the JSON dialogue action grants the catalogued health cell");
     step(game, {.interactPressed = true});
     check(!game.dialogueActive(), "health-cell grant dialogue can be dismissed");
+    check(game.update({.useItemPressed = true}) && game.player().health == 3 &&
+              game.inventory().quantity(echo::ItemId::HealthCell) == 1,
+          "a backpack cell is not used until assigned to the active slot");
+    check(static_cast<bool>(game.moveInventorySlot(1, echo::Game::kActiveItemSlot)),
+          "a health-cell stack moves from the backpack to the active slot");
     check(static_cast<bool>(game.update({.useItemPressed = true})) &&
               game.player().health == 5 &&
-              game.inventory().quantity(echo::ItemId::HealthCell) == 0,
+              game.itemQuantity(echo::ItemId::HealthCell) == 0,
           "using a health cell restores up to two health and consumes one item");
     check(static_cast<bool>(game.update({.useItemPressed = true})) &&
               game.player().health == 5,
@@ -324,12 +449,146 @@ void testHealthCellDialogueAndUse() {
     echo::Game fullHealth;
     echo::GameCheckpoint fullCheckpoint = fullHealth.checkpoint();
     check(fullCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 1) &&
-              fullHealth.restore(fullCheckpoint),
+              fullHealth.restore(fullCheckpoint) &&
+              fullHealth.moveInventorySlot(0, echo::Game::kActiveItemSlot),
           "full-health fixture accepts a valid health cell");
     check(static_cast<bool>(fullHealth.update({.useItemPressed = true})) &&
               fullHealth.player().health == 5 &&
-              fullHealth.inventory().quantity(echo::ItemId::HealthCell) == 1,
+              fullHealth.itemQuantity(echo::ItemId::HealthCell) == 1,
           "a health cell is not consumed when health is already full");
+}
+
+void testKineticCoilDialogueAndCheckpoint() {
+    DialogueFixture fixture;
+    echo::Game game;
+    check(static_cast<bool>(fixture.bind(game, echo::kDefaultInteractionReach, true)),
+          "kinetic-coil test configures dialogue and equipment modules");
+    talkToTechnician(game);
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 1 &&
+              game.dialogueChoiceText(0) == "TAKE KINETIC COIL",
+          "Mira offers the suit equipment once the player has the key");
+    step(game, {.interactPressed = true});
+    check(game.hasItem(echo::ItemId::KineticCoil) &&
+              !game.inventory().contains(echo::ItemId::KineticCoil) &&
+              game.equipmentEquipped("echo:equipment/kinetic_coil"),
+          "accepting Mira's offer grants and equips the kinetic coil");
+    check(game.removeAttributeModifier(
+              "echo:attribute/player.move_speed", "echo:equipment/kinetic_coil").code ==
+              echo::framework::ErrorCode::InvalidState,
+          "equipment-owned modifiers cannot be removed through the generic attribute API");
+    step(game, {.interactPressed = true});
+
+    echo::Game baseline;
+    const float baselineStartX = baseline.player().position.x;
+    const float equippedStartX = game.player().position.x;
+    step(baseline, {.moveX = 1}, 30);
+    step(game, {.moveX = 1}, 30);
+    check(game.player().position.x - equippedStartX >
+              baseline.player().position.x - baselineStartX,
+          "the equipped coil increases movement speed in the game");
+
+    const echo::GameCheckpoint checkpoint = game.checkpoint();
+    echo::Game restored;
+    check(static_cast<bool>(fixture.bind(restored, echo::kDefaultInteractionReach, true)) &&
+              restored.restore(checkpoint) &&
+              restored.hasItem(echo::ItemId::KineticCoil) &&
+              restored.equipmentEquipped("echo:equipment/kinetic_coil"),
+          "checkpoint restore re-equips the coil and retains its player attribute");
+}
+
+void testSlotInventoryTransfersAndMigration() {
+    DialogueFixture fixture;
+    echo::Game game;
+    check(static_cast<bool>(fixture.bind(game, echo::kDefaultInteractionReach, true)),
+          "slot inventory fixture configures equipment");
+    auto checkpoint = game.checkpoint();
+    checkpoint.playerHealth = 3;
+    checkpoint.inventory.items[19] = echo::ItemId::MaintenanceKey;
+    checkpoint.inventory.quantities[19] = 1;
+    checkpoint.inventory.count = 1;
+    const std::size_t body = echo::Game::kFirstEquipmentSlot +
+        static_cast<std::size_t>(echo::EquipmentSlot::Body);
+    checkpoint.equipment[static_cast<std::size_t>(echo::EquipmentSlot::Body)] =
+        {echo::ItemId::KineticCoil, 1};
+    checkpoint.activeItem = {echo::ItemId::HealthCell, 2};
+    check(game.restore(checkpoint) && game.inventory().items[19] == echo::ItemId::MaintenanceKey,
+          "checkpoint preserves a sparse backpack and separate gear and active stacks");
+    step(game, {.moveX = 1}, 30);
+    check(game.moveInventorySlot(body, 4) &&
+              !game.equipmentEquipped("echo:equipment/kinetic_coil") &&
+              game.player().velocity.x <= 190.0F,
+          "unequipping moves gear into a bag slot and removes its speed modifier safely");
+    check(game.moveInventorySlot(4, echo::Game::kFirstEquipmentSlot).code ==
+              echo::framework::ErrorCode::InvalidValue &&
+              game.inventory().items[4] == echo::ItemId::KineticCoil,
+          "incompatible equipment transfers fail without changing either slot");
+    check(game.moveInventorySlot(4, body) &&
+              game.equipmentEquipped("echo:equipment/kinetic_coil") &&
+              game.inventory().items[4] == echo::ItemId::None,
+          "moving gear back to the body slot reapplies the modifier once");
+    check(game.moveInventorySlot(echo::Game::kActiveItemSlot, 19).code ==
+              echo::framework::ErrorCode::InvalidValue &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2 &&
+              game.inventory().items[19] == echo::ItemId::MaintenanceKey,
+          "swaps validate the displaced item as well as the selected one");
+    check(game.moveInventorySlot(echo::Game::kActiveItemSlot, 5) &&
+              game.update({.useItemPressed = true}) && game.player().health == 3 &&
+              game.moveInventorySlot(5, echo::Game::kActiveItemSlot) &&
+              game.update({.useItemPressed = true}) && game.player().health == 5 &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 1,
+          "only the active stack is consumed and its remainder stays in place");
+    auto duplicated = game.checkpoint();
+    duplicated.inventory.items[0] = echo::ItemId::KineticCoil;
+    duplicated.inventory.quantities[0] = 1;
+    ++duplicated.inventory.count;
+    check(!game.restore(duplicated) && game.equipmentEquipped("echo:equipment/kinetic_coil"),
+          "checkpoint validation rejects duplicated unique gear atomically");
+    auto stacks = game.checkpoint();
+    stacks.inventory.items[0] = echo::ItemId::HealthCell;
+    stacks.inventory.quantities[0] = 2;
+    ++stacks.inventory.count;
+    check(game.restore(stacks) &&
+              game.moveInventorySlot(0, echo::Game::kActiveItemSlot) &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 3 &&
+              game.inventory().items[0] == echo::ItemId::None,
+          "complete health-cell stacks merge up to the exact three-cell limit");
+    stacks = game.checkpoint();
+    stacks.inventory.items[0] = echo::ItemId::HealthCell;
+    stacks.inventory.quantities[0] = 1;
+    ++stacks.inventory.count;
+    check(game.restore(stacks) &&
+              game.moveInventorySlot(0, echo::Game::kActiveItemSlot).code ==
+                  echo::framework::ErrorCode::CapacityExceeded &&
+              game.inventory().quantities[0] == 1 &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 3 &&
+              game.moveInventorySlot(echo::Game::kInventorySlotCount, 0).code ==
+                  echo::framework::ErrorCode::InvalidArgument,
+          "stack overflow and out-of-range slots leave both compartments unchanged");
+    auto fullBackpack = game.checkpoint();
+    fullBackpack.inventory.clear();
+    check(fullBackpack.inventory.add(echo::ItemId::MaintenanceKey) &&
+              fullBackpack.inventory.add(echo::ItemId::HealthCell, 3, 57) &&
+              !fullBackpack.inventory.add(echo::ItemId::HealthCell, 3, 1) &&
+              game.restore(fullBackpack) && game.inventory().count == 20 &&
+              game.inventory().items[19] == echo::ItemId::HealthCell &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 3 &&
+              game.inventorySlot(body).item == echo::ItemId::KineticCoil,
+          "all twenty backpack slots are usable independently of gear and active storage");
+    auto legacy = game.checkpoint();
+    legacy.inventory = {};
+    legacy.equipment.fill({});
+    legacy.activeItem = {};
+    legacy.inventoryLayoutVersion = 1;
+    check(legacy.inventory.add(echo::ItemId::MaintenanceKey) &&
+              legacy.inventory.add(echo::ItemId::KineticCoil) &&
+              legacy.inventory.add(echo::ItemId::HealthCell, 3, 2) &&
+              game.restore(legacy) && game.inventory().count == 1 &&
+              game.inventorySlot(body).item == echo::ItemId::KineticCoil &&
+              game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2,
+          "legacy checkpoints retain equipped gear and usable health-cell stacks");
 }
 
 void testProjectileCombatAndDamage() {
@@ -357,11 +616,185 @@ void testHazardDeathAndRespawn() {
     check(game.player().health == 5, "respawn restores player health");
 }
 
+void testNewEnemyBehaviorsAndItems() {
+    using echo::ItemId;
+    echo::Game game;
+    auto checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::MaintenanceTunnel;
+    checkpoint.playerPosition = {340.0F, 292.0F};
+    checkpoint.enemyHealth[0] = 0;
+    check(game.restore(checkpoint), "charger fixture restores");
+    const float chargerX = game.enemies()[2].bounds.x;
+    step(game, {}, 10);
+    check(game.enemies()[2].bounds.x < chargerX,
+          "charger pursues a nearby player rather than continuing its patrol");
+
+    checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::PowerStation;
+    checkpoint.playerPosition = {400.0F, 292.0F};
+    checkpoint.enemyHealth[2] = 0;
+    check(game.restore(checkpoint), "armored enemy fixture restores");
+    const float armorX = game.enemies()[3].bounds.x;
+    step(game, {}, 10);
+    check(game.enemies()[3].health == 6 &&
+              game.enemies()[3].bounds.x > armorX &&
+              game.enemies()[3].bounds.x - armorX < 6.0F,
+          "armored enemy has higher health and a slower patrol");
+    checkpoint = game.checkpoint();
+    checkpoint.playerPosition = {520.0F, 292.0F};
+    checkpoint.activeItem = {ItemId::BlastCharge, 1};
+    check(game.restore(checkpoint), "armored guard fixture restores");
+    step(game, {}, 125);
+    check(game.enemies()[3].attackCooldown >= 2.0F, "armored enemy enters guard phase");
+    step(game, {.useItemPressed = true});
+    check(game.enemies()[3].health == 5, "armored guard reduces incoming blast damage");
+
+    checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::ResearchLab;
+    checkpoint.playerPosition = {970.0F, 292.0F};
+    checkpoint.enemyHealth[3] = 0;
+    check(checkpoint.inventory.add(ItemId::MaintenanceKey) && game.restore(checkpoint),
+          "sentry fixture restores in the laboratory");
+    step(game, {}, 1);
+    bool fired = false;
+    for (const auto& shot : game.enemyProjectiles()) fired |= shot.active;
+    check(fired && game.enemies()[4].type == echo::EnemyType::Sentry,
+          "stationary sentry fires a hostile projectile");
+    const int healthBeforeShot = game.player().health;
+    step(game, {}, 5);
+    check(game.player().health < healthBeforeShot, "sentry projectiles damage the player");
+
+    DialogueFixture fixture;
+    echo::Game equipped;
+    check(static_cast<bool>(fixture.bind(equipped, echo::kDefaultInteractionReach, true)),
+          "equipment fixture binds modules");
+    auto gear = equipped.checkpoint();
+    gear.equipment[0] = {ItemId::JumpVisor, 1};
+    gear.equipment[1] = {ItemId::VitalVest, 1};
+    gear.equipment[2] = {ItemId::PowerBarrel, 1};
+    gear.equipment[3] = {ItemId::SprintModule, 1};
+    check(equipped.restore(gear) && equipped.maximumHealth() == 6,
+          "vital vest increases maximum health");
+    step(equipped, {.moveX = 1}, 15);
+    check(equipped.player().velocity.x > 190.0F,
+          "sprint module increases movement speed");
+    step(equipped, {.jumpPressed = true, .jumpHeld = true});
+    check(equipped.player().velocity.y < -420.0F,
+          "jump visor increases jump impulse");
+    gear = equipped.checkpoint();
+    gear.room = echo::RoomId::MaintenanceTunnel;
+    gear.playerPosition = {700.0F, 292.0F};
+    gear.playerVelocity = {};
+    gear.playerOnGround = true;
+    gear.enemyHealth[2] = 0;
+    check(equipped.restore(gear), "weapon fixture restores");
+    step(equipped, {.shootHeld = true}, 10);
+    check(!equipped.enemies()[0].alive,
+          "power barrel defeats the two-health patrol with one shot");
+
+    for (const auto item : {ItemId::MedPatch, ItemId::MedKit, ItemId::ShieldCell,
+                            ItemId::SpeedCharge, ItemId::JumpCharge, ItemId::BlastCharge}) {
+        echo::Game consumer;
+        auto state = consumer.checkpoint();
+        state.playerHealth = 1;
+        state.activeItem = {item, 1};
+        check(consumer.restore(state), "consumable fixture restores");
+        step(consumer, {.useItemPressed = true});
+        const auto after = consumer.checkpoint();
+        check(after.activeItem.item == ItemId::None, "using a consumable removes its stack");
+        if (item == ItemId::MedPatch) check(consumer.player().health == 2, "med patch heals one");
+        if (item == ItemId::MedKit) check(consumer.player().health == 5, "med kit heals four");
+        if (item == ItemId::ShieldCell) check(after.shieldSeconds > 3.9F, "shield grants protection");
+        if (item == ItemId::SpeedCharge) {
+            step(consumer, {.moveX = 1}, 15);
+            check(consumer.player().velocity.x > 190.0F, "speed charge increases speed");
+        }
+        if (item == ItemId::JumpCharge) {
+            step(consumer, {.jumpPressed = true, .jumpHeld = true});
+            check(consumer.player().velocity.y < -420.0F, "jump charge increases jump");
+        }
+    }
+
+    echo::Game blast;
+    auto blastState = blast.checkpoint();
+    blastState.room = echo::RoomId::MaintenanceTunnel;
+    blastState.playerPosition = {700.0F, 292.0F};
+    blastState.enemyHealth[2] = 0;
+    blastState.activeItem = {ItemId::BlastCharge, 1};
+    check(blast.restore(blastState), "blast fixture restores");
+    step(blast, {.useItemPressed = true});
+    check(!blast.enemies()[0].alive && blast.lootDrops()[0].active,
+          "blast charge damages nearby enemies and produces normal loot");
+    echo::Game shielded;
+    auto shieldState = shielded.checkpoint();
+    shieldState.room = echo::RoomId::MaintenanceTunnel;
+    shieldState.playerPosition = {760.0F, 292.0F};
+    shieldState.enemyHealth[2] = 0;
+    shieldState.activeItem = {ItemId::ShieldCell, 1};
+    check(shielded.restore(shieldState), "shield fixture restores beside an enemy");
+    step(shielded, {.useItemPressed = true});
+    check(shielded.player().health == 5, "shield prevents enemy contact damage");
+    std::array<bool, static_cast<std::size_t>(ItemId::Count)> drops{};
+    for (std::size_t index = 2; index < echo::kLootDropCount; ++index) {
+        const auto id = static_cast<std::size_t>(echo::Game::expectedLoot(index).item);
+        check(id >= static_cast<std::size_t>(ItemId::JumpVisor) &&
+                  id < drops.size() && !drops[id], "each new loot item is unique");
+        if (id < drops.size()) drops[id] = true;
+    }
+
+    for (std::size_t enemy = 2; enemy < echo::kEnemyCount; ++enemy) {
+        echo::Game lootGame;
+        auto state = lootGame.checkpoint();
+        state.room = echo::Game::expectedLootRoom(enemy == 2 ? 2 : enemy == 3 ? 5 : 8);
+        state.playerPosition = {enemy == 2 ? 280.0F : enemy == 3 ? 420.0F : 930.0F, 292.0F};
+        state.enemyHealth[0] = 0;
+        state.enemyHealth[1] = 0;
+        state.enemyHealth[enemy] = 1;
+        state.activeItem = {ItemId::BlastCharge, 1};
+        check(state.inventory.add(ItemId::MaintenanceKey) && lootGame.restore(state),
+              "new enemy loot fixture restores");
+        step(lootGame, {.useItemPressed = true});
+        for (std::size_t index = 2; index < echo::kLootDropCount; ++index) {
+            if (echo::Game::lootEnemy(index) != enemy) continue;
+            check(lootGame.lootDrops()[index].active &&
+                      lootGame.lootDrops()[index].stack == echo::Game::expectedLoot(index),
+                  "new enemy defeat creates its corresponding drop");
+        }
+    }
+
+    echo::Game fullBag;
+    auto full = fullBag.checkpoint();
+    full.room = echo::RoomId::MaintenanceTunnel;
+    full.playerPosition = {400.0F, 292.0F};
+    full.enemyHealth[2] = 0;
+    full.lootDrops[2] = {full.room, {400.0F, 304.0F}, {ItemId::JumpVisor, 1}, true};
+    check(full.inventory.add(ItemId::MaintenanceKey) &&
+              full.inventory.add(ItemId::HealthCell, 3, 57) && fullBag.restore(full),
+          "new loot full-backpack fixture restores");
+    step(fullBag, {});
+    check(fullBag.lootDrops()[2].active, "new loot remains when the backpack is full");
+    full = fullBag.checkpoint();
+    check(full.inventory.remove(ItemId::HealthCell, 3) && fullBag.restore(full),
+          "new loot fixture frees a backpack slot");
+    step(fullBag, {});
+    check(!fullBag.lootDrops()[2].active && fullBag.hasItem(ItemId::JumpVisor),
+          "new loot is collected after freeing space");
+}
+
 void testAbilityGateAndBacktracking() {
     DialogueFixture fixture;
+    echo::framework::AbilityModule abilities{echo::kProjectAbilityDefinitions};
+    echo::framework::ModuleContext moduleContext{};
+    check(abilities.initialize(moduleContext), "game ability definitions initialize");
     echo::Game game;
-    check(static_cast<bool>(fixture.bind(game)), "progression game binds engineer dialogue");
+    check(static_cast<bool>(fixture.bind(game)) && game.configureAbilities(abilities),
+          "progression game binds dialogue and the abilities module");
     talkToTechnician(game);
+    auto progression = game.checkpoint();
+    progression.enemyHealth[2] = 0;
+    progression.enemyHealth[3] = 0;
+    progression.enemyHealth[4] = 0;
+    check(game.restore(progression), "progression fixture isolates the original route");
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "progression reaches maintenance");
     check(moveUntilRoom(game, echo::RoomId::PowerStation, 1), "power station is reachable before the upgrade");
     step(game, {.moveX = 1}, 500);
@@ -376,6 +809,11 @@ void testAbilityGateAndBacktracking() {
     step(game, {.moveX = 1}, 350);
     check(game.abilityCollected(), "laboratory collectible unlocks double jump");
     check(game.player().hasDoubleJump, "ability is available to the player");
+    const echo::GameCheckpoint abilityCheckpoint = game.checkpoint();
+    echo::Game restored;
+    check(restored.configureAbilities(abilities) && restored.restore(abilityCheckpoint) &&
+              restored.abilityCollected() && restored.player().hasDoubleJump,
+          "checkpoint restore rebuilds module-backed ability ownership");
 
     step(game, {.jumpPressed = true, .jumpHeld = true});
     step(game, {.jumpHeld = true}, 10);
@@ -402,13 +840,18 @@ void testAbilityGateAndBacktracking() {
 
 int main() {
     testMovementJumpAndFloorCollision();
+    testAttributeModifiersAffectGameplay();
     testCheckpointRoundTrip();
+    testEnemyLootDrops();
     testRoomTransition();
     testTechnicianDialogueAndInventory();
     testHealthCellDialogueAndUse();
+    testKineticCoilDialogueAndCheckpoint();
+    testSlotInventoryTransfersAndMigration();
     testLabDoorRequiresKey();
     testProjectileCombatAndDamage();
     testHazardDeathAndRespawn();
+    testNewEnemyBehaviorsAndItems();
     testAbilityGateAndBacktracking();
 
     if (failures != 0) {

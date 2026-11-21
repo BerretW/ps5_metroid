@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
@@ -116,12 +117,69 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
           "game checkpoint round-trip preserves keys and consumable stack quantities");
 
     GameState legacyInventory = saved;
+    check(legacyInventory.erase({StateScope::Global, {}, "inventory.layout"}) &&
+              legacyInventory.erase({StateScope::Global, {}, "inventory.active"}) &&
+              legacyInventory.erase({StateScope::Global, {}, "inventory.active.quantity"}),
+          "legacy inventory fixture omits the new layout and active fields");
+    for (std::size_t slot = 0; slot < echo::kEquipmentSlotCount; ++slot) {
+        check(legacyInventory.erase(
+                  {StateScope::Global, {},
+                   echo::platform::game_persistence_detail::kEquipmentKeys[slot]}) &&
+                  legacyInventory.erase(
+                  {StateScope::Global, {},
+                   echo::platform::game_persistence_detail::kEquipmentQuantityKeys[slot]}),
+              "legacy fixture omits equipment fields");
+    }
+    for (std::size_t slot = 8; slot < echo::Inventory::kCapacity; ++slot) {
+        check(legacyInventory.erase(
+                  {StateScope::Global, {},
+                   echo::platform::game_persistence_detail::kInventoryKeys[slot]}) &&
+                  legacyInventory.erase(
+                  {StateScope::Global, {},
+                   echo::platform::game_persistence_detail::kInventoryQuantityKeys[slot]}),
+              "legacy fixture retains its original eight-slot capacity");
+    }
     check(legacyInventory.erase(
               {StateScope::Global, {}, "inventory.quantity.0"}) &&
+              static_cast<bool>(echo::platform::migrateGameCheckpointSave(
+                  2, legacyInventory, nullptr)) &&
               static_cast<bool>(echo::platform::decodeGameCheckpoint(
                   legacyInventory, restored)) &&
               restored.inventory.quantities[0] == 1,
           "pre-stack saves default missing item quantities to one");
+
+    checkpoint = game.checkpoint();
+    checkpoint.equipment[static_cast<std::size_t>(echo::EquipmentSlot::Body)] =
+        {echo::ItemId::KineticCoil, 1};
+    check(game.restore(checkpoint) &&
+              game.moveInventorySlot(0, 19) &&
+              game.moveInventorySlot(1, echo::Game::kActiveItemSlot) &&
+              echo::platform::encodeGameCheckpoint(game, saved) &&
+              echo::platform::decodeGameCheckpoint(saved, restored) &&
+              restored.inventory.items[19] == echo::ItemId::MaintenanceKey &&
+              restored.inventory.items[0] == echo::ItemId::None &&
+              restored.equipment[static_cast<std::size_t>(echo::EquipmentSlot::Body)].item ==
+                  echo::ItemId::KineticCoil &&
+              restored.activeItem.quantity == 2,
+          "slot-layout round-trip preserves holes, equipment and the active stack");
+
+    checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::MaintenanceTunnel;
+    checkpoint.enemyHealth[0] = 0;
+    checkpoint.lootDrops[0] = {
+        echo::RoomId::MaintenanceTunnel, {120.0F, 304.0F},
+        {echo::ItemId::Scrap, 2}, true};
+    check(game.restore(checkpoint) &&
+              echo::platform::encodeGameCheckpoint(game, saved) &&
+              echo::platform::decodeGameCheckpoint(saved, restored) &&
+              restored.lootDrops[0].active &&
+              restored.lootDrops[0].stack == echo::ItemStack{echo::ItemId::Scrap, 2},
+          "checkpoint round-trip preserves uncollected enemy loot");
+    auto invalidLoot = saved;
+    check(invalidLoot.set({StateScope::Global, {}, "loot.0.item"},
+                          StateValue::fromInteger(static_cast<int>(echo::ItemId::HealthCell))) &&
+              !echo::platform::decodeGameCheckpoint(invalidLoot, restored),
+          "checkpoint decoder rejects tampered enemy loot types");
 
     GameState invalid = saved;
     check(static_cast<bool>(invalid.set(
@@ -134,13 +192,107 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
           "checkpoint decoder rejects invalid inventory without partial output");
     GameState invalidQuantity = saved;
     check(static_cast<bool>(invalidQuantity.set(
-              {StateScope::Global, {}, "inventory.quantity.0"},
+              {StateScope::Global, {}, "inventory.quantity.19"},
               StateValue::fromInteger(0))),
           "invalid inventory quantity fixture is stored");
     check(echo::platform::decodeGameCheckpoint(invalidQuantity, unchanged).code ==
               echo::framework::ErrorCode::CorruptData &&
               unchanged.playerHealth == 3 && unchanged.inventory.count == 0,
           "checkpoint decoder rejects invalid quantities without partial output");
+    auto badGear = std::make_unique<GameState>(saved);
+    check(badGear->set({StateScope::Global, {}, "equipment.head"},
+                      StateValue::fromInteger(static_cast<int>(echo::ItemId::HealthCell))) &&
+              badGear->set({StateScope::Global, {}, "equipment.head.quantity"},
+                          StateValue::fromInteger(1)) &&
+              !echo::platform::decodeGameCheckpoint(*badGear, unchanged) &&
+              unchanged.playerHealth == 3,
+          "decoder rejects incompatible gear without partial output");
+    check(badGear->replaceValues(saved) &&
+              badGear->erase({StateScope::Global, {}, "inventory.layout"}) &&
+              !echo::platform::decodeGameCheckpoint(*badGear, unchanged),
+          "slot fields cannot silently fall back to the legacy layout");
+    check(badGear->replaceValues(legacyInventory) &&
+              badGear->set({StateScope::Global, {}, "inventory.item.19"},
+                          StateValue::fromInteger(1)) &&
+              !echo::platform::decodeGameCheckpoint(*badGear, unchanged),
+          "legacy saves reject expanded backpack fields without a layout version");
+
+    constexpr std::array<echo::framework::ModuleVersion, 2> saveModules{{
+        {"echo.state", 1, true}, {"echo.project_echo", 1, true}}};
+    auto oldState = std::make_unique<GameState>();
+    auto decodedState = std::make_unique<GameState>();
+    auto buffer = std::make_unique<std::array<char, echo::framework::kMaxSaveBytes>>();
+    for (const std::uint32_t version : {1U, 2U, 3U, 4U}) {
+        const GameState& versionState = version >= 3 ? saved : legacyInventory;
+        check(static_cast<bool>(oldState->replaceValues(versionState)),
+              "legacy save fixture copies its state");
+        for (std::size_t index = 2; index < echo::kEnemyCount; ++index) {
+            check(oldState->erase({StateScope::Global, {},
+                                  echo::platform::game_persistence_detail::kEnemyKeys[index]}),
+                  "old save excludes new enemies");
+        }
+        for (std::size_t index = 0; index < 10; ++index) {
+            check(oldState->erase({StateScope::Global, {},
+                                  echo::platform::game_persistence_detail::kExtraLootActiveKeys[index]}) &&
+                      oldState->erase({StateScope::Global, {},
+                                  echo::platform::game_persistence_detail::kExtraLootXKeys[index]}),
+                  "old save excludes new drops");
+        }
+        for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
+            check(oldState->erase({StateScope::Global, {}, key}),
+                  "old save excludes new effects");
+        }
+        if (version == 1) {
+            check(oldState->erase({StateScope::Global, {}, "inventory.count"}),
+                  "version-one save has no inventory");
+            for (std::size_t slot = 0; slot < 8; ++slot) {
+                echo::framework::StateValue value{};
+                const auto itemKey =
+                    echo::platform::game_persistence_detail::kInventoryKeys[slot];
+                const auto quantityKey =
+                    echo::platform::game_persistence_detail::kInventoryQuantityKeys[slot];
+                if (oldState->get({StateScope::Global, {}, itemKey}, value)) {
+                    check(oldState->erase({StateScope::Global, {}, itemKey}),
+                          "version-one fixture removes inventory items");
+                }
+                if (oldState->get({StateScope::Global, {}, quantityKey}, value)) {
+                    check(oldState->erase({StateScope::Global, {}, quantityKey}),
+                          "version-one fixture removes inventory quantities");
+                }
+            }
+        }
+        if (version == 3) {
+            for (std::size_t slot = 0; slot < 2; ++slot) {
+                for (const std::string_view key : {
+                         echo::platform::game_persistence_detail::kLootActiveKeys[slot],
+                         echo::platform::game_persistence_detail::kLootRoomKeys[slot],
+                         echo::platform::game_persistence_detail::kLootItemKeys[slot],
+                         echo::platform::game_persistence_detail::kLootQuantityKeys[slot],
+                         echo::platform::game_persistence_detail::kLootXKeys[slot],
+                         echo::platform::game_persistence_detail::kLootYKeys[slot]}) {
+                    check(oldState->erase({StateScope::Global, {}, key}),
+                          "version-three fixture removes fields added by loot support");
+                }
+            }
+        }
+        std::size_t written{};
+        echo::framework::SaveHeader header{};
+        check(echo::framework::SaveCodec::encode(
+                  "echo.project_echo", version, saveModules, *oldState,
+                  buffer->data(), buffer->size(), written) &&
+                  echo::framework::SaveCodec::decode(
+                  buffer->data(), written, "echo.project_echo", 5, saveModules,
+                  *decodedState, header, &echo::platform::migrateGameCheckpointSave) &&
+                  header.formatVersion == 5 &&
+                  echo::platform::decodeGameCheckpoint(*decodedState, restored) &&
+                  game.restore(restored) && game.hasItem(echo::ItemId::MaintenanceKey) &&
+                  ((version == 1 && !game.lootDrops()[0].active) ||
+                   (version == 2 &&
+                    game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2) ||
+                   (version == 3 && !game.lootDrops()[0].active) ||
+                   (version == 4 && game.lootDrops()[0].active)),
+              "version-one through four save documents migrate through the real codec");
+    }
 
     GameState migrated{};
     check(echo::platform::migrateGameCheckpointSave(1, migrated, nullptr),
@@ -152,8 +304,46 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
               migrated.get({StateScope::Global, {}, "inventory.item.0"}, migratedItem) &&
               migratedItem.integer == static_cast<std::int64_t>(echo::ItemId::MaintenanceKey),
           "legacy saves receive the key to preserve their previously unlocked route");
-    check(!echo::platform::migrateGameCheckpointSave(3, migrated, nullptr),
+    check(echo::platform::migrateGameCheckpointSave(3, migrated, nullptr) &&
+              !echo::platform::migrateGameCheckpointSave(5, migrated, nullptr),
           "unknown future save versions are not migrated");
+    GameState versionFour = saved;
+    echo::GameCheckpoint oldDrop{};
+    check(echo::platform::migrateGameCheckpointSave(4, versionFour, nullptr) &&
+              echo::platform::decodeGameCheckpoint(versionFour, oldDrop) &&
+              oldDrop.lootDrops[0].active &&
+              oldDrop.lootDrops[0].stack == echo::ItemStack{echo::ItemId::Scrap, 2} &&
+              oldDrop.enemyHealth[2] == 3 && oldDrop.enemyHealth[3] == 6 &&
+              oldDrop.enemyHealth[4] == 4,
+          "version four preserves existing loot and adds the new enemies");
+    auto newDrop = game.checkpoint();
+    newDrop.enemyHealth[2] = 0;
+    newDrop.lootDrops[2] = {
+        echo::RoomId::MaintenanceTunnel, {400.0F, 304.0F},
+        {echo::ItemId::JumpVisor, 1}, true};
+    newDrop.speedBoostSeconds = 4.0F;
+    check(game.restore(newDrop) && echo::platform::encodeGameCheckpoint(game, saved) &&
+              echo::platform::decodeGameCheckpoint(saved, restored) &&
+              restored.lootDrops[2].active &&
+              restored.lootDrops[2].stack.item == echo::ItemId::JumpVisor &&
+              restored.speedBoostSeconds == 4.0F && game.restore(restored),
+          "new loot and active effects survive checkpoint serialization");
+    auto invalidNewLoot = saved;
+    check(invalidNewLoot.set({StateScope::Global, {}, "enemy.2.health"},
+                             StateValue::fromInteger(3)) &&
+              !echo::platform::decodeGameCheckpoint(invalidNewLoot, restored),
+          "new loot is rejected when its enemy is still alive");
+    newDrop = game.checkpoint();
+    newDrop.room = echo::RoomId::MaintenanceTunnel;
+    newDrop.playerPosition = {400.0F, 292.0F};
+    newDrop.playerVelocity = {};
+    check(game.restore(newDrop) && game.update({}) &&
+              game.hasItem(echo::ItemId::JumpVisor) && !game.lootDrops()[2].active &&
+              echo::platform::encodeGameCheckpoint(game, saved) &&
+              echo::platform::decodeGameCheckpoint(saved, restored) &&
+              game.restore(restored) && game.hasItem(echo::ItemId::JumpVisor) &&
+              !game.lootDrops()[2].active,
+          "collecting restored new loot persists without duplication");
 }
 
 SDL_Window* createdWindow(SDL_Window* previous = nullptr) {
@@ -279,7 +469,8 @@ int main() {
         echo::GameCheckpoint healthCellCheckpoint = dialogueGame.checkpoint();
         healthCellCheckpoint.playerHealth = 4;
         check(healthCellCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 2) &&
-                  dialogueGame.restore(healthCellCheckpoint),
+                  dialogueGame.restore(healthCellCheckpoint) &&
+                  dialogueGame.moveInventorySlot(1, echo::Game::kActiveItemSlot),
               "renderer fixture restores an injured player carrying health cells");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         const auto healthCellInventory = capture(keyboardWindow, {206, 12, 152, 38});
@@ -292,6 +483,53 @@ int main() {
                   playStationHealPrompt != std::vector<Uint32>{} &&
                   keyboardHealPrompt != playStationHealPrompt,
               "the heal prompt shows keyboard and PlayStation-specific controls");
+
+        echo::platform::InventoryMenu inventoryMenu{};
+        check(inventoryMenu.confirm(dialogueGame) &&
+                  inventoryMenu.source == 0,
+              "inventory confirmation picks up the selected bag item");
+        inventoryMenu.navigate(1, 0);
+        check(inventoryMenu.confirm(dialogueGame) &&
+                  dialogueGame.inventory().items[0] == echo::ItemId::None &&
+                  dialogueGame.inventory().items[1] == echo::ItemId::MaintenanceKey,
+              "shared inventory navigation moves an item without compacting the bag");
+        keyboard.drawInventory(dialogueGame, inventoryMenu, "ITEM MOVED");
+        const auto keyboardInventoryPrompt = capture(keyboardWindow, {28, 331, 584, 12});
+        const auto activeSlotPixels = capture(keyboardWindow, {492, 264, 108, 36});
+        pad.drawInventory(dialogueGame, inventoryMenu, "ITEM MOVED");
+        check(keyboardInventoryPrompt != capture(padWindow, {28, 331, 584, 12}),
+              "inventory uses keyboard and PlayStation-specific navigation prompts");
+        keyboard.drawInventory(game, inventoryMenu, "");
+        check(activeSlotPixels != capture(keyboardWindow, {492, 264, 108, 36}),
+              "the dedicated active slot renders the selected consumable stack");
+        check(static_cast<bool>(inventoryMenu.confirm(dialogueGame)),
+              "inventory selects the moved key again");
+        inventoryMenu.selected = echo::Game::kFirstEquipmentSlot;
+        check(inventoryMenu.confirm(dialogueGame).code ==
+                  echo::framework::ErrorCode::InvalidValue &&
+                  inventoryMenu.source == 1 &&
+                  dialogueGame.inventory().items[1] == echo::ItemId::MaintenanceKey &&
+                  !inventoryMenu.back() && inventoryMenu.back(),
+              "incompatible moves preserve the item and cancel precedes closing");
+        inventoryMenu.selected = 19;
+        inventoryMenu.navigate(0, 1);
+        check(inventoryMenu.selected == echo::Game::kActiveItemSlot,
+              "navigation reaches the final active slot from the last backpack slot");
+
+        echo::Game lootRendererGame = dialogueGame;
+        echo::GameCheckpoint lootRenderCheckpoint = lootRendererGame.checkpoint();
+        lootRenderCheckpoint.room = echo::RoomId::MaintenanceTunnel;
+        lootRenderCheckpoint.enemyHealth[0] = 0;
+        lootRenderCheckpoint.lootDrops[0] = {
+            echo::RoomId::MaintenanceTunnel, {150.0F, 304.0F},
+            {echo::ItemId::Scrap, 2}, true};
+        check(lootRendererGame.restore(lootRenderCheckpoint),
+              "renderer fixture restores an uncollected enemy drop");
+        keyboard.drawGame(game, false, false, "SPACE", "J", "E");
+        const auto emptyLootRegion = capture(keyboardWindow, {140, 300, 45, 20});
+        keyboard.drawGame(lootRendererGame, false, false, "SPACE", "J", "E");
+        check(emptyLootRegion != capture(keyboardWindow, {140, 300, 45, 20}),
+              "enemy loot is visibly rendered in its world position");
 
         pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");

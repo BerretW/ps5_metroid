@@ -29,7 +29,9 @@ add_library(echo_game
 )
 target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
-target_link_libraries(echo_game PUBLIC EchoFramework::Narrative EchoFramework::Inventory)
+target_link_libraries(echo_game PUBLIC
+    EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
+    EchoFramework::Equipment EchoFramework::Abilities)
 
 if(ECHO_FRAMEWORK_BUILD_TOOLS)
     add_executable(echo_project_component_editor framework/tools/component_editor.cpp)
@@ -40,7 +42,8 @@ if(ECHO_FRAMEWORK_BUILD_TOOLS)
     add_executable(echo_project_schema_export framework/tools/schema_export.cpp)
     target_compile_definitions(echo_project_schema_export PRIVATE
         ECHO_PROJECT_COMPONENTS ECHO_MANIFEST_HAS_NARRATIVE
-        ECHO_MANIFEST_HAS_INVENTORY)
+        ECHO_MANIFEST_HAS_INVENTORY ECHO_MANIFEST_HAS_ATTRIBUTES
+        ECHO_MANIFEST_HAS_EQUIPMENT ECHO_MANIFEST_HAS_ABILITIES)
     target_link_libraries(echo_project_schema_export PRIVATE echo_game)
     target_compile_features(echo_project_schema_export PRIVATE cxx_std_20)
 

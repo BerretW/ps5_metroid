@@ -36,8 +36,9 @@ projectCapabilityManifestFragment() noexcept {
     using namespace framework;
     static constexpr std::array<std::string_view, 2> requiredModules{
         "echo.state", "echo.narrative.dialogue"};
-    static constexpr std::array<std::string_view, 1> optionalModules{
-        "echo.rpg.inventory"};
+    static constexpr std::array<std::string_view, 4> optionalModules{
+        "echo.rpg.abilities", "echo.rpg.attributes",
+        "echo.rpg.equipment", "echo.rpg.inventory"};
     static constexpr std::array<std::string_view, 1> stateProvides{"echo.state"};
     static constexpr std::array<std::string_view, 1> projectProvides{"echo.actions"};
     static constexpr std::array<ManifestCapabilityDescriptor, 2> capabilities{{

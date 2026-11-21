@@ -88,6 +88,7 @@ if(ECHO_PS5_GAME)
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
     target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
         EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
-        EchoFramework::Inventory
+        EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
+        EchoFramework::Abilities
         --end-group --as-needed ${stubs})
 endif()
