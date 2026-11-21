@@ -7,7 +7,7 @@
 | Fire | J (configurable) | X | Square □ |
 | Interact / advance dialogue / use door | E (configurable) | Y | Triangle △ |
 | Use active item | H | Right shoulder | R1 |
-| Open inventory | I (also from pause) | Y while paused | Triangle △ while paused |
+| Open inventory | I (also from pause) | Left shoulder | L1 |
 | Inventory navigate / select / move | Arrows/WASD, Enter/Space | D-pad, A | D-pad, Cross × |
 | Inventory cancel selection / close to pause | Escape / I | B / Start | Circle ○ / Options |
 | Select dialogue choice | Left/Right arrows or A/D | Left stick or D-pad left/right | Left stick or D-pad left/right |
@@ -34,8 +34,9 @@ Inventory freezes gameplay and successful moves autosave. If I is already bound
 to jump/fire/interact, that action keeps working during gameplay; open inventory
 with I from pause instead.
 
+Open inventory during play with I/L1 (the pause screen also lists the binding).
 After collecting a Health Cell from Mira while injured, move its backpack stack
-to Active, then press H or R1 to restore up to two health. Backpack cells cannot
+to Active, then press H/R1 to restore up to two health. Backpack cells cannot
 be used directly. A cell is not consumed at full health; the active stack holds
 up to three. Mira only offers another while injured and owning none across
 compartments. Her horizontal interaction reach is configurable in

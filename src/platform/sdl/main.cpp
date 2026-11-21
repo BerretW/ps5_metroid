@@ -1602,6 +1602,8 @@ int main(int, char**) {
                         } else {
                             pendingPause = true;
                         }
+                    } else if (button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+                        openInventory();
                     } else if (!paused && button == SDL_CONTROLLER_BUTTON_A) {
                         pendingJump = true;
                     } else if (!paused && button == SDL_CONTROLLER_BUTTON_Y) {
@@ -1609,8 +1611,6 @@ int main(int, char**) {
                     } else if (!paused &&
                                button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
                         pendingUseItem = true;
-                    } else if (paused && button == SDL_CONTROLLER_BUTTON_Y) {
-                        openInventory();
                     } else if (paused && button == SDL_CONTROLLER_BUTTON_A) {
                         paused = false;
                     }

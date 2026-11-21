@@ -610,7 +610,7 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(245, 146, "PAUSED", 3, kText);
         text(195, 199, controls_ == ControlScheme::PlayStation ? "\x01 RESUME  \x04 MENU" : "ENTER RESUME  ESC MENU", 1, kMuted);
         text(245, 224, controls_ == ControlScheme::PlayStation
-                          ? "\x03 INVENTORY" : "I INVENTORY", 1, kCyan);
+                          ? "L1 INVENTORY" : "I INVENTORY", 1, kCyan);
     }
     SDL_RenderPresent(renderer_);
 }
