@@ -65,12 +65,33 @@ constexpr float kJumpImpulse = 420.0F;
 constexpr float kMaximumFallSpeed = 520.0F;
 constexpr float kCoyoteSeconds = 0.10F;
 constexpr float kJumpBufferSeconds = 0.12F;
+constexpr Rect kTechnicianBounds{108.0F, 280.0F, 28.0F, 40.0F};
 
 [[nodiscard]] std::size_t roomIndex(RoomId room) noexcept {
     return static_cast<std::size_t>(room);
 }
 
 } // namespace
+
+bool Inventory::contains(ItemId item) const noexcept {
+    const std::size_t validCount = std::min(count, items.size());
+    return std::find(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(validCount), item) !=
+           items.begin() + static_cast<std::ptrdiff_t>(validCount);
+}
+
+bool Inventory::add(ItemId item) noexcept {
+    if (item == ItemId::None || item >= ItemId::Count) {
+        return false;
+    }
+    if (contains(item)) {
+        return true;
+    }
+    if (count >= items.size()) {
+        return false;
+    }
+    items[count++] = item;
+    return true;
+}
 
 Game::Game() noexcept {
     start();
@@ -92,8 +113,102 @@ void Game::start() noexcept {
     doubleJumpUsed_ = false;
     abilityCollected_ = false;
     gateBlocked_ = false;
+    accessBlocked_ = false;
     completed_ = false;
+    dialogueLine_ = -1;
     deaths_ = 0;
+    inventory_ = {};
+}
+
+GameCheckpoint Game::checkpoint() const noexcept {
+    GameCheckpoint result{};
+    result.room = room_;
+    result.playerPosition = player_.position;
+    result.playerVelocity = player_.velocity;
+    result.playerHealth = player_.health;
+    result.playerFacing = player_.facing;
+    result.playerOnGround = player_.onGround;
+    result.hasDoubleJump = player_.hasDoubleJump;
+    result.abilityCollected = abilityCollected_;
+    result.completed = completed_;
+    result.deaths = deaths_;
+    result.inventory = inventory_;
+    for (std::size_t index = 0; index < enemies_.size(); ++index) {
+        result.enemyHealth[index] = enemies_[index].alive ? enemies_[index].health : 0;
+    }
+    return result;
+}
+
+bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
+    const std::size_t index = roomIndex(checkpointValue.room);
+    if (index >= kRooms.size() ||
+        !std::isfinite(checkpointValue.playerPosition.x) ||
+        !std::isfinite(checkpointValue.playerPosition.y) ||
+        !std::isfinite(checkpointValue.playerVelocity.x) ||
+        !std::isfinite(checkpointValue.playerVelocity.y) ||
+        checkpointValue.playerPosition.x < 0.0F ||
+        checkpointValue.playerPosition.x > static_cast<float>(kRoomWidth) - kPlayerWidth ||
+        checkpointValue.playerPosition.y < 0.0F ||
+        checkpointValue.playerPosition.y > static_cast<float>(kRoomHeight) - kPlayerHeight ||
+        std::abs(checkpointValue.playerVelocity.x) > kPlayerSpeed ||
+        checkpointValue.playerVelocity.y < -kJumpImpulse ||
+        checkpointValue.playerVelocity.y > kMaximumFallSpeed ||
+        checkpointValue.playerHealth < 1 || checkpointValue.playerHealth > 5 ||
+        (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
+        checkpointValue.deaths < 0 ||
+        checkpointValue.hasDoubleJump != checkpointValue.abilityCollected ||
+        (checkpointValue.room == RoomId::CentralChamber &&
+         !checkpointValue.hasDoubleJump) ||
+        ((checkpointValue.room == RoomId::ResearchLab ||
+          checkpointValue.room == RoomId::CentralChamber) &&
+         !checkpointValue.inventory.contains(ItemId::MaintenanceKey)) ||
+        (checkpointValue.completed &&
+         (checkpointValue.room != RoomId::CentralChamber || !checkpointValue.hasDoubleJump))) {
+        return false;
+    }
+    if (checkpointValue.inventory.count > Inventory::kCapacity) {
+        return false;
+    }
+    Inventory validatedInventory{};
+    for (std::size_t itemIndex = 0; itemIndex < checkpointValue.inventory.count; ++itemIndex) {
+        if (!validatedInventory.add(checkpointValue.inventory.items[itemIndex])) {
+            return false;
+        }
+        if (validatedInventory.count != itemIndex + 1) {
+            return false;
+        }
+    }
+    for (std::size_t enemy = 0; enemy < checkpointValue.enemyHealth.size(); ++enemy) {
+        const int maximumHealth = enemy == 0 ? 2 : 3;
+        if (checkpointValue.enemyHealth[enemy] < 0 ||
+            checkpointValue.enemyHealth[enemy] > maximumHealth) {
+            return false;
+        }
+    }
+
+    Game restored{};
+    restored.room_ = checkpointValue.room;
+    restored.player_.position = checkpointValue.playerPosition;
+    restored.player_.velocity = checkpointValue.playerVelocity;
+    restored.player_.health = checkpointValue.playerHealth;
+    restored.player_.facing = checkpointValue.playerFacing;
+    restored.player_.onGround = checkpointValue.playerOnGround;
+    restored.player_.hasDoubleJump = checkpointValue.hasDoubleJump;
+    restored.abilityCollected_ = checkpointValue.abilityCollected;
+    restored.completed_ = checkpointValue.completed;
+    restored.deaths_ = checkpointValue.deaths;
+    restored.inventory_ = validatedInventory;
+    for (std::size_t enemy = 0; enemy < restored.enemies_.size(); ++enemy) {
+        restored.enemies_[enemy].health = checkpointValue.enemyHealth[enemy];
+        restored.enemies_[enemy].alive = checkpointValue.enemyHealth[enemy] > 0;
+    }
+    if (restored.collidesWithWorld({restored.player_.position.x,
+                                    restored.player_.position.y,
+                                    kPlayerWidth, kPlayerHeight})) {
+        return false;
+    }
+    *this = restored;
+    return true;
 }
 
 std::string_view Game::roomName() const noexcept {
@@ -129,6 +244,34 @@ int Game::livingEnemies(RoomId room) const noexcept {
     return static_cast<int>(std::count_if(enemies_.begin(), enemies_.end(), [room](const Enemy& enemy) {
         return enemy.room == room && enemy.alive;
     }));
+}
+
+Rect Game::technicianBounds() const noexcept {
+    return kTechnicianBounds;
+}
+
+bool Game::technicianNearby() const noexcept {
+    if (room_ != RoomId::LandingBay) {
+        return false;
+    }
+    const Rect reach{kTechnicianBounds.x - 52.0F, kTechnicianBounds.y - 20.0F,
+                     kTechnicianBounds.width + 104.0F, kTechnicianBounds.height + 40.0F};
+    return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
+}
+
+std::string_view Game::dialogueText() const noexcept {
+    switch (dialogueLine_) {
+    case 0:
+        return "ENGINEER: LAB ACCESS IS LOCKED.";
+    case 1:
+        return "ECHO STEP IS IN THE RESEARCH LAB.";
+    case 2:
+        return "TAKE THIS MAINTENANCE KEY.";
+    case 3:
+        return "ENGINEER: THE KEY OPENS THE LAB DOOR.";
+    default:
+        return {};
+    }
 }
 
 bool Game::overlaps(const Rect& first, const Rect& second) noexcept {
@@ -182,6 +325,20 @@ void Game::update(const Input& input, float deltaSeconds) noexcept {
 
     const float dt = std::clamp(deltaSeconds, 0.0F, 0.05F);
     gateBlocked_ = false;
+    accessBlocked_ = false;
+    if (dialogueLine_ >= 0) {
+        if (input.interactPressed) {
+            if (dialogueLine_ == 0) {
+                dialogueLine_ = 1;
+            } else if (dialogueLine_ == 1) {
+                dialogueLine_ = 2;
+                (void)inventory_.add(ItemId::MaintenanceKey);
+            } else {
+                dialogueLine_ = -1;
+            }
+        }
+        return;
+    }
     invulnerabilityTimer_ = std::max(0.0F, invulnerabilityTimer_ - dt);
     shotCooldown_ = std::max(0.0F, shotCooldown_ - dt);
 
@@ -368,9 +525,17 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
 
 void Game::interact() noexcept {
     const Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
+    if (technicianNearby()) {
+        dialogueLine_ = inventory_.contains(ItemId::MaintenanceKey) ? 3 : 0;
+        return;
+    }
     if (room_ == RoomId::MaintenanceTunnel &&
         overlaps(playerBounds, {970.0F, 272.0F, 44.0F, 48.0F})) {
-        enterRoom(RoomId::ResearchLab, true);
+        if (inventory_.contains(ItemId::MaintenanceKey)) {
+            enterRoom(RoomId::ResearchLab, true);
+        } else {
+            accessBlocked_ = true;
+        }
     } else if (room_ == RoomId::ResearchLab && player_.position.x < 120.0F) {
         enterRoom(RoomId::MaintenanceTunnel, false);
     }

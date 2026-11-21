@@ -30,9 +30,9 @@ Gameplay belongs in `src/game/`; SDL-specific input and presentation belong in `
 
 ## Prototype scope
 
-The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate.
+The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate. Engineer Mira offers a short interaction-driven dialogue in the Landing Bay and gives the Maintenance Key, which is tracked in the bounded player inventory and gates the Research Laboratory door. Volume and keyboard bindings persist in a separate versioned settings slot; gameplay progress and inventory use the autosave slot.
 
-Sprites and sounds are original, procedurally generated assets (see [ASSETS.md](ASSETS.md)); the player has idle/run/jump/fall animation frames. Settings currently reset between launches. Final art, music, full remapping persistence, and comprehensive input-device QA are follow-up work.
+Sprites and sounds are original, procedurally generated assets (see [ASSETS.md](ASSETS.md)); the player has idle/run/jump/fall animation frames. Final art, music, and comprehensive input-device QA are follow-up work.
 
 ## PS5 milestone
 

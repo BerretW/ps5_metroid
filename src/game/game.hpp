@@ -83,12 +83,45 @@ struct Projectile {
     bool active{};
 };
 
+enum class ItemId : std::uint8_t {
+    None,
+    MaintenanceKey,
+    Count
+};
+
+struct Inventory {
+    static constexpr std::size_t kCapacity = 8;
+
+    std::array<ItemId, kCapacity> items{};
+    std::size_t count{};
+
+    [[nodiscard]] bool contains(ItemId item) const noexcept;
+    [[nodiscard]] bool add(ItemId item) noexcept;
+};
+
+struct GameCheckpoint {
+    RoomId room{RoomId::LandingBay};
+    Vec2 playerPosition{};
+    Vec2 playerVelocity{};
+    std::array<int, 2> enemyHealth{};
+    Inventory inventory{};
+    int playerHealth{5};
+    int playerFacing{1};
+    int deaths{};
+    bool playerOnGround{true};
+    bool hasDoubleJump{};
+    bool abilityCollected{};
+    bool completed{};
+};
+
 class Game {
 public:
     Game() noexcept;
 
     void start() noexcept;
     void update(const Input& input, float deltaSeconds = kFixedStep) noexcept;
+    [[nodiscard]] GameCheckpoint checkpoint() const noexcept;
+    [[nodiscard]] bool restore(const GameCheckpoint& checkpoint) noexcept;
 
     [[nodiscard]] RoomId roomId() const noexcept { return room_; }
     [[nodiscard]] std::string_view roomName() const noexcept;
@@ -99,10 +132,16 @@ public:
     [[nodiscard]] float cameraX() const noexcept;
     [[nodiscard]] bool abilityCollected() const noexcept { return abilityCollected_; }
     [[nodiscard]] bool gateBlocked() const noexcept { return gateBlocked_; }
+    [[nodiscard]] bool accessBlocked() const noexcept { return accessBlocked_; }
     [[nodiscard]] bool completed() const noexcept { return completed_; }
     [[nodiscard]] int deaths() const noexcept { return deaths_; }
     [[nodiscard]] int livingEnemies(RoomId room) const noexcept;
     [[nodiscard]] Rect abilityPickup() const noexcept { return abilityPickup_; }
+    [[nodiscard]] Rect technicianBounds() const noexcept;
+    [[nodiscard]] bool technicianNearby() const noexcept;
+    [[nodiscard]] bool dialogueActive() const noexcept { return dialogueLine_ >= 0; }
+    [[nodiscard]] std::string_view dialogueText() const noexcept;
+    [[nodiscard]] const Inventory& inventory() const noexcept { return inventory_; }
 
 private:
     void updatePlayer(const Input& input, float deltaSeconds) noexcept;
@@ -128,8 +167,11 @@ private:
     bool doubleJumpUsed_{};
     bool abilityCollected_{};
     bool gateBlocked_{};
+    bool accessBlocked_{};
     bool completed_{};
+    int dialogueLine_{-1};
     int deaths_{};
+    Inventory inventory_{};
 };
 
 } // namespace echo

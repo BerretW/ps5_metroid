@@ -167,10 +167,28 @@ framework::Status FrameworkIntegration::beginGame() noexcept {
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration must initialize before starting a game."};
     }
+    framework::GameState empty{};
+    const framework::Status cleared = stateModule_.state.replaceValues(empty);
+    if (!cleared) {
+        return cleared;
+    }
     actions_.setGameActive(true);
     return stateModule_.state.set(
         {framework::StateScope::Global, {}, "player.echo_step_unlocked"},
         framework::StateValue::fromBoolean(false));
+}
+
+framework::Status FrameworkIntegration::resumeGame(const framework::GameState& state) noexcept {
+    if (!initialized_) {
+        return {framework::ErrorCode::InvalidState, "echo.project_echo",
+                "Framework integration must initialize before resuming a game."};
+    }
+    const framework::Status replaced = stateModule_.state.replaceValues(state);
+    if (!replaced) {
+        return replaced;
+    }
+    actions_.setGameActive(true);
+    return framework::Status::success();
 }
 
 framework::Status FrameworkIntegration::notifyEchoStepUnlocked() noexcept {

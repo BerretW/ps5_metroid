@@ -54,7 +54,9 @@ public:
 
     [[nodiscard]] framework::Status initialize(const char* configPath) noexcept;
     [[nodiscard]] framework::Status beginGame() noexcept;
+    [[nodiscard]] framework::Status resumeGame(const framework::GameState& state) noexcept;
     [[nodiscard]] framework::Status notifyEchoStepUnlocked() noexcept;
+    [[nodiscard]] framework::GameState& gameState() noexcept { return stateModule_.state; }
     void shutdown() noexcept;
     [[nodiscard]] std::size_t unlockEventCount() const noexcept;
 

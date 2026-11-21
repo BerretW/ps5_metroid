@@ -1,5 +1,7 @@
 #include "platform/sdl/assets.hpp"
+#include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/renderer.hpp"
+#include "platform/sdl/settings_persistence.hpp"
 
 #include <SDL.h>
 
@@ -19,6 +21,83 @@ void check(bool condition, std::string_view message) {
         ++failures;
         std::cerr << "FAIL: " << message << '\n';
     }
+}
+
+void testSettingsPersistence() {
+    using echo::framework::GameState;
+    using echo::framework::StateScope;
+    using echo::framework::StateValue;
+
+    GameState saved{};
+    const echo::platform::Bindings original{SDLK_f, SDLK_g, SDLK_h};
+    check(static_cast<bool>(echo::platform::encodeSettings(70, original, saved)),
+          "settings encode into framework state");
+    int volume = 20;
+    echo::platform::Bindings bindings{};
+    check(static_cast<bool>(echo::platform::decodeSettings(saved, volume, bindings)) &&
+              volume == 70 && bindings.jump == SDLK_f &&
+              bindings.shoot == SDLK_g && bindings.interact == SDLK_h,
+          "settings round-trip volume and keyboard bindings");
+
+    GameState invalid = saved;
+    check(static_cast<bool>(invalid.set(
+              {StateScope::Global, {}, "audio.volume"}, StateValue::fromInteger(101))),
+          "invalid volume fixture is stored");
+    const int previousVolume = volume;
+    const echo::platform::Bindings previousBindings = bindings;
+    check(!echo::platform::decodeSettings(invalid, volume, bindings) &&
+              volume == previousVolume && bindings.jump == previousBindings.jump &&
+              bindings.shoot == previousBindings.shoot &&
+              bindings.interact == previousBindings.interact,
+          "invalid settings are rejected without partial application");
+
+    GameState wrongType = saved;
+    check(static_cast<bool>(wrongType.set(
+              {StateScope::Global, {}, "input.jump"}, StateValue::fromBoolean(true))),
+          "invalid key type fixture is stored");
+    check(!echo::platform::decodeSettings(wrongType, volume, bindings),
+          "settings decoder rejects values with incorrect types");
+}
+
+void testGameCheckpointPersistence() {
+    using echo::framework::GameState;
+    using echo::framework::StateScope;
+    using echo::framework::StateValue;
+
+    echo::Game game;
+    game.update({.interactPressed = true});
+    game.update({.interactPressed = true});
+    game.update({.interactPressed = true});
+    GameState saved{};
+    check(static_cast<bool>(echo::platform::encodeGameCheckpoint(game, saved)),
+          "game checkpoint encodes to framework state");
+    echo::GameCheckpoint restored{};
+    check(static_cast<bool>(echo::platform::decodeGameCheckpoint(saved, restored)) &&
+              restored.inventory.contains(echo::ItemId::MaintenanceKey),
+          "game checkpoint round-trip preserves inventory");
+
+    GameState invalid = saved;
+    check(static_cast<bool>(invalid.set(
+              {StateScope::Global, {}, "inventory.item.0"}, StateValue::fromInteger(99))),
+          "invalid inventory fixture is stored");
+    echo::GameCheckpoint unchanged{};
+    unchanged.playerHealth = 3;
+    check(!echo::platform::decodeGameCheckpoint(invalid, unchanged) &&
+              unchanged.playerHealth == 3 && unchanged.inventory.count == 0,
+          "checkpoint decoder rejects invalid inventory without partial output");
+
+    GameState migrated{};
+    check(echo::platform::migrateGameCheckpointSave(1, migrated, nullptr),
+          "version-one gameplay save migration succeeds");
+    StateValue migratedCount{};
+    StateValue migratedItem{};
+    check(migrated.get({StateScope::Global, {}, "inventory.count"}, migratedCount) &&
+              migratedCount.integer == 1 &&
+              migrated.get({StateScope::Global, {}, "inventory.item.0"}, migratedItem) &&
+              migratedItem.integer == static_cast<std::int64_t>(echo::ItemId::MaintenanceKey),
+          "legacy saves receive the key to preserve their previously unlocked route");
+    check(!echo::platform::migrateGameCheckpointSave(3, migrated, nullptr),
+          "unknown future save versions are not migrated");
 }
 
 SDL_Window* createdWindow(SDL_Window* previous = nullptr) {
@@ -63,6 +142,8 @@ int main() {
     echo::platform::Renderer keyboard{ControlScheme::Keyboard};
     echo::platform::Renderer pad{ControlScheme::PlayStation};
     try {
+        testSettingsPersistence();
+        testGameCheckpointPersistence();
         if (!keyboard.create()) {
             throw std::runtime_error(SDL_GetError());
         }
@@ -85,6 +166,21 @@ int main() {
         check(padHint == capture(padWindow, {12, 340, 616, 16}),
               "PlayStation gameplay hints do not expose keyboard bindings");
         check(padHint != keyboardHint, "platform selection changes the gameplay prompts");
+
+        echo::Game dialogueGame;
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        const auto emptyInventory = capture(keyboardWindow, {206, 12, 152, 38});
+        const auto closedDialogue = capture(keyboardWindow, {64, 234, 512, 82});
+        dialogueGame.update({.interactPressed = true});
+        check(dialogueGame.dialogueActive(), "nearby engineer can be talked to");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(closedDialogue != capture(keyboardWindow, {64, 234, 512, 82}),
+              "engineer dialogue renders in the game viewport");
+        dialogueGame.update({.interactPressed = true});
+        dialogueGame.update({.interactPressed = true});
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(emptyInventory != capture(keyboardWindow, {206, 12, 152, 38}),
+              "inventory HUD updates when the maintenance key is acquired");
 
         pad.drawOptions(0, 60, false, "SPACE", "J", "E");
         const auto padOptions = capture(padWindow, {74, 38, 492, 284});
@@ -128,10 +224,10 @@ int main() {
         pad.drawMenu(0);
         check(capture(keyboardWindow, {86, 326, 492, 16}) != capture(padWindow, {86, 326, 492, 16}),
               "main menu uses platform-specific navigation prompts");
+        keyboard.drawMenu(3);
+        const auto labMenuEntry = capture(keyboardWindow, {120, 246, 230, 24});
         keyboard.drawMenu(2);
-        const auto labMenuEntry = capture(keyboardWindow, {120, 231, 210, 24});
-        keyboard.drawMenu(1);
-        check(labMenuEntry != capture(keyboardWindow, {120, 231, 210, 24}),
+        check(labMenuEntry != capture(keyboardWindow, {120, 246, 230, 24}),
               "main menu exposes a distinct DualSense Lab entry");
 
         echo::input::ControllerSnapshot simulatedController;

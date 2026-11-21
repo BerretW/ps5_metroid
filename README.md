@@ -9,14 +9,14 @@ PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the reference in
 - **Use the tests as a gameplay safety net:** simulation tests run without SDL or a window and cover movement, combat, room progression, ability unlocks, damage and respawn.
 - **Build on a reusable framework core:** headless modules, entities/components, events, actions, typed state, conditions, bounded JSON/content validation and versioned state serialization are available independently of SDL. Dialogue, inventory, combat and other genre systems remain future modules.
 
-This is a playable prototype, not a finished game. Framework saves have no platform storage provider yet, and the PS5 writable data path has not been verified. PS5 physical keyboard/IME remain disabled because the keyboard-enabled build crashes during `sceKeyboardInit`; full controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. DualSense Lab provides live SDL diagnostics and guarded output tests; hardware-dependent results remain unverified until tested. See [Echo Framework](docs/framework/README.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [compatibility](docs/DUALSENSE_COMPATIBILITY.md), [hardware checklist](docs/DUALSENSE_HARDWARE_TESTS.md), [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
+This is a playable prototype, not a finished game. The SDL app uses platform save storage for a versioned gameplay autosave, a Continue menu entry, and separate persistent volume/keyboard settings. The operator confirms gameplay saving and settings persistence work on PS5; keyboard rebinding itself is untestable there while PS5 keyboard input is disabled. Full controller mappings/reconnect, audio, all-room progression, logging and exit/relaunch still need hardware verification. DualSense Lab provides live SDL diagnostics and guarded output tests; hardware-dependent results remain unverified until tested. See [Echo Framework](docs/framework/README.md), [save system](docs/framework/SAVE_SYSTEM.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [compatibility](docs/DUALSENSE_COMPATIBILITY.md), [hardware checklist](docs/DUALSENSE_HARDWARE_TESTS.md), [acceptance status](docs/STATUS.md) and [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
 ## Current technical assessment
 
 - Native Windows CMake/Ninja build: supported through installed Visual Studio C++ tools.
 - SDL2: pinned to the PS5 SDL fork commit `ee4c47dc0d617b3bc8f35108f9956baf228a1322` (SDL 2.30.12).
 - Native Windows PS5 cross-compilation and application-directory packaging: PASS for standalone Hello World and PROJECT ECHO.
-- Echo Framework core and data targets: see the current [framework validation status](docs/STATUS.md); the PS5 executable still requires a separate hardware run.
+- Echo Framework core and data targets: see the current [framework validation status](docs/STATUS.md); save functionality has an operator-reported PS5 confirmation.
 - PS5 hardware (user-reported, firmware 13.60 / Kraken Mount 0.3.1): Hello World and the `playable` milestone controller build launch; the user confirms the game is playable and supplied a gameplay screenshot. PS5 keyboard/IME are intentionally disabled in controller builds. The original keyboard-enabled build still fails with CE-108255-1. See [PS5 compatibility](docs/PS5_COMPATIBILITY.md).
 
 See [setup](docs/SETUP.md), [architecture](docs/ARCHITECTURE.md), [Echo Framework](docs/framework/README.md), [controls](docs/CONTROLS.md), [DualSense Lab](docs/DUALSENSE_LAB.md), [PS5 compatibility](docs/PS5_COMPATIBILITY.md), and [acceptance status](docs/STATUS.md).
@@ -60,7 +60,7 @@ Upload [dist/ps5-controller/PPSA91007](dist/ps5-controller/PPSA91007) manually a
 
 ## Prototype path
 
-Landing Bay -> Maintenance Tunnel -> Power Station (locked) -> backtrack to the Research Laboratory -> collect Echo Step -> backtrack through Maintenance -> Power Station -> Central Chamber.
+Talk to Engineer Mira in the Landing Bay to receive the Maintenance Key. Use it at the Research Laboratory door in the Maintenance Tunnel, collect Echo Step in the Lab, then backtrack through Maintenance and the Power Station to reach the Central Chamber.
 
 ## How it works
 

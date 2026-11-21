@@ -217,26 +217,29 @@ void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color c
     }
 }
 
-void Renderer::drawMenu(int selection) noexcept {
+void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
     for (int y = 34; y < 360; y += 32) {
         panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
     }
-    panel({74, 62, 492, 242}, kPanel);
+    panel({74, 62, 492, 244}, kPanel);
     panel({74, 62, 492, 3}, kCyan);
     text(120, 94, "PROJECT ECHO", 4, kText);
     text(122, 135, "FACILITY 07  /  SIGNAL LOST", 1, kMuted);
 
-    constexpr std::array<std::string_view, 4> labels{"PLAY", "OPTIONS", "DUALSENSE LAB", "EXIT"};
+    constexpr std::array<std::string_view, 5> labels{
+        "NEW GAME", "CONTINUE", "OPTIONS", "DUALSENSE LAB", "EXIT"};
     for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
-        const int y = 174 + index * 31;
+        const int y = 169 + index * 27;
         if (index == selection) {
-            panel({112, y - 5, 210, 24}, kPanelLight);
+            panel({112, y - 4, 230, 22}, kPanelLight);
             panel({112, y - 5, 3, 24}, kCyan);
         }
-        text(128, y, labels[static_cast<std::size_t>(index)], index == 2 ? 1 : 2,
-             index == selection ? kCyan : kText);
+        const SDL_Color color = index == 1 && !continueAvailable
+                                    ? kMuted
+                                    : index == selection ? kCyan : kText;
+        text(128, y, labels[static_cast<std::size_t>(index)], index == 3 ? 1 : 2, color);
     }
 
     if (controls_ == ControlScheme::PlayStation) {
@@ -352,6 +355,22 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         }
     }
 
+    if (game.roomId() == RoomId::LandingBay) {
+        const Rect technician = game.technicianBounds();
+        const int x = static_cast<int>(technician.x - cameraX);
+        const int y = static_cast<int>(technician.y);
+        panel({x + 4, y + 12, 20, 28}, SDL_Color{45, 122, 129, 255});
+        panel({x + 6, y + 1, 16, 15}, SDL_Color{190, 166, 132, 255});
+        panel({x + 7, y, 14, 5}, SDL_Color{55, 53, 65, 255});
+        panel({x + 8, y + 7, 3, 3}, kText);
+        panel({x + 17, y + 7, 3, 3}, kText);
+        panel({x + 7, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
+        panel({x + 16, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
+        if (game.technicianNearby() && !game.dialogueActive()) {
+            text(x - 1, y - 12, "ENGINEER", 1, kCyan);
+        }
+    }
+
     for (const Enemy& enemy : game.enemies()) {
         if (!enemy.alive || enemy.room != game.roomId()) {
             continue;
@@ -403,10 +422,22 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     text(481, 18, game.roomName(), 1, kText);
     text(481, 32, player.hasDoubleJump ? "ECHO STEP ONLINE" : "ECHO STEP LOCKED", 1,
          player.hasDoubleJump ? kCyan : kMuted);
+    panel({206, 12, 152, 38}, SDL_Color{4, 10, 17, 218});
+    text(218, 18, "INVENTORY", 1, kMuted);
+    const bool hasMaintenanceKey = game.inventory().contains(ItemId::MaintenanceKey);
+    text(218, 32, hasMaintenanceKey ? "MAINTENANCE KEY" : "EMPTY",
+         1, hasMaintenanceKey ? kCyan : kMuted);
 
     if (game.gateBlocked()) {
         panel({188, 274, 264, 42}, SDL_Color{4, 10, 17, 230});
         text(211, 290, "POWER GATE NEEDS ECHO STEP", 1, kOrange);
+    }
+    if (game.accessBlocked()) {
+        panel({188, 274, 264, 42}, SDL_Color{4, 10, 17, 230});
+        text(211, 290, "LAB DOOR NEEDS ACCESS KEY", 1, kOrange);
+    }
+    if (game.technicianNearby() && !game.dialogueActive()) {
+        text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (game.roomId() == RoomId::MaintenanceTunnel && player.position.x > 900.0F &&
         player.position.x < 1040.0F) {
@@ -452,6 +483,14 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         panel({128, 128, 384, 106}, SDL_Color{4, 10, 17, 242});
         text(194, 153, "SIGNAL RESTORED", 3, kCyan);
         text(185, 196, "FACILITY EXIT REACHED", 1, kText);
+    }
+    if (game.dialogueActive()) {
+        panel({64, 234, 512, 82}, SDL_Color{4, 10, 17, 242});
+        panel({64, 234, 512, 3}, kCyan);
+        text(82, 248, "ENGINEER MIRA", 2, kText);
+        text(82, 275, game.dialogueText(), 1, kMuted);
+        text(486, 298, "NEXT", 1, kCyan);
+        text(538, 296, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (paused) {
         panel({172, 125, 296, 112}, SDL_Color{4, 10, 17, 238});

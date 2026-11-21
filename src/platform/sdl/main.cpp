@@ -1,7 +1,9 @@
 #include "game/game.hpp"
 #include "platform/sdl/assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
+#include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/renderer.hpp"
+#include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
 
 #include <SDL.h>
@@ -12,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <utility>
 #ifdef __PROSPERO__
@@ -117,11 +120,21 @@ enum class RebindAction {
     Interact
 };
 
-struct Bindings {
-    SDL_Keycode jump{SDLK_SPACE};
-    SDL_Keycode shoot{SDLK_j};
-    SDL_Keycode interact{SDLK_e};
-};
+using Bindings = echo::platform::Bindings;
+
+constexpr std::string_view kGameId = "echo.project_echo";
+constexpr std::string_view kAutosaveSlot = "autosave";
+constexpr std::uint32_t kSaveFormatVersion = 2;
+constexpr std::string_view kSettingsGameId = "echo.project_echo.settings";
+constexpr std::string_view kSettingsSlot = "settings";
+constexpr std::uint32_t kSettingsFormatVersion = 1;
+constexpr std::array<echo::framework::ModuleVersion, 2> kSaveModules{{
+    {"echo.state", 1, true},
+    {"echo.project_echo", 1, true},
+}};
+constexpr std::array<echo::framework::ModuleVersion, 1> kSettingsModules{{
+    {"echo.settings", 1, true},
+}};
 
 void logMessage(std::string_view message) {
 #ifdef __PROSPERO__
@@ -410,6 +423,7 @@ struct SoundState {
     int livingEnemies{};
     echo::RoomId room{};
     bool abilityCollected{};
+    bool hasMaintenanceKey{};
     bool gateBlocked{};
     bool completed{};
 };
@@ -432,6 +446,7 @@ SoundState captureSoundState(const echo::Game& game) noexcept {
     state.deaths = game.deaths();
     state.room = game.roomId();
     state.abilityCollected = game.abilityCollected();
+    state.hasMaintenanceKey = game.inventory().contains(echo::ItemId::MaintenanceKey);
     state.gateBlocked = game.gateBlocked();
     state.completed = game.completed();
     return state;
@@ -456,7 +471,9 @@ unsigned soundEventsBetween(const SoundState& before, const SoundState& after) n
     } else if (after.enemyHealth < before.enemyHealth) {
         events |= bit(SoundId::EnemyHit);
     }
-    if ((after.abilityCollected && !before.abilityCollected) || (after.completed && !before.completed)) {
+    if ((after.abilityCollected && !before.abilityCollected) ||
+        (after.hasMaintenanceKey && !before.hasMaintenanceKey) ||
+        (after.completed && !before.completed)) {
         events |= bit(SoundId::Pickup);
     }
     if (after.room != before.room && !died) {
@@ -617,6 +634,22 @@ int main(int, char**) {
         return 1;
     }
     logMessage("Echo Framework core initialized from assets/framework/game.json");
+#if defined(__PROSPERO__)
+    echo::framework::Ps5SaveStorage saveProvider{};
+#else
+    echo::framework::WindowsSaveStorage saveProvider{};
+#endif
+    echo::framework::SaveStorage saveStorage{};
+    bool saveStorageReady = false;
+    const echo::framework::Status saveStorageStatus = saveProvider.initialize();
+    if (!saveStorageStatus) {
+        logMessage("Save storage initialization failed; continuing without persistence");
+        logMessage(saveStorageStatus.detail);
+    } else {
+        saveStorage = saveProvider.callbacks();
+        saveStorageReady = true;
+        logMessage("Save storage initialized");
+    }
 #if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
     runPs5SaveStorageDiagnostic();
 #endif
@@ -671,6 +704,35 @@ int main(int, char**) {
 #endif
 
     echo::Game game;
+    std::array<char, echo::framework::kMaxSaveBytes> saveScratch{};
+    bool continueAvailable = false;
+    bool settingsAvailable = false;
+    if (saveStorageReady) {
+        std::array<char, echo::framework::kMaxSaveBytes> slots{};
+        std::size_t written{};
+        const echo::framework::Status status =
+            echo::framework::SaveService::enumerate(saveStorage, slots.data(), slots.size(), written);
+        if (!status) {
+            logMessage("Save-slot enumeration failed");
+            logMessage(status.detail);
+        } else {
+            std::size_t offset = 0;
+            while (offset < written) {
+                const char* const terminator = static_cast<const char*>(
+                    std::memchr(slots.data() + offset, '\0', written - offset));
+                if (terminator == nullptr) {
+                    logMessage("Save-slot list is malformed");
+                    break;
+                }
+                const std::string_view slot(
+                    slots.data() + offset,
+                    static_cast<std::size_t>(terminator - (slots.data() + offset)));
+                continueAvailable = continueAvailable || slot == kAutosaveSlot;
+                settingsAvailable = settingsAvailable || slot == kSettingsSlot;
+                offset += slot.size() + 1;
+            }
+        }
+    }
     Bindings bindings;
     Screen screen = Screen::MainMenu;
     RebindAction rebindAction = RebindAction::None;
@@ -684,6 +746,8 @@ int main(int, char**) {
     bool pendingJump = false;
     bool pendingInteract = false;
     bool pendingPause = false;
+    bool gameSessionActive = false;
+    double secondsSinceAutosave = 0.0;
     std::array<bool, SDL_NUM_SCANCODES> keys{};
     SDL_GameController* controller = nullptr;
     echo::input::ControllerSnapshot controllerSnapshot;
@@ -966,30 +1030,6 @@ int main(int, char**) {
         enableLabSensors();
     };
 
-    const auto selectMenu = [&]() {
-        if (menuSelection == 0) {
-            const echo::framework::Status status = framework.beginGame();
-            if (!status) {
-                logMessage("Framework game-state reset failed");
-                logMessage(status.detail);
-                running = false;
-                return;
-            }
-            game.start();
-            screen = Screen::Playing;
-            paused = false;
-            logMessage("New game started");
-        } else if (menuSelection == 1) {
-            screen = Screen::Options;
-        } else if (menuSelection == 2) {
-            screen = Screen::DualSenseLab;
-            enableLabSensors();
-            logMessage("DualSense Lab opened");
-        } else {
-            running = false;
-        }
-    };
-
     const auto runRumbleTest = [&]() {
         if (controller == nullptr) {
             setLabResult(controllerSnapshot, "RUMBLE TEST", -1, "No controller connected");
@@ -1126,6 +1166,162 @@ int main(int, char**) {
         logMessage("DualSense Lab closed");
     };
 
+    const auto saveCurrentGame = [&]() {
+        secondsSinceAutosave = 0.0;
+        if (!saveStorageReady) {
+            return false;
+        }
+        echo::framework::GameState snapshot{};
+        echo::framework::Status status = echo::platform::encodeGameCheckpoint(game, snapshot);
+        if (!status) {
+            logMessage("Gameplay checkpoint encoding failed");
+            logMessage(status.detail);
+            return false;
+        }
+        status = framework.gameState().replaceValues(snapshot);
+        if (!status) {
+            logMessage("Framework save state synchronization failed");
+            logMessage(status.detail);
+            return false;
+        }
+        status = echo::framework::SaveService::save(
+            saveStorage, kAutosaveSlot, kGameId, kSaveFormatVersion, kSaveModules,
+            snapshot, saveScratch.data(), saveScratch.size());
+        if (!status) {
+            logMessage("Gameplay autosave failed");
+            logMessage(status.detail);
+            return false;
+        }
+        continueAvailable = true;
+        return true;
+    };
+
+    const auto loadSavedGame = [&]() {
+        if (!saveStorageReady || !continueAvailable) {
+            logMessage("No autosave is available to continue");
+            return false;
+        }
+        echo::framework::GameState loadedState{};
+        echo::framework::SaveHeader header{};
+        echo::framework::Status status = echo::framework::SaveService::load(
+            saveStorage, kAutosaveSlot, kGameId, kSaveFormatVersion, kSaveModules,
+            loadedState, header, saveScratch.data(), saveScratch.size(),
+            &echo::platform::migrateGameCheckpointSave);
+        if (!status) {
+            logMessage("Gameplay autosave load failed");
+            logMessage(status.detail);
+            return false;
+        }
+        echo::GameCheckpoint checkpoint{};
+        status = echo::platform::decodeGameCheckpoint(loadedState, checkpoint);
+        if (!status) {
+            logMessage("Gameplay autosave validation failed");
+            logMessage(status.detail);
+            return false;
+        }
+        echo::Game resumed{};
+        if (!resumed.restore(checkpoint)) {
+            logMessage("Gameplay autosave checkpoint is invalid");
+            return false;
+        }
+        status = framework.resumeGame(loadedState);
+        if (!status) {
+            logMessage("Framework save-state restore failed");
+            logMessage(status.detail);
+            return false;
+        }
+        game = resumed;
+        gameSessionActive = true;
+        secondsSinceAutosave = 0.0;
+        screen = Screen::Playing;
+        paused = false;
+        logMessage("Autosave loaded");
+        return true;
+    };
+
+    const auto saveSettings = [&]() {
+        if (!saveStorageReady) {
+            return false;
+        }
+        echo::framework::GameState settings{};
+        echo::framework::Status status =
+            echo::platform::encodeSettings(volume, bindings, settings);
+        if (!status) {
+            logMessage("Settings encoding failed");
+            logMessage(status.detail);
+            return false;
+        }
+        status = echo::framework::SaveService::save(
+            saveStorage, kSettingsSlot, kSettingsGameId, kSettingsFormatVersion,
+            kSettingsModules, settings, saveScratch.data(), saveScratch.size());
+        if (!status) {
+            logMessage("Settings save failed");
+            logMessage(status.detail);
+            return false;
+        }
+        settingsAvailable = true;
+        return true;
+    };
+
+    const auto loadSavedSettings = [&]() {
+        if (!saveStorageReady || !settingsAvailable) {
+            return false;
+        }
+        echo::framework::GameState settings{};
+        echo::framework::SaveHeader header{};
+        const echo::framework::Status status = echo::framework::SaveService::load(
+            saveStorage, kSettingsSlot, kSettingsGameId, kSettingsFormatVersion,
+            kSettingsModules, settings, header, saveScratch.data(), saveScratch.size());
+        if (!status) {
+            logMessage("Settings load failed; defaults retained");
+            logMessage(status.detail);
+            return false;
+        }
+        int restoredVolume = volume;
+        Bindings restoredBindings = bindings;
+        const echo::framework::Status decoded =
+            echo::platform::decodeSettings(settings, restoredVolume, restoredBindings);
+        if (!decoded) {
+            logMessage("Settings validation failed; defaults retained");
+            logMessage(decoded.detail);
+            return false;
+        }
+        volume = restoredVolume;
+        bindings = restoredBindings;
+        logMessage("Settings loaded");
+        return true;
+    };
+
+    (void)loadSavedSettings();
+
+    const auto selectMenu = [&]() {
+        if (menuSelection == 0) {
+            const echo::framework::Status status = framework.beginGame();
+            if (!status) {
+                logMessage("Framework game-state reset failed");
+                logMessage(status.detail);
+                running = false;
+                return;
+            }
+            game.start();
+            gameSessionActive = true;
+            screen = Screen::Playing;
+            paused = false;
+            (void)saveCurrentGame();
+            logMessage("New game started");
+        } else if (menuSelection == 1) {
+            (void)loadSavedGame();
+        } else if (menuSelection == 2) {
+            screen = Screen::Options;
+        } else if (menuSelection == 3) {
+            screen = Screen::DualSenseLab;
+            enableLabSensors();
+            logMessage("DualSense Lab opened");
+        } else {
+            running = false;
+        }
+    };
+
     std::uint64_t previousCounter = SDL_GetPerformanceCounter();
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
     double accumulator = 0.0;
@@ -1183,25 +1379,35 @@ int main(int, char**) {
                     static_cast<SDL_GameControllerButton>(event.cbutton.button);
                 if (screen == Screen::MainMenu) {
                     if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
-                        menuSelection = (menuSelection + 3) % 4;
+                        menuSelection = (menuSelection + 4) % 5;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
-                        menuSelection = (menuSelection + 1) % 4;
+                        menuSelection = (menuSelection + 1) % 5;
                     } else if (button == SDL_CONTROLLER_BUTTON_A) {
                         selectMenu();
                     }
                 } else if (screen == Screen::Options) {
                     if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
                         button == SDL_CONTROLLER_BUTTON_B) {
+                        (void)saveSettings();
                         screen = Screen::MainMenu;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
                         optionSelection = (optionSelection + 4) % 5;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
                         optionSelection = (optionSelection + 1) % 5;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_LEFT && optionSelection == 0) {
-                        volume = std::max(0, volume - 10);
+                        const int adjusted = std::max(0, volume - 10);
+                        if (adjusted != volume) {
+                            volume = adjusted;
+                            (void)saveSettings();
+                        }
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT && optionSelection == 0) {
-                        volume = std::min(100, volume + 10);
+                        const int adjusted = std::min(100, volume + 10);
+                        if (adjusted != volume) {
+                            volume = adjusted;
+                            (void)saveSettings();
+                        }
                     } else if (button == SDL_CONTROLLER_BUTTON_A && optionSelection == 4) {
+                        (void)saveSettings();
                         screen = Screen::MainMenu;
                     }
                 } else if (screen == Screen::DualSenseLab) {
@@ -1231,6 +1437,9 @@ int main(int, char**) {
                 } else if (screen == Screen::Playing) {
                     if (kControlScheme == echo::platform::ControlScheme::PlayStation &&
                         button == SDL_CONTROLLER_BUTTON_B && paused) {
+                        if (saveCurrentGame()) {
+                            gameSessionActive = false;
+                        }
                         screen = Screen::MainMenu;
                         paused = false;
                         logMessage("Returned to main menu");
@@ -1281,6 +1490,7 @@ int main(int, char**) {
                         bindings.interact = key;
                     }
                     logMessage("Input binding changed");
+                    (void)saveSettings();
                 }
                 waitingForKey = false;
                 rebindAction = RebindAction::None;
@@ -1289,9 +1499,9 @@ int main(int, char**) {
 
             if (screen == Screen::MainMenu) {
                 if (key == SDLK_UP || key == SDLK_w) {
-                    menuSelection = (menuSelection + 3) % 4;
+                    menuSelection = (menuSelection + 4) % 5;
                 } else if (key == SDLK_DOWN || key == SDLK_s) {
-                    menuSelection = (menuSelection + 1) % 4;
+                    menuSelection = (menuSelection + 1) % 5;
                 } else if (key == SDLK_RETURN || key == SDLK_SPACE) {
                     selectMenu();
                 }
@@ -1301,9 +1511,17 @@ int main(int, char**) {
                 } else if (key == SDLK_DOWN) {
                     optionSelection = (optionSelection + 1) % 5;
                 } else if (key == SDLK_LEFT && optionSelection == 0) {
-                    volume = std::max(0, volume - 10);
+                    const int adjusted = std::max(0, volume - 10);
+                    if (adjusted != volume) {
+                        volume = adjusted;
+                        (void)saveSettings();
+                    }
                 } else if (key == SDLK_RIGHT && optionSelection == 0) {
-                    volume = std::min(100, volume + 10);
+                    const int adjusted = std::min(100, volume + 10);
+                    if (adjusted != volume) {
+                        volume = adjusted;
+                        (void)saveSettings();
+                    }
                 } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 1) {
                     waitingForKey = true;
                     rebindAction = RebindAction::Jump;
@@ -1314,8 +1532,10 @@ int main(int, char**) {
                     waitingForKey = true;
                     rebindAction = RebindAction::Interact;
                 } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 4) {
+                    (void)saveSettings();
                     screen = Screen::MainMenu;
                 } else if (key == SDLK_ESCAPE) {
+                    (void)saveSettings();
                     screen = Screen::MainMenu;
                 }
             } else if (screen == Screen::DualSenseLab &&
@@ -1346,6 +1566,9 @@ int main(int, char**) {
             } else if (screen == Screen::Playing) {
                 if (key == SDLK_ESCAPE) {
                     if (paused) {
+                        if (saveCurrentGame()) {
+                            gameSessionActive = false;
+                        }
                         screen = Screen::MainMenu;
                         paused = false;
                         logMessage("Returned to main menu");
@@ -1368,6 +1591,9 @@ int main(int, char**) {
         const double elapsed = std::min(static_cast<double>(now - previousCounter) / frequency, 0.25);
         previousCounter = now;
         accumulator += elapsed;
+        if (gameSessionActive && screen == Screen::Playing) {
+            secondsSinceAutosave += elapsed;
+        }
 
         if (labRumbleActive && SDL_GetTicks64() >= labRumbleStopAt) {
             SDL_ClearError();
@@ -1426,9 +1652,19 @@ int main(int, char**) {
                     logMessage(status.detail);
                 }
             }
+            if (after.room != before.room || after.deaths != before.deaths ||
+                after.livingEnemies < before.livingEnemies ||
+                after.abilityCollected != before.abilityCollected ||
+                after.hasMaintenanceKey != before.hasMaintenanceKey ||
+                after.completed != before.completed) {
+                (void)saveCurrentGame();
+            }
             pendingJump = false;
             pendingInteract = false;
             accumulator -= echo::kFixedStep;
+        }
+        if (gameSessionActive && screen == Screen::Playing && secondsSinceAutosave >= 30.0) {
+            (void)saveCurrentGame();
         }
         for (int index = 0; index < static_cast<int>(SoundId::Count); ++index) {
             if ((soundEvents & (1U << index)) != 0U) {
@@ -1442,7 +1678,7 @@ int main(int, char**) {
         }
 #endif
         if (screen == Screen::MainMenu) {
-            renderer.drawMenu(menuSelection);
+            renderer.drawMenu(menuSelection, continueAvailable);
         } else if (screen == Screen::DualSenseLab) {
             refreshControllerSnapshot();
             renderer.drawDualSenseLab(controllerSnapshot, SDL_NumJoysticks());
@@ -1465,6 +1701,10 @@ int main(int, char**) {
         SDL_Delay(1);
     }
 
+    (void)saveSettings();
+    if (gameSessionActive) {
+        (void)saveCurrentGame();
+    }
     stopLabOutput();
     if (controller != nullptr) {
         SDL_GameControllerClose(controller);

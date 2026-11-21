@@ -32,4 +32,4 @@ Link `EchoFramework::Core` for modules, state, actions, and conditions. Link `Ec
 
 ## Boundaries
 
-Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization, the opt-in Windows storage provider, and a PS5 storage provider with an opt-in console diagnostic are implemented. The first console storage probe failed directory initialization; a revised diagnostic passes static validation but awaits another hardware run. PROJECT ECHO does not yet persist its gameplay state. See [save system](SAVE_SYSTEM.md).
+Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization, Windows and PS5 storage providers, and a PS5 storage diagnostic are implemented. The operator reports that gameplay autosaving and settings persistence work on the integrated PS5 build. PROJECT ECHO persists a bounded checkpoint through one autosave slot, offers Continue, and stores volume/keybindings separately. Keyboard rebinding itself remains unavailable to test on PS5. See [save system](SAVE_SYSTEM.md) for what is included and remaining limits.

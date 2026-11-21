@@ -23,7 +23,7 @@ public:
     // Missing sprites keep the built-in rectangle art. Returns the number loaded.
     int loadSprites(const char* assetDirectory) noexcept;
     [[nodiscard]] bool hasSprite(Sprite sprite) const noexcept;
-    void drawMenu(int selection) noexcept;
+    void drawMenu(int selection, bool continueAvailable = true) noexcept;
     void drawOptions(int selection, int volume, bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
                      std::string_view interactKey) noexcept;

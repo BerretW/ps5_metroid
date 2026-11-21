@@ -52,8 +52,23 @@ int main() {
     check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 1,
           "repeated state synchronization does not duplicate the unlock event");
     check(integration.beginGame(), "new game resets the temporary framework mirror");
+    echo::framework::StateValue abilityState{};
+    check(integration.gameState().get(
+              {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
+              abilityState) &&
+              abilityState.type == echo::framework::ValueType::Boolean &&
+              !abilityState.boolean,
+          "new game clears the previously unlocked ability state");
     check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 2,
           "a later game emits a new ability transition");
+    echo::framework::GameState savedState{};
+    check(savedState.set(
+              {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
+              echo::framework::StateValue::fromBoolean(true)),
+          "fixture save state records the unlocked ability");
+    check(integration.resumeGame(savedState), "framework state restores from a save");
+    check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 2,
+          "resuming an unlocked ability does not publish a duplicate transition");
     integration.shutdown();
 
     if (failures != 0) {

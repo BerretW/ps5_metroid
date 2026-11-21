@@ -75,7 +75,7 @@ add_executable(echo_sdl_tests
 target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
-target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static)
+target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static EchoFramework::Data)
 if(MSVC)
     target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
 else()
