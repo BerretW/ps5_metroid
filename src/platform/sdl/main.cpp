@@ -159,6 +159,14 @@ void logMessage(std::string_view message) {
 }
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
+void logProviderDiagnostics(const echo::framework::Ps5SaveStorage& provider) {
+    std::array<char, 600> line{};
+    const std::string_view detail = provider.diagnostics();
+    (void)std::snprintf(line.data(), line.size(), "PS5 save storage probe detail: %.*s",
+                        static_cast<int>(detail.size()), detail.data());
+    logMessage(line.data());
+}
+
 void runPs5SaveStorageDiagnostic() {
     using namespace echo::framework;
     logMessage("PS5 save storage probe: starting in /data/project_echo/saves");
@@ -167,9 +175,11 @@ void runPs5SaveStorageDiagnostic() {
     if (!initialized) {
         logMessage("PS5 save storage probe: directory initialization failed");
         logMessage(initialized.detail);
+        logProviderDiagnostics(provider);
         return;
     }
 
+    logProviderDiagnostics(provider);
     const SaveStorage storage = provider.callbacks();
     GameState state{};
     constexpr std::array<ModuleVersion, 1> modules{{{"echo.storage_probe", 1, true}}};
@@ -184,6 +194,7 @@ void runPs5SaveStorageDiagnostic() {
     if (!status) {
         logMessage("PS5 save storage probe: initial write failed");
         logMessage(status.detail);
+        logProviderDiagnostics(provider);
         return;
     }
     logMessage("PS5 save storage probe: initial write passed");
@@ -197,6 +208,7 @@ void runPs5SaveStorageDiagnostic() {
     if (!status) {
         logMessage("PS5 save storage probe: replacement failed");
         logMessage(status.detail);
+        logProviderDiagnostics(provider);
         return;
     }
     logMessage("PS5 save storage probe: replacement passed");
@@ -211,6 +223,7 @@ void runPs5SaveStorageDiagnostic() {
         logMessage("PS5 save storage probe: read-back verification failed");
         if (!status) {
             logMessage(status.detail);
+            logProviderDiagnostics(provider);
         }
         return;
     }
@@ -222,6 +235,7 @@ void runPs5SaveStorageDiagnostic() {
     if (!status) {
         logMessage("PS5 save storage probe: slot enumeration failed");
         logMessage(status.detail);
+        logProviderDiagnostics(provider);
         return;
     }
     bool foundProbe = false;
@@ -239,8 +253,10 @@ void runPs5SaveStorageDiagnostic() {
     }
     if (!foundProbe) {
         logMessage("PS5 save storage probe: enumeration omitted the probe slot");
+        logProviderDiagnostics(provider);
         return;
     }
+    logProviderDiagnostics(provider);
     logMessage("PS5 save storage probe: PASS; reserved slot framework_probe.sav remains for inspection");
 }
 #endif

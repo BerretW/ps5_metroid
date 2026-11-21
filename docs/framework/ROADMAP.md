@@ -14,6 +14,6 @@ Module lifecycle, bounded entities/components, typed events, explicit actions, g
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 
-The operator confirmed on 2026-11-20 that the controller-only framework build launches and runs on PS5. The PS5 storage provider and isolated startup probe now compile, link, and pass static package validation on Windows. The probe has not run on hardware, so writable app-data behavior and persistent saves remain unverified.
+The operator confirmed on 2026-11-20 that the controller-only framework build launches and runs on PS5. The PS5 storage provider and isolated startup probe compile, link, and pass static package validation on Windows. On 2026-11-21 the first console probe failed parent-directory initialization; a revised provider adds an `open(O_NOFOLLOW)`+`fstat` fallback for the status check and logs the method and errno values. Its hardware rerun and successful persistent storage remain outstanding.
 
 Dialogue, inventory, equipment, attributes, abilities, quests, RPG, combat, physics, movement, tile maps, camera, animation, audio, and UI are future modules, not 0.2 deliverables.

@@ -260,6 +260,10 @@ public:
 
     [[nodiscard]] Status initialize(std::string_view subdirectory = "saves") noexcept;
     [[nodiscard]] SaveStorage callbacks() noexcept;
+    // Describes how the directory checks were performed during initialize().
+    [[nodiscard]] std::string_view diagnostics() const noexcept {
+        return {diagnostics_.data()};
+    }
 
 private:
     static bool readCallback(void* context, std::string_view slot, char* output,
@@ -280,8 +284,12 @@ private:
     bool enumerate(char* output, std::size_t capacity,
                    std::size_t& written) noexcept;
     void reset() noexcept;
+    bool fail(const char* step) noexcept;
+    bool parseDirectoryChunk(const char* buffer, std::size_t bytes, char* output,
+                             std::size_t capacity, std::size_t& resultSize) noexcept;
 
     std::array<char, 96> rootPath_{};
+    std::array<char, 512> diagnostics_{};
     std::array<char, 128> temporaryPath_{};
     std::array<char, 33> temporarySlot_{};
     std::uint32_t temporarySequence_{};

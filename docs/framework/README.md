@@ -32,4 +32,4 @@ Link `EchoFramework::Core` for modules, state, actions, and conditions. Link `Ec
 
 ## Boundaries
 
-Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization, the opt-in Windows storage provider, and a PS5 storage provider with an opt-in console diagnostic are implemented. The diagnostic package has passed static validation, but its storage probe has not been run on hardware; PROJECT ECHO does not yet persist its gameplay state. See [save system](SAVE_SYSTEM.md).
+Capacities and parser limits are documented in [architecture](ARCHITECTURE.md). Save serialization, the opt-in Windows storage provider, and a PS5 storage provider with an opt-in console diagnostic are implemented. The first console storage probe failed directory initialization; a revised diagnostic passes static validation but awaits another hardware run. PROJECT ECHO does not yet persist its gameplay state. See [save system](SAVE_SYSTEM.md).
