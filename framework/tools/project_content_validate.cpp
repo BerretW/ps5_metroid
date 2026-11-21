@@ -20,8 +20,8 @@ namespace {
 using namespace echo::framework;
 
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
-constexpr std::array<std::string_view, 4> kGameConfigFields{
-    "game", "modules", "technician", "resources"};
+constexpr std::array<std::string_view, 5> kGameConfigFields{
+    "game", "modules", "technician", "resources", "quests"};
 constexpr std::array<std::string_view, 2> kTechnicianFields{
     "transform", "interaction"};
 constexpr std::array<std::string_view, 5> kResourceFields{
@@ -339,7 +339,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateGameConfig(
     JsonValue root, const ComponentTypeRegistry& components,
-    const std::array<CapabilityManifestFragment, 7>& fragments,
+    const std::array<CapabilityManifestFragment, 8>& fragments,
     const CapabilityManifestFragment& project,
     const ItemCatalog& itemCatalog,
     ContentRegistry& resources) noexcept {
@@ -374,6 +374,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
          {std::string_view{"echo.state"},
           std::string_view{"echo.narrative.dialogue"},
           std::string_view{"echo.rpg.abilities"},
+          std::string_view{"echo.rpg.quests"},
           std::string_view{"echo.project_echo"}}) {
         if (std::find(selected.begin(), selected.begin() +
                           static_cast<std::ptrdiff_t>(modules.size()),
@@ -389,6 +390,19 @@ constexpr std::array<std::string_view, 2> kComponentFields{
         selected.begin() + static_cast<std::ptrdiff_t>(modules.size())) {
         return {ErrorCode::MissingDependency, "echo.rpg.inventory",
                 "The reference game must select its compiled inventory module."};
+    }
+    QuestModule questModule{};
+    status = questModule.load(root.find("quests"));
+    if (!status) return status;
+    status = echo::validateProjectQuest(questModule);
+    if (!status) return status;
+    for (const QuestDefinition& quest : questModule.definitions()) {
+        for (const QuestObjective& objective : quest.objectives()) {
+            if (!echo::platform::supportsBitmapText(objective.text.data(), 48)) {
+                return {ErrorCode::InvalidValue, "quests.objective.text",
+                        "Quest objective does not fit the game's bitmap font."};
+            }
+        }
     }
     for (const ManifestModuleDescriptor& module : project.modules) {
         if (std::find(selected.begin(), selected.begin() +
@@ -515,13 +529,14 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    const std::array<CapabilityManifestFragment, 7> fragments{{
+    const std::array<CapabilityManifestFragment, 8> fragments{{
         frameworkCapabilityManifestFragment(),
         narrativeCapabilityManifestFragment(),
         inventoryCapabilityManifestFragment(),
         attributesCapabilityManifestFragment(),
         equipmentCapabilityManifestFragment(),
         abilitiesCapabilityManifestFragment(),
+        questsCapabilityManifestFragment(),
         echo::projectCapabilityManifestFragment(),
     }};
     const CapabilityManifestFragment project =

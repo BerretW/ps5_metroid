@@ -524,6 +524,12 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                   static_cast<unsigned>(activeItem.quantity),
                   static_cast<unsigned>(game.itemQuantity(ItemId::Scrap)));
     text(218, 32, inventoryText.data(), 1, activeItem.quantity != 0 ? kCyan : kMuted);
+    const framework::QuestProgress quest = game.questProgress();
+    if (quest.total != 0) {
+        text(12, 54, "OBJECTIVE", 1, kMuted);
+        text(76, 54, quest.completed == quest.total ? "MISSION COMPLETE" : quest.objective,
+             1, kCyan);
+    }
     if (!paused && !game.dialogueActive() && activeItem.item != ItemId::None) {
         text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
              1, kCyan);

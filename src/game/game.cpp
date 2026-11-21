@@ -209,6 +209,27 @@ framework::Status Game::configureEquipment(
     return framework::Status::success();
 }
 
+framework::Status Game::configureQuests(const framework::QuestModule& module) noexcept {
+    if (!module.initialized() || mainQuest_ != nullptr) {
+        return {framework::ErrorCode::InvalidState, "echo.rpg.quests",
+                "The quest module must be initialized and gameplay configured only once."};
+    }
+    const framework::Status status = validateProjectQuest(module);
+    if (!status) return status;
+    mainQuest_ = module.find(kMainQuestId);
+    return framework::Status::success();
+}
+
+framework::QuestProgress Game::questProgress() const noexcept {
+    if (mainQuest_ == nullptr) return {};
+    std::array<std::string_view, kMainQuestFacts.size()> facts{};
+    std::size_t count{};
+    if (hasItem(ItemId::MaintenanceKey)) facts[count++] = kMainQuestFacts[0];
+    if (abilityCollected()) facts[count++] = kMainQuestFacts[1];
+    if (completed_) facts[count++] = kMainQuestFacts[2];
+    return framework::evaluateQuest(*mainQuest_, {facts.data(), count});
+}
+
 framework::Status Game::addAttributeModifier(
     std::string_view id, std::string_view source, std::int32_t amount) noexcept {
     if (!attributesConfigured_) {

@@ -89,6 +89,6 @@ if(ECHO_PS5_GAME)
     target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
         EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
         EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
-        EchoFramework::Abilities
+        EchoFramework::Abilities EchoFramework::Quests
         --end-group --as-needed ${stubs})
 endif()

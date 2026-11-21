@@ -1,11 +1,11 @@
 add_executable(echo_schema_export schema_export.cpp)
 target_link_libraries(echo_schema_export PRIVATE
     EchoFramework::Data EchoFramework::Inventory EchoFramework::Attributes
-    EchoFramework::Equipment EchoFramework::Abilities)
+    EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests)
 target_compile_features(echo_schema_export PRIVATE cxx_std_20)
 target_compile_definitions(echo_schema_export PRIVATE
     ECHO_MANIFEST_HAS_INVENTORY ECHO_MANIFEST_HAS_ATTRIBUTES
-    ECHO_MANIFEST_HAS_EQUIPMENT ECHO_MANIFEST_HAS_ABILITIES)
+    ECHO_MANIFEST_HAS_EQUIPMENT ECHO_MANIFEST_HAS_ABILITIES ECHO_MANIFEST_HAS_QUESTS)
 if(TARGET EchoFramework::Narrative)
     target_link_libraries(echo_schema_export PRIVATE EchoFramework::Narrative)
     target_compile_definitions(echo_schema_export PRIVATE ECHO_MANIFEST_HAS_NARRATIVE)

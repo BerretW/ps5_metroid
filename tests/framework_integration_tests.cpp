@@ -5,9 +5,11 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -62,6 +64,26 @@ int main() {
               "malformed dialogue content fails startup explicitly");
     }
     check(std::remove(fixturePath) == 0, "dialogue fixture is removed");
+    {
+        std::ifstream input(configPath, std::ios::binary);
+        const std::string source{std::istreambuf_iterator<char>(input),
+                                 std::istreambuf_iterator<char>()};
+        for (const auto& [original, replacement] : {
+                 std::pair<std::string_view, std::string_view>{
+                     "echo:fact/echo_step", "echo:fact/unknown"},
+                 {"GET THE KEY FROM THE ENGINEER", "INVALID?"}}) {
+            std::string invalid = source;
+            const std::size_t position = invalid.find(original);
+            check(position != std::string::npos, "quest fixture field exists");
+            if (position == std::string::npos) continue;
+            invalid.replace(position, original.size(), replacement);
+            check(writeFixture(invalid), "invalid quest configuration is written");
+            auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
+            check(!integration->initialize(fixturePath, dialoguePath, itemCatalogPath),
+                  "runtime rejects unsupported quest facts and display glyphs");
+        }
+    }
+    check(std::remove(fixturePath) == 0, "quest configuration fixture is removed");
     {
         constexpr std::string_view shiftedConfig = R"({
             "game": "echo.project_echo",

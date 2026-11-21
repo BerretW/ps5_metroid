@@ -113,8 +113,9 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     echo::GameCheckpoint restored{};
     check(static_cast<bool>(echo::platform::decodeGameCheckpoint(saved, restored)) &&
               restored.inventory.contains(echo::ItemId::MaintenanceKey) &&
-              restored.inventory.quantity(echo::ItemId::HealthCell) == 2,
-          "game checkpoint round-trip preserves keys and consumable stack quantities");
+              restored.inventory.quantity(echo::ItemId::HealthCell) == 2 &&
+              game.restore(restored) && game.questProgress().completed == 1,
+          "current checkpoint round-trip preserves inventory and derived quest progress");
 
     GameState legacyInventory = saved;
     check(legacyInventory.erase({StateScope::Global, {}, "inventory.layout"}) &&
@@ -286,12 +287,13 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
                   header.formatVersion == 5 &&
                   echo::platform::decodeGameCheckpoint(*decodedState, restored) &&
                   game.restore(restored) && game.hasItem(echo::ItemId::MaintenanceKey) &&
+                  game.questProgress().completed == 1 &&
                   ((version == 1 && !game.lootDrops()[0].active) ||
                    (version == 2 &&
                     game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2) ||
                    (version == 3 && !game.lootDrops()[0].active) ||
                    (version == 4 && game.lootDrops()[0].active)),
-              "version-one through four save documents migrate through the real codec");
+              "version-one through four saves preserve derived quest progress through the codec");
     }
 
     GameState migrated{};
@@ -427,6 +429,7 @@ int main() {
               "renderer game binds loaded dialogue content");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         const auto emptyInventory = capture(keyboardWindow, {206, 12, 152, 38});
+        const auto firstObjective = capture(keyboardWindow, {12, 54, 350, 8});
         const auto closedDialogue = capture(keyboardWindow, {64, 234, 512, 82});
         check(static_cast<bool>(dialogueGame.update({.interactPressed = true})),
               "engineer conversation starts");
@@ -463,6 +466,8 @@ int main() {
                   static_cast<bool>(dialogueGame.update({.interactPressed = true})),
               "selecting the key choice succeeds");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(firstObjective != capture(keyboardWindow, {12, 54, 350, 8}),
+              "the quest objective changes in the HUD after the key is granted");
         const auto keyInventory = capture(keyboardWindow, {206, 12, 152, 38});
         check(emptyInventory != keyInventory,
               "inventory HUD updates when the maintenance key is acquired");

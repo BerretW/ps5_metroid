@@ -53,6 +53,7 @@ if (Test-Path -LiteralPath $assetDir) {
                 @($gameConfig.modules) -notcontains "echo.rpg.attributes" -or
                 @($gameConfig.modules) -notcontains "echo.rpg.equipment" -or
                 @($gameConfig.modules) -notcontains "echo.rpg.inventory" -or
+                @($gameConfig.modules) -notcontains "echo.rpg.quests" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
                 -not ($gameConfig.resources -is [array]) -or
                 -not ($gameConfig.technician.transform.position -is [array]) -or
@@ -76,6 +77,19 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq "echo:item/scrap" -and $_.type -eq "item"
                 }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
+            $mainQuest = @($gameConfig.quests.quests | Where-Object {
+                $_.id -eq "echo:quest/main_route"
+            })
+            if ($gameConfig.quests.schemaVersion -ne 1 -or $mainQuest.Count -ne 1 -or
+                @($mainQuest[0].objectives).Count -ne 3) {
+                throw "Invalid framework game configuration: main quest is missing."
+            }
+            foreach ($fact in @("echo:fact/maintenance_key", "echo:fact/echo_step",
+                                "echo:fact/exit_reached")) {
+                if (@($mainQuest[0].objectives | Where-Object { $_.fact -eq $fact }).Count -ne 1) {
+                    throw "Invalid framework game configuration: main quest fact is missing."
+                }
             }
             foreach ($id in @("jump_visor", "vital_vest", "power_barrel", "sprint_module",
                               "med_patch", "med_kit", "shield_cell", "speed_charge",

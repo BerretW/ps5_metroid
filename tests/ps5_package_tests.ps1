@@ -82,6 +82,13 @@ try {
     Expect-Rejection "required game modules or resources are missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.quests.quests[0].objectives[0].fact = "echo:fact/unknown"
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "main quest fact is missing"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.resources = @($gameConfigData.resources | Where-Object {
         $_.id -ne "echo:ability/echo_step"
     })

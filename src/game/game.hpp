@@ -7,6 +7,7 @@
 #include "echo/framework/narrative.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
+#include "game/project_quests.hpp"
 
 #include <array>
 #include <cstddef>
@@ -190,6 +191,9 @@ public:
         const framework::AbilityModule& module) noexcept;
     [[nodiscard]] framework::Status configureEquipment(
         const framework::EquipmentModule& module) noexcept;
+    [[nodiscard]] framework::Status configureQuests(
+        const framework::QuestModule& module) noexcept;
+    [[nodiscard]] framework::QuestProgress questProgress() const noexcept;
     [[nodiscard]] framework::Status addAttributeModifier(
         std::string_view id, std::string_view source, std::int32_t amount) noexcept;
     [[nodiscard]] framework::Status removeAttributeModifier(
@@ -317,6 +321,7 @@ private:
     framework::AbilitySet<8> abilities_{};
     const framework::EquipmentModule* equipmentModule_{};
     framework::EquipmentLoadout<4> equipment_{};
+    const framework::QuestDefinition* mainQuest_{};
 };
 
 } // namespace echo

@@ -60,6 +60,16 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'missing abilities module'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].objectives[1].fact = 'echo:fact/unknown'
+    $path = Write-JsonFixture 'unknown-quest-fact.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unknown quest fact'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].objectives[0].text = 'INVALID?'
+    $path = Write-JsonFixture 'invalid-quest-text.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest glyph'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.technician.interaction.horizontalReach = 129
     $path = Write-JsonFixture 'invalid-component.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'out-of-range component'
@@ -145,7 +155,7 @@ try {
     $createdFiles.Add($oversizedPath)
     Invoke-Validator $oversizedPath $Dialogue $Manifest $false 'oversized game config'
 
-    Write-Output 'Project content validator accepted valid content and rejected 15 invalid cases.'
+    Write-Output 'Project content validator accepted valid content and rejected 17 invalid cases.'
 }
 finally {
     foreach ($path in $createdFiles) {

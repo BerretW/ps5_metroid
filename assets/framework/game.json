@@ -7,8 +7,22 @@
     "echo.rpg.attributes",
     "echo.rpg.equipment",
     "echo.rpg.inventory",
+    "echo.rpg.quests",
     "echo.project_echo"
   ],
+  "quests": {
+    "schemaVersion": 1,
+    "quests": [
+      {
+        "id": "echo:quest/main_route",
+        "objectives": [
+          {"id": "key", "fact": "echo:fact/maintenance_key", "text": "GET THE KEY FROM THE ENGINEER"},
+          {"id": "ability", "fact": "echo:fact/echo_step", "text": "FIND ECHO STEP IN THE LAB"},
+          {"id": "exit", "fact": "echo:fact/exit_reached", "text": "REACH THE CENTRAL CHAMBER EXIT"}
+        ]
+      }
+    ]
+  },
   "technician": {
     "transform": {
       "position": [108, 280]

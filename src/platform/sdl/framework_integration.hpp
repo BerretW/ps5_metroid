@@ -5,6 +5,7 @@
 #include "echo/framework/narrative.hpp"
 #include "echo/framework/attributes.hpp"
 #include "echo/framework/equipment.hpp"
+#include "echo/framework/quests.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
 
@@ -80,6 +81,7 @@ private:
     framework::InventoryModule inventoryModule_{};
     framework::AttributesModule attributesModule_{};
     framework::EquipmentModule equipmentModule_{};
+    framework::QuestModule questModule_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};

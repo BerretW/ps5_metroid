@@ -1,0 +1,11 @@
+add_library(echo_framework_quests STATIC src/quests.cpp)
+add_library(EchoFramework::Quests ALIAS echo_framework_quests)
+target_include_directories(echo_framework_quests PUBLIC include)
+target_compile_features(echo_framework_quests PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_quests PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_quests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_quests PRIVATE -Wall -Wextra -Wpedantic)
+endif()

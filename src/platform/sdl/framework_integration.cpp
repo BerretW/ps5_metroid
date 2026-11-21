@@ -19,9 +19,9 @@ namespace {
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
 constexpr std::array<std::string_view, 2> kProjectDependencies{
     "echo.state", "echo.narrative.dialogue"};
-constexpr std::array<std::string_view, 4> kProjectOptionalModules{
+constexpr std::array<std::string_view, 5> kProjectOptionalModules{
     "echo.rpg.abilities", "echo.rpg.attributes",
-    "echo.rpg.equipment", "echo.rpg.inventory"};
+    "echo.rpg.equipment", "echo.rpg.inventory", "echo.rpg.quests"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
 constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
@@ -161,6 +161,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     bool attributesSelected = false;
     bool equipmentSelected = false;
     bool abilitiesSelected = false;
+    bool questsSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
         if (!moduleList.at(index).string(moduleId)) {
@@ -170,7 +171,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         if (moduleId != "echo.state" && moduleId != "echo.narrative.dialogue" &&
             moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory" &&
             moduleId != "echo.rpg.attributes" && moduleId != "echo.rpg.equipment" &&
-            moduleId != "echo.rpg.abilities") {
+            moduleId != "echo.rpg.abilities" && moduleId != "echo.rpg.quests") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
@@ -181,6 +182,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         attributesSelected = attributesSelected || moduleId == "echo.rpg.attributes";
         equipmentSelected = equipmentSelected || moduleId == "echo.rpg.equipment";
         abilitiesSelected = abilitiesSelected || moduleId == "echo.rpg.abilities";
+        questsSelected = questsSelected || moduleId == "echo.rpg.quests";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
             (void)moduleList.at(previous).string(previousId);
@@ -193,6 +195,20 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!stateSelected || !dialogueSelected || !projectSelected) {
         return {framework::ErrorCode::MissingDependency, "echo.project_echo",
                 "The game configuration must select state, dialogue, and PROJECT ECHO modules."};
+    }
+    if (questsSelected) {
+        status = questModule_.load(root.find("quests"));
+        if (!status) return status;
+        status = validateProjectQuest(questModule_);
+        if (!status) return status;
+        for (const framework::QuestDefinition& quest : questModule_.definitions()) {
+            for (const framework::QuestObjective& objective : quest.objectives()) {
+                if (!supportsBitmapText(objective.text.data(), 48)) {
+                    return {framework::ErrorCode::InvalidValue, "quests.objective.text",
+                            "Quest objective does not fit the game's bitmap font."};
+                }
+            }
+        }
     }
     if (inventorySelected) {
         if (itemCatalogPath == nullptr) {
@@ -360,6 +376,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
+    status = modules_.add(questModule_, questsSelected);
+    if (!status) {
+        return status;
+    }
     framework::ModuleContext context{this};
     status = modules_.initializeAll(context);
     if (!status) {
@@ -399,6 +419,10 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     if (!status) return status;
     if (abilitiesModule_.initialized()) {
         status = game.configureAbilities(abilitiesModule_);
+        if (!status) return status;
+    }
+    if (questModule_.initialized()) {
+        status = game.configureQuests(questModule_);
         if (!status) return status;
     }
     if (attributesModule_.initialized()) {

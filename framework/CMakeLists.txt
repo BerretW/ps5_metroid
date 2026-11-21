@@ -30,6 +30,7 @@ if(ECHO_FRAMEWORK_ENABLE_DATA)
     add_subdirectory(inventory)
     add_subdirectory(attributes)
     add_subdirectory(equipment)
+    add_subdirectory(quests)
 endif()
 
 if(ECHO_FRAMEWORK_ENABLE_NARRATIVE)

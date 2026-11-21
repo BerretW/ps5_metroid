@@ -23,6 +23,13 @@ if(TARGET EchoFramework::Data)
         add_test(NAME echo_framework_inventory COMMAND echo_framework_inventory_tests)
     endif()
 
+    if(TARGET EchoFramework::Quests)
+        add_executable(echo_framework_quests_tests quests_tests.cpp)
+        target_link_libraries(echo_framework_quests_tests PRIVATE EchoFramework::Quests)
+        target_compile_features(echo_framework_quests_tests PRIVATE cxx_std_20)
+        add_test(NAME echo_framework_quests COMMAND echo_framework_quests_tests)
+    endif()
+
     if(TARGET EchoFramework::Attributes)
         add_executable(echo_framework_attributes_tests attributes_tests.cpp)
         target_link_libraries(echo_framework_attributes_tests PRIVATE EchoFramework::Attributes)

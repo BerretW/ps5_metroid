@@ -786,10 +786,26 @@ void testAbilityGateAndBacktracking() {
     echo::framework::AbilityModule abilities{echo::kProjectAbilityDefinitions};
     echo::framework::ModuleContext moduleContext{};
     check(abilities.initialize(moduleContext), "game ability definitions initialize");
+    std::ifstream configInput(ECHO_SOURCE_ASSETS "framework/game.json", std::ios::binary);
+    const std::string config{std::istreambuf_iterator<char>(configInput),
+                             std::istreambuf_iterator<char>()};
+    echo::framework::JsonDocument document{};
+    echo::framework::JsonError error{};
+    echo::framework::QuestModule quests{};
+    check(echo::framework::JsonDocument::parse(config.data(), config.size(), document, error) &&
+              quests.load(document.root().find("quests")) && quests.initialize(moduleContext),
+          "project quest content loads and initializes");
     echo::Game game;
-    check(static_cast<bool>(fixture.bind(game)) && game.configureAbilities(abilities),
-          "progression game binds dialogue and the abilities module");
+    check(static_cast<bool>(fixture.bind(game)) && game.configureAbilities(abilities) &&
+              game.configureQuests(quests),
+          "progression game binds dialogue, abilities and quests");
+    check(game.questProgress().completed == 0 &&
+              game.questProgress().objective == "GET THE KEY FROM THE ENGINEER",
+          "a new game displays the key objective");
     talkToTechnician(game);
+    check(game.questProgress().completed == 1 &&
+              game.questProgress().objective == "FIND ECHO STEP IN THE LAB",
+          "receiving the key advances the quest");
     auto progression = game.checkpoint();
     progression.enemyHealth[2] = 0;
     progression.enemyHealth[3] = 0;
@@ -809,11 +825,16 @@ void testAbilityGateAndBacktracking() {
     step(game, {.moveX = 1}, 350);
     check(game.abilityCollected(), "laboratory collectible unlocks double jump");
     check(game.player().hasDoubleJump, "ability is available to the player");
+    check(game.questProgress().completed == 2 &&
+              game.questProgress().objective == "REACH THE CENTRAL CHAMBER EXIT",
+          "unlocking Echo Step advances the quest");
     const echo::GameCheckpoint abilityCheckpoint = game.checkpoint();
     echo::Game restored;
-    check(restored.configureAbilities(abilities) && restored.restore(abilityCheckpoint) &&
-              restored.abilityCollected() && restored.player().hasDoubleJump,
-          "checkpoint restore rebuilds module-backed ability ownership");
+    check(restored.configureAbilities(abilities) && restored.configureQuests(quests) &&
+              restored.restore(abilityCheckpoint) &&
+              restored.abilityCollected() && restored.player().hasDoubleJump &&
+              restored.questProgress().completed == 2,
+          "checkpoint restore rebuilds ability ownership and quest progress");
 
     step(game, {.jumpPressed = true, .jumpHeld = true});
     step(game, {.jumpHeld = true}, 10);
@@ -834,6 +855,14 @@ void testAbilityGateAndBacktracking() {
     check(moveUntilRoom(game, echo::RoomId::PowerStation, 1), "player returns through maintenance");
     step(game, {.moveX = 1}, 500);
     check(game.roomId() == echo::RoomId::CentralChamber, "double jump unlocks the central passage");
+    step(game, {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true}, 700);
+    check(game.completed() && game.questProgress().completed == 3 &&
+              game.questProgress().objective.empty(),
+          "reaching the exit completes the main quest");
+    check(restored.restore(game.checkpoint()) && restored.questProgress().completed == 3,
+          "completed quest remains complete after restoring its checkpoint");
+    restored.start();
+    check(restored.questProgress().completed == 0, "starting over resets derived quest progress");
 }
 
 } // namespace
