@@ -17,3 +17,5 @@ The content manifest has a required `resources` array. Each entry requires a nam
 Supported resource types are `generic`, `item`, `ability`, `dialogue`, `cutscene`, `sprite`, and `sound`. IDs use `namespace:type/name`. The runtime startup configuration and headless example are `assets/framework/game.json` and `framework/examples/core_demo/game.json`. Their module lists select already compiled module IDs only.
 
 `JsonConditionTree` decodes condition objects with bounded node/depth limits and owned keys; see the schema and example in [conditions](CONDITIONS.md). The tree must remain alive while its root condition is evaluated.
+
+Component configuration schemas are static C++ descriptors registered with `ComponentTypeRegistry`; they are not loaded as executable code. The registry validates property types, defaults, bounds, nested objects and arrays, resource references, and component dependencies. See [component schemas](COMPONENT_SCHEMAS.md) for supported property metadata and export tooling.

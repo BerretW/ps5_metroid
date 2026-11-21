@@ -321,6 +321,10 @@ private:
 
 } // namespace
 
+bool isValidContentId(std::string_view id) noexcept {
+    return validContentId(id);
+}
+
 JsonDocument::~JsonDocument() {
     reset();
 }
@@ -421,6 +425,27 @@ JsonValue JsonValue::at(std::size_t index) const noexcept {
         return JsonValue(nullptr);
     }
     return JsonValue(yyjson_arr_get(static_cast<const yyjson_val*>(value_), index));
+}
+
+bool JsonValue::memberAt(std::size_t index, std::string_view& key,
+                         JsonValue& value) const noexcept {
+    if (!isObject() || index >= yyjson_obj_size(static_cast<const yyjson_val*>(value_))) {
+        return false;
+    }
+    yyjson_obj_iter iterator{};
+    if (!yyjson_obj_iter_init(static_cast<const yyjson_val*>(value_), &iterator)) {
+        return false;
+    }
+    yyjson_val* member = nullptr;
+    for (std::size_t current = 0; current <= index; ++current) {
+        member = yyjson_obj_iter_next(&iterator);
+        if (member == nullptr) {
+            return false;
+        }
+    }
+    key = textOf(member);
+    value = JsonValue(yyjson_obj_iter_get_val(member));
+    return true;
 }
 
 bool JsonValue::string(std::string_view& value) const noexcept {

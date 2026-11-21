@@ -10,6 +10,7 @@ Echo Framework is a statically composed C++20 foundation. PROJECT ECHO remains t
 - Explicit action handlers with typed parameters, capability gates, and active-game checks.
 - Namespaced global/world/entity state, typed values, change observers, declarative conditions, and bounded JSON condition decoding.
 - A bounded yyjson-backed JSON wrapper, content registry/manifest validation, versioned state saves, migration callback, storage callbacks, and an opt-in Windows Local AppData provider.
+- A fixed-capacity component metadata registry with bounded typed instances, schema validation, deterministic JSON export, and native host-side content/schema tools.
 - A headless example and a narrow PROJECT ECHO ability-unlock integration.
 
 Feature modules for dialogue, inventory, combat, tile maps, and other genres are intentionally not included. Register only module implementations that the executable links. Runtime JSON may select registered modules, but cannot load code.
@@ -29,6 +30,8 @@ The PS5 controller application is cross-compiled by the existing native Windows 
 ## New game
 
 Link `EchoFramework::Core` for modules, state, actions, and conditions. Link `EchoFramework::Entities` and `EchoFramework::Events` when using their header-only facilities. Link `EchoFramework::Data` only when JSON/content/save support is needed. See [modules](MODULES.md) and [porting](PORTING.md).
+
+Component descriptors and current host tools are described in [component schemas](COMPONENT_SCHEMAS.md). The schema exporter currently includes the framework's built-in `Transform2D` descriptor; game-specific descriptors are exported by registering them in the executable that owns those types.
 
 ## Boundaries
 

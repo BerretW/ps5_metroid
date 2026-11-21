@@ -2,7 +2,7 @@
 
 ## 0.2 implemented foundation
 
-Module lifecycle, bounded entities/components, typed events, explicit actions, generic state/conditions, JSON wrapper, content validation, versioned state serialization, storage contract, headless demonstration, and a small Echo Step integration are implemented and covered by focused tests.
+Module lifecycle, bounded entities/components, typed events, explicit actions, generic state/conditions, JSON wrapper, content validation, versioned state serialization, storage contract, headless demonstration, a small Echo Step integration, and the fixed-capacity component metadata/configuration registry are implemented and covered by focused tests. Deterministic schema export, a resource-manifest validator, and a registry-driven host CLI editor proof are available behind `ECHO_FRAMEWORK_BUILD_TOOLS`.
 
 ## 0.3 gameplay save integration
 
@@ -16,6 +16,7 @@ Module lifecycle, bounded entities/components, typed events, explicit actions, g
 - Extract a reusable application lifecycle coordinator when a second application needs it; today PROJECT ECHO's SDL adapter coordinates startup and shutdown while the existing SDL loop remains in control.
 - Split state/actions/conditions into independently selectable compiled targets if a consumer requires finer granularity; currently these share the static core target.
 - Design schema-specific migration tests for real content evolution.
+- Extend the built-in-only editor proof with project-registered component types and runtime content integration.
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 

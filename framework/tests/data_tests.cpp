@@ -1,4 +1,4 @@
-#include "echo/framework/data.hpp"
+#include "echo/framework/schema.hpp"
 
 #include <array>
 #include <cstring>
@@ -19,6 +19,230 @@ void check(bool condition, std::string_view message) {
 
 void check(echo::framework::Status status, std::string_view message) {
     check(static_cast<bool>(status), message);
+}
+
+echo::framework::Status schemaTestFactory(
+    void*, const echo::framework::ComponentConfigView&,
+    echo::framework::ComponentInstance& output) noexcept {
+    return output.store(std::uint32_t{42});
+}
+
+constexpr std::array<std::string_view, 2> kSchemaTestModes{"idle", "patrol"};
+constexpr echo::framework::PropertyDescriptor kSchemaTestStringElement{
+    .name = "tag", .label = "Tag", .description = "A short label.",
+    .type = echo::framework::PropertyType::String,
+    .maximumLength = 16,
+};
+constexpr std::array<echo::framework::PropertyDescriptor, 1> kSchemaTestObjectFields{{
+    {.name = "opacity", .label = "Opacity", .description = "Normalized opacity.",
+     .type = echo::framework::PropertyType::Float,
+     .hasDefault = true,
+     .defaultValue = {echo::framework::PropertyType::Float, false, 0, 1.0},
+     .hasMinimum = true, .hasMaximum = true, .minimum = 0.0, .maximum = 1.0},
+}};
+constexpr std::array<echo::framework::PropertyDescriptor, 6> kSchemaTestProperties{{
+    {.name = "mode", .label = "Mode", .description = "Behavior mode.",
+     .type = echo::framework::PropertyType::Enumeration,
+     .enumValues = kSchemaTestModes},
+    {.name = "sprite", .label = "Sprite", .description = "Visual resource.",
+     .type = echo::framework::PropertyType::ResourceReference,
+     .resourceType = echo::framework::ResourceType::Sprite, .required = true},
+    {.name = "target", .label = "Target", .description = "Entity handle.",
+     .type = echo::framework::PropertyType::EntityReference, .required = true},
+    {.name = "tags", .label = "Tags", .description = "Bounded string labels.",
+     .type = echo::framework::PropertyType::Array, .maximumLength = 4,
+     .element = &kSchemaTestStringElement},
+    {.name = "options", .label = "Options", .description = "Nested options.",
+     .type = echo::framework::PropertyType::Object,
+     .fields = kSchemaTestObjectFields},
+    {.name = "color", .label = "Color", .description = "Normalized RGBA color.",
+     .type = echo::framework::PropertyType::Color,
+     .hasDefault = true,
+     .defaultValue = {echo::framework::PropertyType::Color, false, 0, 0.0, {},
+                      {1.0, 1.0, 1.0, 1.0}}},
+}};
+constexpr echo::framework::ComponentTypeDescriptor kSchemaTestComponent{
+    "echo:component/schema_test", 1, "Schema Test", "Exercises property metadata.",
+    "Testing", kSchemaTestProperties, {}, &schemaTestFactory, nullptr, nullptr};
+constexpr std::array<echo::framework::ComponentDependency, 1> kSchemaTestRequiresB{{
+    {"echo:component/dependency_b", true},
+}};
+constexpr std::array<echo::framework::ComponentDependency, 1> kSchemaTestOptionalB{{
+    {"echo:component/dependency_b", false},
+}};
+constexpr std::array<echo::framework::ComponentDependency, 1> kSchemaTestRequiresA{{
+    {"echo:component/dependency_a", true},
+}};
+constexpr echo::framework::ComponentTypeDescriptor kSchemaTestDependencyA{
+    "echo:component/dependency_a", 1, "Dependency A", "Test dependency.",
+    "Testing", {}, kSchemaTestRequiresB, &schemaTestFactory, nullptr, nullptr};
+constexpr echo::framework::ComponentTypeDescriptor kSchemaTestOptionalDependencyA{
+    "echo:component/dependency_a", 1, "Dependency A", "Test dependency.",
+    "Testing", {}, kSchemaTestOptionalB, &schemaTestFactory, nullptr, nullptr};
+constexpr echo::framework::ComponentTypeDescriptor kSchemaTestDependencyB{
+    "echo:component/dependency_b", 1, "Dependency B", "Test dependency.",
+    "Testing", {}, kSchemaTestRequiresA, &schemaTestFactory, nullptr, nullptr};
+
+void testComponentSchemas() {
+    using namespace echo::framework;
+    ComponentTypeRegistry components{};
+    check(registerCoreComponentTypes(components), "register built-in transform component");
+    check(components.add(kSchemaTestComponent), "register component with nested schemas and factory");
+    check(components.validate(), "component dependency graph validates");
+    check(components.add(kSchemaTestComponent).code == ErrorCode::DuplicateId,
+          "duplicate component IDs are rejected");
+
+    constexpr char transformConfig[] = R"({"position":[12.5,-4],"rotationDegrees":45})";
+    JsonDocument document{};
+    JsonError error{};
+    check(JsonDocument::parse(transformConfig, sizeof(transformConfig) - 1, document, error),
+          "transform component JSON parses");
+    ComponentInstance instance{};
+    check(components.instantiate("echo:component/transform2d", document.root(), instance),
+          "registered component factory instantiates validated configuration");
+    Transform2DComponent transform{};
+    check(instance.read(transform) && instance.typeId() == "echo:component/transform2d" &&
+              instance.version() == 1 && transform.x == 12.5F && transform.y == -4.0F &&
+              transform.scaleX == 1.0F && transform.rotationDegrees == 45.0F && transform.visible,
+          "factory uses schema defaults and configured values");
+
+    constexpr char resourcesJson[] =
+        R"({"resources":[{"id":"echo:sprite/robot","type":"sprite"}]})";
+    JsonDocument resourcesDocument{};
+    check(JsonDocument::parse(resourcesJson, sizeof(resourcesJson) - 1,
+                              resourcesDocument, error),
+          "schema resource fixture parses");
+    ContentRegistry resources{};
+    check(loadResourceManifest(resourcesDocument.root(), resources),
+          "schema resource fixture validates");
+
+    constexpr char complexConfig[] =
+        R"({"mode":"patrol","sprite":"echo:sprite/robot",)"
+        R"("target":{"index":2,"generation":1},"tags":["guard","night"],)"
+        R"("options":{"opacity":0.5},"color":[1,0.2,0.3,1]})";
+    JsonDocument complexDocument{};
+    check(JsonDocument::parse(complexConfig, sizeof(complexConfig) - 1,
+                              complexDocument, error),
+          "complex component JSON parses");
+    check(components.validateConfig("echo:component/schema_test",
+                                    complexDocument.root(), &resources),
+          "enum, resource, entity, array, object and color schemas validate");
+    check(components.instantiate("echo:component/schema_test", complexDocument.root(),
+                                 instance, &resources),
+          "custom factory is invoked after schema validation");
+    std::uint32_t marker{};
+    check(instance.read(marker) && marker == 42,
+          "custom registered factory produces component data");
+
+    constexpr char extraEntityField[] =
+        R"({"mode":"patrol","sprite":"echo:sprite/robot",)"
+        R"("target":{"index":2,"generation":1,"label":"stale"},)"
+        R"("tags":["guard"]})";
+    JsonDocument extraEntityDocument{};
+    check(JsonDocument::parse(extraEntityField, sizeof(extraEntityField) - 1,
+                              extraEntityDocument, error) &&
+              components.validateConfig("echo:component/schema_test",
+                                        extraEntityDocument.root(), &resources).code ==
+                  ErrorCode::InvalidValue,
+          "entity references reject fields beyond their stable handle");
+
+    constexpr char excessiveArray[] =
+        R"({"mode":"patrol","sprite":"echo:sprite/robot",)"
+        R"("target":{"index":2,"generation":1},)"
+        R"("tags":["one","two","three","four","five"]})";
+    JsonDocument excessiveArrayDocument{};
+    check(JsonDocument::parse(excessiveArray, sizeof(excessiveArray) - 1,
+                              excessiveArrayDocument, error) &&
+              components.validateConfig("echo:component/schema_test",
+                                        excessiveArrayDocument.root(), &resources).code ==
+                  ErrorCode::InvalidValue,
+          "array item limits are enforced");
+
+    constexpr char invalidEnum[] =
+        R"({"mode":"fly","sprite":"echo:sprite/robot",)"
+        R"("target":{"index":2,"generation":1}})";
+    JsonDocument invalidDocument{};
+    check(JsonDocument::parse(invalidEnum, sizeof(invalidEnum) - 1,
+                              invalidDocument, error),
+          "invalid enum fixture parses");
+    check(components.validateConfig("echo:component/schema_test",
+                                    invalidDocument.root(), &resources).code ==
+              ErrorCode::InvalidValue,
+          "unsupported enum values are rejected");
+
+    constexpr char missingResource[] =
+        R"({"mode":"idle","sprite":"echo:sprite/missing",)"
+        R"("target":{"index":2,"generation":1}})";
+    JsonDocument missingDocument{};
+    check(JsonDocument::parse(missingResource, sizeof(missingResource) - 1,
+                              missingDocument, error),
+          "missing resource fixture parses");
+    check(components.validateConfig("echo:component/schema_test",
+                                    missingDocument.root(), &resources).code ==
+              ErrorCode::MissingDependency,
+          "resource references must resolve against the manifest");
+    constexpr char missingRequired[] = R"({"mode":"idle"})";
+    JsonDocument missingRequiredDocument{};
+    check(JsonDocument::parse(missingRequired, sizeof(missingRequired) - 1,
+                              missingRequiredDocument, error) &&
+              components.validateConfig("echo:component/schema_test",
+                                        missingRequiredDocument.root(), &resources).code ==
+                  ErrorCode::InvalidValue,
+          "required component properties are enforced");
+
+    constexpr char unsupportedProperty[] = R"({"position":[0,0],"unknown":true})";
+    JsonDocument unknownDocument{};
+    check(JsonDocument::parse(unsupportedProperty, sizeof(unsupportedProperty) - 1,
+                              unknownDocument, error) &&
+              components.validateConfig("echo:component/transform2d",
+                                        unknownDocument.root()).code == ErrorCode::InvalidValue,
+          "unknown properties are rejected");
+    constexpr char outOfRange[] = R"({"position":[100001,0]})";
+    JsonDocument rangeDocument{};
+    check(JsonDocument::parse(outOfRange, sizeof(outOfRange) - 1, rangeDocument, error) &&
+              components.validateConfig("echo:component/transform2d",
+                                        rangeDocument.root()).code == ErrorCode::InvalidValue,
+          "numeric limits are enforced");
+
+    std::array<char, 8192> manifest{};
+    std::size_t manifestSize{};
+    check(exportComponentManifest(components, manifest.data(), manifest.size(), manifestSize),
+          "manifest exports from registered component descriptors");
+    const std::string_view firstExport{manifest.data(), manifestSize};
+    std::array<char, 8192> repeated{};
+    std::size_t repeatedSize{};
+    check(exportComponentManifest(components, repeated.data(), repeated.size(), repeatedSize) &&
+              firstExport == std::string_view(repeated.data(), repeatedSize),
+          "component manifest output order and bytes are deterministic");
+    JsonDocument exported{};
+    check(JsonDocument::parse(manifest.data(), manifestSize, exported, error),
+          "exported component manifest is valid JSON");
+    const JsonValue exportedComponents = exported.root().find("components");
+    check(exportedComponents.isArray() && exportedComponents.size() == 2,
+          "manifest includes every registered component type");
+    std::array<char, 16> shortBuffer{};
+    std::size_t shortSize{};
+    check(exportComponentManifest(components, shortBuffer.data(), shortBuffer.size(),
+                                  shortSize).code == ErrorCode::BufferTooSmall &&
+              shortBuffer[0] == '\0',
+          "manifest export fails explicitly when the output buffer is too small");
+
+    check(components.validateConfig("echo:component/missing", document.root()).code ==
+              ErrorCode::NotFound,
+          "unregistered component types are rejected");
+
+    ComponentTypeRegistry missingDependency{};
+    check(missingDependency.add(kSchemaTestDependencyA),
+          "component with a deferred dependency can be registered");
+    check(missingDependency.validate().code == ErrorCode::MissingDependency,
+          "missing required component dependencies are reported");
+
+    ComponentTypeRegistry dependencyCycle{};
+    check(dependencyCycle.add(kSchemaTestOptionalDependencyA) &&
+              dependencyCycle.add(kSchemaTestDependencyB),
+          "components with optional and required dependency edges are registered");
+    check(dependencyCycle.validate().code == ErrorCode::DependencyCycle,
+          "cycles through present optional dependencies are rejected");
 }
 
 void testJsonAndContent() {
@@ -388,6 +612,7 @@ void testSaveCodecAndStorage() {
 } // namespace
 
 int main() {
+    testComponentSchemas();
     testJsonAndContent();
     testJsonConditions();
     testSaveCodecAndStorage();

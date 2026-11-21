@@ -1,6 +1,7 @@
 option(ECHO_FRAMEWORK_ENABLE_DATA "Build JSON, content and save services" ON)
 option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" OFF)
 option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" OFF)
+option(ECHO_FRAMEWORK_BUILD_TOOLS "Build native host-side framework tools" OFF)
 
 add_subdirectory(core)
 
@@ -35,4 +36,14 @@ if(ECHO_FRAMEWORK_BUILD_EXAMPLE)
         message(FATAL_ERROR "The headless example requires ECHO_FRAMEWORK_ENABLE_DATA.")
     endif()
     add_subdirectory(examples/core_demo)
+endif()
+
+if(ECHO_FRAMEWORK_BUILD_TOOLS)
+    if(NOT ECHO_FRAMEWORK_ENABLE_DATA)
+        message(FATAL_ERROR "Framework tools require ECHO_FRAMEWORK_ENABLE_DATA.")
+    endif()
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR "Framework tools must be built with a native host toolchain.")
+    endif()
+    add_subdirectory(tools)
 endif()

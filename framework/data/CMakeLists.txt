@@ -1,5 +1,6 @@
 add_library(echo_framework_data STATIC
     src/data.cpp
+    src/schema.cpp
 )
 if(WIN32)
     target_sources(echo_framework_data PRIVATE src/windows_save_storage.cpp)

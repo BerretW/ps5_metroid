@@ -1,0 +1,11 @@
+add_executable(echo_schema_export schema_export.cpp)
+target_link_libraries(echo_schema_export PRIVATE EchoFramework::Data)
+target_compile_features(echo_schema_export PRIVATE cxx_std_20)
+
+add_executable(echo_content_validate content_validate.cpp)
+target_link_libraries(echo_content_validate PRIVATE EchoFramework::Data)
+target_compile_features(echo_content_validate PRIVATE cxx_std_20)
+
+add_executable(echo_component_editor component_editor.cpp)
+target_link_libraries(echo_component_editor PRIVATE EchoFramework::Data)
+target_compile_features(echo_component_editor PRIVATE cxx_std_20)

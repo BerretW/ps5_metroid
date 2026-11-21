@@ -30,6 +30,8 @@ public:
     [[nodiscard]] JsonValue find(std::string_view key) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] JsonValue at(std::size_t index) const noexcept;
+    [[nodiscard]] bool memberAt(std::size_t index, std::string_view& key,
+                                JsonValue& value) const noexcept;
     [[nodiscard]] bool string(std::string_view& value) const noexcept;
     [[nodiscard]] bool boolean(bool& value) const noexcept;
     [[nodiscard]] bool integer(std::int64_t& value) const noexcept;
@@ -142,6 +144,7 @@ private:
     std::size_t count_{};
 };
 
+[[nodiscard]] bool isValidContentId(std::string_view id) noexcept;
 [[nodiscard]] Status loadResourceManifest(JsonValue document,
                                           ContentRegistry& output) noexcept;
 
