@@ -20,10 +20,10 @@ constexpr ModuleInfo kDialogueModuleInfo{
 };
 constexpr std::array<std::string_view, 5> kDialogueFields{
     "schemaVersion", "id", "version", "startNode", "nodes"};
-constexpr std::array<std::string_view, 5> kNodeFields{
-    "id", "speaker", "text", "nextNode", "choices"};
-constexpr std::array<std::string_view, 5> kChoiceFields{
-    "id", "label", "targetNode", "visibleWhen", "onSelect"};
+constexpr std::array<std::string_view, 7> kNodeFields{
+    "id", "speaker", "text", "nextNode", "choices", "speakerCs", "textCs"};
+constexpr std::array<std::string_view, 6> kChoiceFields{
+    "id", "label", "targetNode", "visibleWhen", "onSelect", "labelCs"};
 constexpr std::array<std::string_view, 2> kActionFields{"id", "parameters"};
 constexpr std::array<std::string_view, 2> kParameterFields{"name", "value"};
 constexpr std::array<std::string_view, 2> kLogicalFields{"op", "conditions"};
@@ -32,6 +32,12 @@ constexpr std::array<std::string_view, 4> kExistsFields{"op", "scope", "key", "e
 constexpr std::array<std::string_view, 6> kCompareFields{
     "op", "scope", "key", "entity", "comparison", "value"};
 constexpr std::array<std::string_view, 2> kEntityFields{"index", "generation"};
+
+[[nodiscard]] std::string_view localizedText(std::string_view english,
+                                             std::string_view czech,
+                                             DialogueLanguage language) noexcept {
+    return language == DialogueLanguage::Czech && !czech.empty() ? czech : english;
+}
 
 template <std::size_t Count>
 [[nodiscard]] Status validateFields(JsonValue object,
@@ -233,6 +239,14 @@ Status DialogueDocument::parse(const char* data, std::size_t size,
             return {ErrorCode::InvalidValue, "nodes",
                     "Each dialogue node requires string id, speaker, and text fields."};
         }
+        const JsonValue localizedSpeaker = jsonNode.find("speakerCs");
+        const JsonValue localizedLine = jsonNode.find("textCs");
+        if ((localizedSpeaker.valid() && !localizedSpeaker.string(node.speakerCs)) ||
+            (localizedLine.valid() && !localizedLine.string(node.textCs))) {
+            reset();
+            return {ErrorCode::InvalidValue, "nodes.localization",
+                    "Localized speaker and text fields must be strings."};
+        }
         const JsonValue nextNode = jsonNode.find("nextNode");
         if (nextNode.valid() && !nextNode.string(node.nextNode)) {
             reset();
@@ -266,6 +280,12 @@ Status DialogueDocument::parse(const char* data, std::size_t size,
                 reset();
                 return {ErrorCode::InvalidValue, "choices",
                         "Each dialogue choice requires string id, label, and targetNode fields."};
+            }
+            const JsonValue localizedLabel = jsonChoice.find("labelCs");
+            if (localizedLabel.valid() && !localizedLabel.string(choice.labelCs)) {
+                reset();
+                return {ErrorCode::InvalidValue, "choices.labelCs",
+                        "Localized choice labels must be strings."};
             }
 
             const JsonValue visibleWhen = jsonChoice.find("visibleWhen");
@@ -493,6 +513,10 @@ Status DialogueModule::validateDefinition(
         if (!validLocalId(node.id) || node.text.empty() || node.text.size() > 2048 ||
             !validUtf8(node.speaker) || !validUtf8(node.text) ||
             node.speaker.size() > 128 ||
+            (!node.speakerCs.empty() &&
+             (node.speakerCs.size() > 128 || !validUtf8(node.speakerCs))) ||
+            (!node.textCs.empty() &&
+             (node.textCs.size() > 2048 || !validUtf8(node.textCs))) ||
             node.choices.size() > kMaxDialogueChoices ||
             (!node.nextNode.empty() && !validLocalId(node.nextNode))) {
             return {ErrorCode::InvalidValue, node.id,
@@ -516,6 +540,8 @@ Status DialogueModule::validateDefinition(
             const DialogueChoice& choice = node.choices[choiceIndex];
             if (!validLocalId(choice.id) || choice.label.empty() ||
                 choice.label.size() > 512 || !validUtf8(choice.label) ||
+                (!choice.labelCs.empty() &&
+                 (choice.labelCs.size() > 512 || !validUtf8(choice.labelCs))) ||
                 (!choice.targetNode.empty() && !validLocalId(choice.targetNode)) ||
                 (!choice.onSelect.id.empty() &&
                  !validNamespaceKey(choice.onSelect.id)) ||
@@ -545,7 +571,8 @@ Status DialogueModule::validateDefinition(
 }
 
 Status DialogueSession::inspect(const GameState& state,
-                                DialogueLineView& line) const noexcept {
+                                DialogueLineView& line,
+                                DialogueLanguage language) const noexcept {
     if (!active() || nodeIndex_ >= definition_->nodes.size()) {
         return {ErrorCode::InvalidState, {}, "Dialogue session is not active."};
     }
@@ -559,13 +586,16 @@ Status DialogueSession::inspect(const GameState& state,
         }
         availableChoices += visible ? 1U : 0U;
     }
-    line = {definition_->id, node.id, node.speaker, node.text,
+    line = {definition_->id, node.id,
+            localizedText(node.speaker, node.speakerCs, language),
+            localizedText(node.text, node.textCs, language),
             availableChoices, availableChoices == 0};
     return Status::success();
 }
 
 Status DialogueSession::choiceAt(const GameState& state, std::size_t ordinal,
-                                 DialogueChoiceView& view) const noexcept {
+                                 DialogueChoiceView& view,
+                                 DialogueLanguage language) const noexcept {
     if (!active() || nodeIndex_ >= definition_->nodes.size()) {
         return {ErrorCode::InvalidState, {}, "Dialogue session is not active."};
     }
@@ -578,7 +608,7 @@ Status DialogueSession::choiceAt(const GameState& state, std::size_t ordinal,
             return status;
         }
         if (visible && visibleOrdinal++ == ordinal) {
-            view = {choice.id, choice.label};
+            view = {choice.id, localizedText(choice.label, choice.labelCs, language)};
             return Status::success();
         }
     }

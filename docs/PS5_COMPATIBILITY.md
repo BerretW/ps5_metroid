@@ -1,6 +1,6 @@
 # Native Windows PS5 compatibility
 
-**Cross-compilation, linking and application-directory packaging: PASS. Hello and earlier controller builds launch: PASS (user-reported). The new JSON dialogue and schema integration needs another hardware run. The original keyboard-enabled build still fails on launch.**
+**Cross-compilation, linking and application-directory packaging: PASS. Hello and earlier controller builds launch: PASS (user-reported). The current dialogue localization build is statically validated but needs a hardware run. The original keyboard-enabled build still fails on launch.**
 
 Verified on 2026-11-20 using Windows 11 x64, PowerShell 5.1.26100.9818, official Windows LLVM/LLD 18.1.8, CMake 4.4.4, Ninja 1.13.2 and native MSVC 19.51.36252 host utilities. No PS5 binary was executed on Windows. The working Windows executable and shared gameplay implementation were preserved.
 

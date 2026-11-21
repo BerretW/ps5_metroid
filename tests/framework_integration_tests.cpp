@@ -157,7 +157,7 @@ int main() {
                   displayStatus("SPEAKER", "LINE", std::string(73, 'A')) ==
                   echo::framework::ErrorCode::InvalidValue,
               "dialogue text exceeding any bitmap panel limit is rejected");
-        check(displayStatus("SPEAKER", "\xC4\x8D", "CHOICE") ==
+        check(displayStatus("SPEAKER", "\xCE\xA9", "CHOICE") ==
                   echo::framework::ErrorCode::InvalidValue,
               "unsupported UTF-8 glyphs fail explicitly instead of drawing blank text");
         check(displayStatus("SPEAKER", "UNSUPPORTED!", "CHOICE") ==

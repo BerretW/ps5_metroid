@@ -193,6 +193,14 @@ void testTechnicianDialogueAndInventory() {
     check(game.dialogueActive() && game.dialogueSpeaker() == "ENGINEER MIRA" &&
               game.dialogueText() == "LAB ACCESS IS LOCKED.",
           "engineer displays the first line from the JSON asset");
+    const std::string_view englishGreeting = game.dialogueText();
+    check(static_cast<bool>(game.setDialogueLanguage(
+              echo::framework::DialogueLanguage::Czech)) &&
+              game.dialogueText() != englishGreeting &&
+              static_cast<bool>(game.setDialogueLanguage(
+                  echo::framework::DialogueLanguage::English)) &&
+              game.dialogueText() == englishGreeting,
+          "active dialogue refreshes in the selected language and back");
     step(game, {.interactPressed = true});
     check(game.dialogueChoiceCount() == 2 && game.selectedDialogueChoice() == 0 &&
               game.dialogueChoiceText(0) == "TAKE MAINTENANCE KEY",

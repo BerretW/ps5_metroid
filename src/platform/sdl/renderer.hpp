@@ -24,7 +24,8 @@ public:
     int loadSprites(const char* assetDirectory) noexcept;
     [[nodiscard]] bool hasSprite(Sprite sprite) const noexcept;
     void drawMenu(int selection, bool continueAvailable = true) noexcept;
-    void drawOptions(int selection, int volume, bool waitingForKey,
+    void drawOptions(int selection, int volume, framework::DialogueLanguage language,
+                     bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
                      std::string_view interactKey) noexcept;
     void drawGame(const Game& game, bool showMap, bool paused,

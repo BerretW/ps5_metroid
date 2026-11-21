@@ -1,24 +1,29 @@
 {
   "schemaVersion": 1,
   "id": "echo:dialogue/engineer",
-  "version": 2,
+  "version": 3,
   "startNode": "greeting",
   "nodes": [
     {
       "id": "greeting",
       "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
       "text": "LAB ACCESS IS LOCKED.",
+      "textCs": "VSTUP DO LABORATOŘE JE ZAMČEN.",
       "nextNode": "offer"
     },
     {
       "id": "offer",
       "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
       "text": "ECHO STEP IS IN THE RESEARCH LAB.",
+      "textCs": "ECHO KROK JE VE VÝZKUMNÉ LABORATOŘI.",
       "nextNode": "key_owner",
       "choices": [
         {
           "id": "take_key",
           "label": "TAKE MAINTENANCE KEY",
+          "labelCs": "VEZMI SI SERVISNÍ KLÍČ",
           "targetNode": "key_granted",
           "visibleWhen": {
             "op": "compare",
@@ -37,6 +42,7 @@
         {
           "id": "ask_lab",
           "label": "ASK ABOUT THE LAB",
+          "labelCs": "ZEPTEJ SE NA LABORATOŘ",
           "targetNode": "lab_hint",
           "visibleWhen": {
             "op": "compare",
@@ -51,23 +57,30 @@
     {
       "id": "lab_hint",
       "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
       "text": "THE KEY OPENS THE LAB DOOR.",
+      "textCs": "TÍM KLÍČEM OTEVŘEŠ DVEŘE LABORATOŘE.",
       "nextNode": "offer"
     },
     {
       "id": "key_granted",
       "speaker": "ENGINEER MIRA",
-      "text": "TAKE THIS MAINTENANCE KEY."
+      "speakerCs": "INŽENÝRKA MÍRA",
+      "text": "TAKE THIS MAINTENANCE KEY.",
+      "textCs": "VEZMI SI TENHLE SERVISNÍ KLÍČ."
     },
     {
       "id": "key_owner",
       "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
       "text": "THE KEY OPENS THE LAB DOOR.",
+      "textCs": "TÍM KLÍČEM OTEVŘEŠ DVEŘE LABORATOŘE.",
       "nextNode": "farewell",
       "choices": [
         {
           "id": "ask_echo_step",
           "label": "ASK ABOUT ECHO STEP",
+          "labelCs": "ZEPTEJ SE NA ECHO KROK",
           "targetNode": "echo_step_hint",
           "visibleWhen": {
             "op": "compare",
@@ -82,13 +95,17 @@
     {
       "id": "echo_step_hint",
       "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
       "text": "DOUBLE JUMP OPENS THE CENTRAL GATE.",
+      "textCs": "DVOJITÝ SKOK OTEVŘE BRÁNU DO CENTRÁLNÍ KOMORY.",
       "nextNode": "farewell"
     },
     {
       "id": "farewell",
       "speaker": "ENGINEER MIRA",
-      "text": "GOOD LUCK OUT THERE."
+      "speakerCs": "INŽENÝRKA MÍRA",
+      "text": "GOOD LUCK OUT THERE.",
+      "textCs": "HODNĚ ŠTĚSTÍ."
     }
   ]
 }

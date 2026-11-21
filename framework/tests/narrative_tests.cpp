@@ -186,9 +186,12 @@ void testOwnedDialogueDocument() {
                 "id": "start",
                 "speaker": "Guide",
                 "text": "Welcome.",
+                "speakerCs": "\u0050\u0052\u016E\u0056\u004F\u0044\u004B\u0059\u004E\u011A",
+                "textCs": "\u0056\u00CD\u0054\u0045\u004A.",
                 "choices": [{
                     "id": "continue",
                     "label": "Continue",
+                    "labelCs": "\u0050\u004F\u004B\u0052\u0041\u010C\u0055\u004A",
                     "targetNode": "end",
                     "visibleWhen": {
                         "op": "exists",
@@ -239,6 +242,32 @@ void testOwnedDialogueDocument() {
     check(state.set(unlocked, StateValue::fromBoolean(true)) &&
               session.inspect(state, line) && line.availableChoices == 1,
           "owned JSON condition trees evaluate against current game state");
+    DialogueChoiceView localizedChoice{};
+    check(session.inspect(state, line, DialogueLanguage::Czech) &&
+              line.speaker == "\x50\x52\xC5\xAE\x56\x4F\x44\x4B\x59\x4E\xC4\x9A" &&
+              line.text == "\x56\xC3\x8D\x54\x45\x4A." &&
+              session.choiceAt(state, 0, localizedChoice, DialogueLanguage::Czech) &&
+              localizedChoice.label == "\x50\x4F\x4B\x52\x41\xC4\x8C\x55\x4A",
+          "JSON-owned Czech text and choice labels render through locale-aware views");
+    const std::array<DialogueNode, 1> fallbackNodes{{
+        {.id = "fallback", .speaker = "Guide", .text = "Good luck."},
+    }};
+    const DialogueDefinition fallbackDefinition{
+        .id = "echo:dialogue/fallback",
+        .version = 1,
+        .startNode = "fallback",
+        .nodes = fallbackNodes,
+    };
+    DialogueModule fallbackModule{};
+    DialogueSession fallbackSession{};
+    DialogueLineView fallbackLine{};
+    check(fallbackModule.add(fallbackDefinition) &&
+              fallbackModule.initialize(context) &&
+              fallbackModule.start(fallbackDefinition.id, fallbackSession) &&
+              fallbackSession.inspect(state, fallbackLine, DialogueLanguage::Czech) &&
+              fallbackLine.text == "Good luck.",
+          "missing translations fall back to the original English text");
+    fallbackModule.shutdown();
     if (definition != nullptr && !definition->nodes[0].choices.empty()) {
         const DialogueChoice& choice = definition->nodes[0].choices[0];
         check(choice.onSelect.id == "echo.action.grant_quest" &&

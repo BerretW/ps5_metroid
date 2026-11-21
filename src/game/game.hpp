@@ -123,6 +123,8 @@ public:
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
         Vec2 technicianPosition) noexcept;
+    [[nodiscard]] framework::Status setDialogueLanguage(
+        framework::DialogueLanguage language) noexcept;
     void start() noexcept;
     [[nodiscard]] framework::Status update(
         const Input& input, float deltaSeconds = kFixedStep) noexcept;
@@ -197,6 +199,7 @@ private:
     std::size_t dialogueChoiceCount_{};
     std::size_t dialogueSelection_{};
     int dialogueDirection_{};
+    framework::DialogueLanguage dialogueLanguage_{framework::DialogueLanguage::English};
 };
 
 } // namespace echo

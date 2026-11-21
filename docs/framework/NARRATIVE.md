@@ -16,7 +16,7 @@
 
 ## JSON format
 
-Each file describes exactly one dialogue. `schemaVersion` is the format version; `version` is the content revision. Nodes require `id`, `speaker`, and `text`. `nextNode` and `choices` are optional. Choices require `id`, `label`, and `targetNode`; optional `visibleWhen` uses the shared [condition format](CONDITIONS.md), and optional `onSelect` names a compiled action with typed parameters.
+Each file describes exactly one dialogue. `schemaVersion` is the format version; `version` is the content revision. Nodes require `id`, `speaker`, and `text`. `speakerCs` and `textCs` optionally provide Czech translations; `nextNode` and `choices` are also optional. Choices require `id`, `label`, and `targetNode`; `labelCs` optionally provides a Czech translation. Optional `visibleWhen` uses the shared [condition format](CONDITIONS.md), and optional `onSelect` names a compiled action with typed parameters.
 
 ```json
 {
@@ -28,11 +28,14 @@ Each file describes exactly one dialogue. `schemaVersion` is the format version;
     {
       "id": "start",
       "speaker": "Engineer",
+      "speakerCs": "INŽENÝRKA",
       "text": "The lab is locked.",
+      "textCs": "LABORATOŘ JE ZAMČENÁ.",
       "choices": [
         {
           "id": "take_key",
           "label": "Take the key",
+          "labelCs": "VEZMI SI KLÍČ",
           "targetNode": "after_key",
           "visibleWhen": {
             "op": "exists",
@@ -54,7 +57,7 @@ Each file describes exactly one dialogue. `schemaVersion` is the format version;
 }
 ```
 
-The loader validates schema/content versions, graph targets, UTF-8 and existing graph limits before exposing a definition. Unknown or duplicate object fields, including condition fields, are rejected; an explicitly supplied action needs a nonempty namespaced ID. Localized text fields are not supported yet; visible strings are currently stored directly in the dialogue file.
+The loader validates schema/content versions, graph targets, UTF-8 and existing graph limits before exposing a definition. Unknown or duplicate object fields, including condition fields, are rejected; an explicitly supplied action needs a nonempty namespaced ID. English fields remain required, so older dialogue files are unchanged. When the selected language is Czech but a translation is empty or absent, the session returns the English string.
 
 An initialized module must contain at least one definition. Nodes with no visible conditional choices may follow their `nextNode` fallback via `advance(state)`; nodes with visible choices must be resolved with `select`.
 
@@ -66,6 +69,6 @@ The reusable module is selectable with `ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON` and 
 
 Mira's content revision 2 adds an Echo Step advice choice gated by the existing `player.echo_step_unlocked` state. The SDL host mirrors that state when the ability is collected or restored from Continue; the choice becomes available when the player next speaks to her.
 
-The current dialogue panel supports single-line ASCII letters, digits, space, `+`, `%`, `:`, `-`, `.`, and `/`. Speaker names may contain at most 39 characters, lines 80, and choices 72; the adapter rejects unsupported or oversized text. The generic framework loader still supports UTF-8. Localized text and a wider font are future work.
+The current dialogue panel supports single-line ASCII letters, digits, space, `+`, `%`, `:`, `-`, `.`, `/`, and the Czech accented letters rendered by its bitmap font. Speaker names may contain at most 39 Unicode code points, lines 80, and choices 72; the adapter rejects malformed UTF-8, unsupported glyphs, or oversized text. PROJECT ECHO's Options screen selects EN/CS, and the choice is stored with existing settings; old settings without a language field default to English.
 
 Conversation position is not saved. The existing autosave format and inventory remain authoritative, so Continue restarts any conversation and reflects whether the key and Echo Step are owned. See [controls](../CONTROLS.md). A previous controller package worked on PS5, but this dialogue content revision requires a new hardware test.

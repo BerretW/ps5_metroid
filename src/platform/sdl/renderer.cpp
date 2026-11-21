@@ -1,6 +1,7 @@
 #include "platform/sdl/renderer.hpp"
 
 #include "platform/sdl/assets.hpp"
+#include "platform/sdl/bitmap_font.hpp"
 
 #include <algorithm>
 #include <array>
@@ -192,23 +193,76 @@ void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
 
 void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept {
     setColor(renderer_, color);
-    for (char character : value) {
-        const char upper = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
-        if (upper == ' ') {
+    std::size_t offset{};
+    while (offset < value.size()) {
+        std::uint32_t codePoint{};
+        if (!nextUtf8CodePoint(value, offset, codePoint)) {
+            ++offset;
+            continue;
+        }
+        if (codePoint == ' ') {
             x += 6 * scale;
             continue;
         }
 
-        const auto glyph = std::find_if(std::begin(kGlyphs), std::end(kGlyphs), [upper](const Glyph& item) {
-            return item.character == upper;
-        });
+        char character{};
+        enum class Accent { None, Acute, Caron, Ring } accent{Accent::None};
+        if (codePoint < 0x80U) {
+            character = static_cast<char>(
+                std::toupper(static_cast<unsigned char>(codePoint)));
+        } else {
+            switch (codePoint) {
+            case 0x00C1: case 0x00E1: character = 'A'; accent = Accent::Acute; break;
+            case 0x010C: case 0x010D: character = 'C'; accent = Accent::Caron; break;
+            case 0x010E: case 0x010F: character = 'D'; accent = Accent::Caron; break;
+            case 0x00C9: case 0x00E9: character = 'E'; accent = Accent::Acute; break;
+            case 0x011A: case 0x011B: character = 'E'; accent = Accent::Caron; break;
+            case 0x00CD: case 0x00ED: character = 'I'; accent = Accent::Acute; break;
+            case 0x0147: case 0x0148: character = 'N'; accent = Accent::Caron; break;
+            case 0x00D3: case 0x00F3: character = 'O'; accent = Accent::Acute; break;
+            case 0x0158: case 0x0159: character = 'R'; accent = Accent::Caron; break;
+            case 0x0160: case 0x0161: character = 'S'; accent = Accent::Caron; break;
+            case 0x0164: case 0x0165: character = 'T'; accent = Accent::Caron; break;
+            case 0x00DA: case 0x00FA: character = 'U'; accent = Accent::Acute; break;
+            case 0x016E: case 0x016F: character = 'U'; accent = Accent::Ring; break;
+            case 0x00DD: case 0x00FD: character = 'Y'; accent = Accent::Acute; break;
+            case 0x017D: case 0x017E: character = 'Z'; accent = Accent::Caron; break;
+            default: break;
+            }
+        }
+        const auto glyph = std::find_if(std::begin(kGlyphs), std::end(kGlyphs),
+                                        [character](const Glyph& item) {
+                                            return item.character == character;
+                                        });
         if (glyph != std::end(kGlyphs)) {
+            if (accent == Accent::Acute) {
+                SDL_Rect first{x + 3 * scale, y, scale, scale};
+                SDL_Rect second{x + 2 * scale, y + scale, scale, scale};
+                SDL_RenderFillRect(renderer_, &first);
+                SDL_RenderFillRect(renderer_, &second);
+            } else if (accent == Accent::Caron) {
+                SDL_Rect left{x + scale, y, scale, scale};
+                SDL_Rect right{x + 3 * scale, y, scale, scale};
+                SDL_Rect middle{x + 2 * scale, y + scale, scale, scale};
+                SDL_RenderFillRect(renderer_, &left);
+                SDL_RenderFillRect(renderer_, &right);
+                SDL_RenderFillRect(renderer_, &middle);
+            } else if (accent == Accent::Ring) {
+                SDL_Rect top{x + 2 * scale, y, scale, scale};
+                SDL_Rect left{x + scale, y + scale, scale, scale};
+                SDL_Rect right{x + 3 * scale, y + scale, scale, scale};
+                SDL_RenderFillRect(renderer_, &top);
+                SDL_RenderFillRect(renderer_, &left);
+                SDL_RenderFillRect(renderer_, &right);
+            }
+            const int glyphOffset = accent == Accent::None ? 0 : 2;
             for (int row = 0; row < 7; ++row) {
                 for (int column = 0; column < 5; ++column) {
                     if ((glyph->rows[static_cast<std::size_t>(row)] & (1U << (4 - column))) == 0) {
                         continue;
                     }
-                    SDL_Rect pixel{x + column * scale, y + row * scale, scale, scale};
+                    SDL_Rect pixel{x + column * scale, y + (row + glyphOffset) * scale,
+                                   scale, scale};
                     SDL_RenderFillRect(renderer_, &pixel);
                 }
             }
@@ -250,7 +304,8 @@ void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     SDL_RenderPresent(renderer_);
 }
 
-void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
+void Renderer::drawOptions(int selection, int volume,
+                           framework::DialogueLanguage language, bool waitingForKey,
                            std::string_view jumpKey, std::string_view shootKey,
                            std::string_view interactKey) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
@@ -262,11 +317,11 @@ void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
         text(110, 94, "FIXED CONTROLLER BUTTONS", 1, kMuted);
     }
 
-    const std::array<std::string_view, 5> rows{
-        "VOLUME", "JUMP", "FIRE", "INTERACT", "BACK"
+    const std::array<std::string_view, 6> rows{
+        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "BACK"
     };
     for (int index = 0; index < static_cast<int>(rows.size()); ++index) {
-        const int y = 120 + index * 34;
+        const int y = 110 + index * 28;
         if (selection == index) {
             panel({102, y - 5, 436, 25}, kPanelLight);
             panel({102, y - 5, 3, 25}, kCyan);
@@ -286,12 +341,16 @@ void Renderer::drawOptions(int selection, int volume, bool waitingForKey,
                 ? (index == 1 ? "\x01" : index == 2 ? "\x02" : "\x03")
                 : (index == 1 ? jumpKey : index == 2 ? shootKey : interactKey);
             text(390, y, keyName, 2, kText);
+        } else if (index == 4) {
+            text(390, y, language == framework::DialogueLanguage::Czech ? "CS" : "EN",
+                 2, kText);
         }
     }
     if (controls_ == ControlScheme::PlayStation) {
-        text(104, 294, "\x05 SELECT/VOLUME  \x04 BACK", 1, kMuted);
+        text(104, 294, "\x05 SELECT/CHANGE  \x04 BACK", 1, kMuted);
     } else {
-        text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL" : "ENTER REBIND  LEFT RIGHT VOLUME", 1, kMuted);
+        text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL"
+                                    : "ENTER REBIND  LEFT RIGHT CHANGE", 1, kMuted);
     }
     SDL_RenderPresent(renderer_);
 }

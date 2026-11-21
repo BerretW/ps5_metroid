@@ -17,12 +17,15 @@ inline constexpr std::size_t kMaxDialogueConditions = 8;
 inline constexpr std::size_t kMaxDialogueParameters = 128;
 inline constexpr std::size_t kMaxActionParametersPerChoice = 16;
 
+enum class DialogueLanguage : std::uint8_t { English, Czech };
+
 struct DialogueChoice {
     std::string_view id;
     std::string_view label;
     std::string_view targetNode;
     const Condition* visibleWhen{};
     ActionRequest onSelect{};
+    std::string_view labelCs{};
 };
 
 struct DialogueNode {
@@ -31,6 +34,8 @@ struct DialogueNode {
     std::string_view text;
     std::string_view nextNode;
     std::span<const DialogueChoice> choices{};
+    std::string_view speakerCs{};
+    std::string_view textCs{};
 };
 
 struct DialogueDefinition {
@@ -88,9 +93,11 @@ class DialogueSession {
 public:
     [[nodiscard]] bool active() const noexcept { return definition_ != nullptr; }
     [[nodiscard]] Status inspect(const GameState& state,
-                                 DialogueLineView& line) const noexcept;
+                                 DialogueLineView& line,
+                                 DialogueLanguage language = DialogueLanguage::English) const noexcept;
     [[nodiscard]] Status choiceAt(const GameState& state, std::size_t ordinal,
-                                  DialogueChoiceView& choice) const noexcept;
+                                  DialogueChoiceView& choice,
+                                  DialogueLanguage language = DialogueLanguage::English) const noexcept;
     [[nodiscard]] Status advance(const GameState& state) noexcept;
     [[nodiscard]] Status select(std::string_view choiceId, const GameState& state,
                                 const ActionRegistry* actions = nullptr) noexcept;

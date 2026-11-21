@@ -568,6 +568,21 @@ framework::Status Game::syncDialogueState() noexcept {
         framework::StateValue::fromBoolean(inventory_.contains(ItemId::MaintenanceKey)));
 }
 
+framework::Status Game::setDialogueLanguage(framework::DialogueLanguage language) noexcept {
+    using namespace framework;
+    if (language != DialogueLanguage::English && language != DialogueLanguage::Czech) {
+        return {ErrorCode::InvalidValue, "dialogue.language",
+                "Dialogue language is not supported."};
+    }
+    const DialogueLanguage previous = dialogueLanguage_;
+    dialogueLanguage_ = language;
+    const Status status = refreshDialogue();
+    if (!status) {
+        dialogueLanguage_ = previous;
+    }
+    return status;
+}
+
 framework::Status Game::refreshDialogue() noexcept {
     if (!dialogueSession_.active()) {
         dialogueLine_ = {};
@@ -577,14 +592,15 @@ framework::Status Game::refreshDialogue() noexcept {
         return framework::Status::success();
     }
     framework::DialogueLineView line{};
-    const framework::Status inspected = dialogueSession_.inspect(*dialogueState_, line);
+    const framework::Status inspected =
+        dialogueSession_.inspect(*dialogueState_, line, dialogueLanguage_);
     if (!inspected) {
         return inspected;
     }
     std::array<framework::DialogueChoiceView, framework::kMaxDialogueChoices> choices{};
     for (std::size_t index = 0; index < line.availableChoices; ++index) {
         const framework::Status status =
-            dialogueSession_.choiceAt(*dialogueState_, index, choices[index]);
+            dialogueSession_.choiceAt(*dialogueState_, index, choices[index], dialogueLanguage_);
         if (!status) {
             return status;
         }

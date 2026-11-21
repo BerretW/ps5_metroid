@@ -1,4 +1,5 @@
 #include "platform/sdl/assets.hpp"
+#include "platform/sdl/bitmap_font.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/renderer.hpp"
@@ -31,14 +32,22 @@ void testSettingsPersistence() {
 
     GameState saved{};
     const echo::platform::Bindings original{SDLK_f, SDLK_g, SDLK_h};
-    check(static_cast<bool>(echo::platform::encodeSettings(70, original, saved)),
+    const auto czech = echo::framework::DialogueLanguage::Czech;
+    check(static_cast<bool>(echo::platform::encodeSettings(70, original, czech, saved)),
           "settings encode into framework state");
     int volume = 20;
     echo::platform::Bindings bindings{};
-    check(static_cast<bool>(echo::platform::decodeSettings(saved, volume, bindings)) &&
+    auto language = echo::framework::DialogueLanguage::English;
+    check(static_cast<bool>(echo::platform::decodeSettings(saved, volume, bindings, language)) &&
               volume == 70 && bindings.jump == SDLK_f &&
-              bindings.shoot == SDLK_g && bindings.interact == SDLK_h,
-          "settings round-trip volume and keyboard bindings");
+              bindings.shoot == SDLK_g && bindings.interact == SDLK_h && language == czech,
+          "settings round-trip volume, keyboard bindings and dialogue language");
+
+    GameState legacy = saved;
+    check(legacy.erase({StateScope::Global, {}, "dialogue.language"}) &&
+              static_cast<bool>(echo::platform::decodeSettings(legacy, volume, bindings, language)) &&
+              language == echo::framework::DialogueLanguage::English,
+          "settings without a dialogue language retain the legacy English default");
 
     GameState invalid = saved;
     check(static_cast<bool>(invalid.set(
@@ -46,18 +55,40 @@ void testSettingsPersistence() {
           "invalid volume fixture is stored");
     const int previousVolume = volume;
     const echo::platform::Bindings previousBindings = bindings;
-    check(!echo::platform::decodeSettings(invalid, volume, bindings) &&
+    const auto previousLanguage = language;
+    check(!echo::platform::decodeSettings(invalid, volume, bindings, language) &&
               volume == previousVolume && bindings.jump == previousBindings.jump &&
               bindings.shoot == previousBindings.shoot &&
-              bindings.interact == previousBindings.interact,
+              bindings.interact == previousBindings.interact && language == previousLanguage,
           "invalid settings are rejected without partial application");
 
     GameState wrongType = saved;
     check(static_cast<bool>(wrongType.set(
               {StateScope::Global, {}, "input.jump"}, StateValue::fromBoolean(true))),
           "invalid key type fixture is stored");
-    check(!echo::platform::decodeSettings(wrongType, volume, bindings),
+    check(!echo::platform::decodeSettings(wrongType, volume, bindings, language),
           "settings decoder rejects values with incorrect types");
+
+    GameState invalidLanguage = saved;
+    check(static_cast<bool>(invalidLanguage.set(
+              {StateScope::Global, {}, "dialogue.language"}, StateValue::fromInteger(2))),
+          "invalid dialogue language fixture is stored");
+    check(!echo::platform::decodeSettings(invalidLanguage, volume, bindings, language),
+          "settings decoder rejects unknown dialogue languages");
+}
+
+void testBitmapFontUtf8() {
+    check(echo::platform::supportsBitmapText(
+              "\x50\xC5\x98\xC3\x8D\x4C\x49\xC5\xA0 \xC5\xBD\x4C\x55\xC5\xA4"
+              "\x4F\x55\xC4\x8C\x4B\xC3\x9D \x4B\xC5\xAE\xC5\x87", 24),
+          "bitmap font accepts supported Czech UTF-8 characters by code point");
+    check(!echo::platform::supportsBitmapText("ŽLUŤ", 3),
+          "bitmap font character limits count UTF-8 code points");
+    const std::string_view malformed{"\xC0\xAF", 2};
+    check(!echo::platform::supportsBitmapText(malformed, 8),
+          "bitmap font rejects malformed UTF-8");
+    check(!echo::platform::supportsBitmapText("HELLO?", 8),
+          "bitmap font rejects characters without a glyph");
 }
 
 void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integration) {
@@ -153,6 +184,7 @@ int main() {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
         testSettingsPersistence();
+        testBitmapFontUtf8();
         testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
             throw std::runtime_error(SDL_GetError());
@@ -187,8 +219,19 @@ int main() {
               "engineer conversation starts");
         check(dialogueGame.dialogueActive(), "nearby engineer can be talked to");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
-        check(closedDialogue != capture(keyboardWindow, {64, 234, 512, 82}),
+        const auto englishDialogue = capture(keyboardWindow, {64, 234, 512, 82});
+        check(closedDialogue != englishDialogue,
               "engineer dialogue renders in the game viewport");
+        check(static_cast<bool>(dialogueGame.setDialogueLanguage(
+                  echo::framework::DialogueLanguage::Czech)),
+              "dialogue language switches while a conversation is active");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(englishDialogue != capture(keyboardWindow, {64, 234, 512, 82}),
+              "Czech UTF-8 dialogue glyphs render into the game viewport");
+        check(static_cast<bool>(dialogueGame.setDialogueLanguage(
+                  echo::framework::DialogueLanguage::English)),
+              "dialogue language switches back to English");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         check(static_cast<bool>(dialogueGame.update({.interactPressed = true})) &&
                   dialogueGame.dialogueChoiceCount() == 2,
               "engineer dialogue shows choices");
@@ -210,11 +253,12 @@ int main() {
         check(emptyInventory != capture(keyboardWindow, {206, 12, 152, 38}),
               "inventory HUD updates when the maintenance key is acquired");
 
-        pad.drawOptions(0, 60, false, "SPACE", "J", "E");
+        pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
+                        false, "SPACE", "J", "E");
         const auto padOptions = capture(padWindow, {74, 38, 492, 284});
-        const auto cross = capture(padWindow, {390, 154, 10, 14});
-        const auto square = capture(padWindow, {390, 188, 10, 14});
-        const auto triangle = capture(padWindow, {390, 222, 10, 14});
+        const auto cross = capture(padWindow, {390, 138, 10, 14});
+        const auto square = capture(padWindow, {390, 166, 10, 14});
+        const auto triangle = capture(padWindow, {390, 194, 10, 14});
         const auto visibleSymbol = [](const std::vector<Uint32>& pixels) {
             return !pixels.empty() && std::any_of(pixels.begin(), pixels.end(),
                 [first = pixels.front()](Uint32 pixel) { return pixel != first; });
@@ -223,9 +267,17 @@ int main() {
               "each PlayStation button symbol has a visible bitmap");
         check(cross != square && square != triangle && cross != triangle,
               "PlayStation actions render distinct button symbols");
-        pad.drawOptions(0, 60, true, "K", "L", "F");
+        pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
+                        true, "K", "L", "F");
         check(padOptions == capture(padWindow, {74, 38, 492, 284}),
               "PlayStation options do not show keyboard bindings or rebinding instructions");
+        pad.drawOptions(4, 60, echo::framework::DialogueLanguage::Czech,
+                        false, "SPACE", "J", "E");
+        const auto czechOptions = capture(padWindow, {390, 222, 20, 14});
+        pad.drawOptions(4, 60, echo::framework::DialogueLanguage::English,
+                        false, "SPACE", "J", "E");
+        check(czechOptions != capture(padWindow, {390, 222, 20, 14}),
+              "Options displays the selected dialogue language");
 
         for (int tick = 0; tick < 2400; ++tick) {
             if (game.roomId() == echo::RoomId::MaintenanceTunnel &&

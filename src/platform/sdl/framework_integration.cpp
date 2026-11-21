@@ -3,6 +3,7 @@
 #include "echo/framework/data.hpp"
 #include "echo/framework/schema.hpp"
 #include "game/game.hpp"
+#include "platform/sdl/bitmap_font.hpp"
 
 #include <SDL.h>
 
@@ -36,20 +37,7 @@ using FileBuffer = std::unique_ptr<char, SdlFree>;
 
 [[nodiscard]] bool supportsDialogueText(std::string_view text,
                                         std::size_t maximum) noexcept {
-    if (text.size() > maximum) {
-        return false;
-    }
-    for (const char character : text) {
-        if (!((character >= 'A' && character <= 'Z') ||
-              (character >= 'a' && character <= 'z') ||
-              (character >= '0' && character <= '9') ||
-              character == ' ' || character == '+' || character == '%' ||
-              character == ':' || character == '-' || character == '.' ||
-              character == '/')) {
-            return false;
-        }
-    }
-    return true;
+    return supportsBitmapText(text, maximum);
 }
 
 [[nodiscard]] framework::Status validateDialogueDisplay(
@@ -57,14 +45,17 @@ using FileBuffer = std::unique_ptr<char, SdlFree>;
     // The dialogue panel uses single-line, fixed-width bitmap text.
     for (const framework::DialogueNode& node : definition.nodes) {
         if (!supportsDialogueText(node.speaker, 39) ||
-            !supportsDialogueText(node.text, 80)) {
+            !supportsDialogueText(node.text, 80) ||
+            (!node.speakerCs.empty() && !supportsDialogueText(node.speakerCs, 39)) ||
+            (!node.textCs.empty() && !supportsDialogueText(node.textCs, 80))) {
             return {framework::ErrorCode::InvalidValue, "dialogue.text",
-                    "Dialogue speaker or line does not fit the game's ASCII bitmap font."};
+                    "Dialogue speaker or line does not fit the game's bitmap font."};
         }
         for (const framework::DialogueChoice& choice : node.choices) {
-            if (!supportsDialogueText(choice.label, 72)) {
+            if (!supportsDialogueText(choice.label, 72) ||
+                (!choice.labelCs.empty() && !supportsDialogueText(choice.labelCs, 72))) {
                 return {framework::ErrorCode::InvalidValue, "dialogue.label",
-                        "Dialogue choice does not fit the game's ASCII bitmap font."};
+                        "Dialogue choice does not fit the game's bitmap font."};
             }
         }
     }

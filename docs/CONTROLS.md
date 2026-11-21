@@ -17,7 +17,7 @@ Inside DualSense Lab, Cross starts a short rumble test, Square cycles the lightb
 
 Run `build.bat` and choose Windows or PS5. The actual target selects the prompt scheme even when built directly through PowerShell: Windows uses keyboard labels; PS5 uses bitmap button symbols in the menu, options, gameplay hints, door prompt and pause screen.
 
-Windows Options can rebind jump, fire and interact. Bindings persist through the separate settings save, and gameplay, dialogue and door prompts follow the interact binding. On PS5 the face-button bindings are fixed and Options displays their symbols instead of offering keyboard rebinding; volume is still adjustable with D-pad left/right.
+Options lets you select EN or CS for Mira's dialogue with left/right (D-pad left/right on PS5); the selection persists in the separate settings save. Windows Options can also rebind jump, fire and interact. Bindings persist, and gameplay, dialogue and door prompts follow the interact binding. On PS5 the face-button bindings are fixed and Options displays their symbols instead of offering keyboard rebinding; volume remains adjustable with D-pad left/right.
 
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
 
