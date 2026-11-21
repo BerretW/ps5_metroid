@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "echo:dialogue/engineer",
-  "version": 1,
+  "version": 2,
   "startNode": "greeting",
   "nodes": [
     {
@@ -62,7 +62,33 @@
     {
       "id": "key_owner",
       "speaker": "ENGINEER MIRA",
-      "text": "THE KEY OPENS THE LAB DOOR."
+      "text": "THE KEY OPENS THE LAB DOOR.",
+      "nextNode": "farewell",
+      "choices": [
+        {
+          "id": "ask_echo_step",
+          "label": "ASK ABOUT ECHO STEP",
+          "targetNode": "echo_step_hint",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "player.echo_step_unlocked",
+            "comparison": "eq",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "echo_step_hint",
+      "speaker": "ENGINEER MIRA",
+      "text": "DOUBLE JUMP OPENS THE CENTRAL GATE.",
+      "nextNode": "farewell"
+    },
+    {
+      "id": "farewell",
+      "speaker": "ENGINEER MIRA",
+      "text": "GOOD LUCK OUT THERE."
     }
   ]
 }

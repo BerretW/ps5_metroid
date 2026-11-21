@@ -50,6 +50,12 @@ public:
                        : status_;
     }
 
+    [[nodiscard]] echo::framework::Status setEchoStepUnlocked(bool unlocked) noexcept {
+        return state_.set(
+            {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
+            echo::framework::StateValue::fromBoolean(unlocked));
+    }
+
 private:
     std::unique_ptr<echo::framework::DialogueDocument> document_{};
     echo::framework::DialogueModule module_{};
@@ -219,11 +225,31 @@ void testTechnicianDialogueAndInventory() {
     check(game.dialogueChoiceCount() == 0,
           "restored inventory hides choices that require not having the key");
     step(game, {.interactPressed = true});
-    check(game.dialogueText() == "THE KEY OPENS THE LAB DOOR.",
+    check(game.dialogueText() == "THE KEY OPENS THE LAB DOOR." &&
+              game.dialogueChoiceCount() == 0,
           "hidden choices follow the JSON fallback for a returning player");
+    step(game, {.interactPressed = true});
+    check(game.dialogueText() == "GOOD LUCK OUT THERE.",
+          "the owned-key conversation reaches its farewell without Echo Step");
     step(game, {.interactPressed = true});
     check(!game.dialogueActive() && game.inventory().count == 1,
           "the repeat conversation preserves the restored inventory");
+
+    check(static_cast<bool>(fixture.setEchoStepUnlocked(true)),
+          "test fixture mirrors the Echo Step unlock");
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 1 &&
+              game.dialogueChoiceText(0) == "ASK ABOUT ECHO STEP",
+          "Mira's optional advice appears only after Echo Step is unlocked");
+    step(game, {.interactPressed = true});
+    check(game.dialogueText() == "DOUBLE JUMP OPENS THE CENTRAL GATE.",
+          "the unlocked ability choice opens its JSON dialogue branch");
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    check(!game.dialogueActive(),
+          "the ability advice returns through the dialogue graph to its farewell");
 }
 
 void testLabDoorRequiresKey() {

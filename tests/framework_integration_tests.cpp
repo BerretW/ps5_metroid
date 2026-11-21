@@ -186,12 +186,23 @@ int main() {
               game.update({.interactPressed = true}) &&
               game.inventory().contains(echo::ItemId::MaintenanceKey),
           "packaged dialogue loads, renders a choice view, and grants the gameplay key");
+    check(game.update({.interactPressed = true}) && !game.dialogueActive(),
+          "the initial key-offer conversation can be closed");
     check(integration.notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
     check(integration.unlockEventCount() == 1,
           "ability transition publishes one typed framework event");
     check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 1,
           "repeated state synchronization does not duplicate the unlock event");
+    check(game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.update({.interactPressed = true}) &&
+              game.dialogueChoiceCount() == 1 &&
+              game.dialogueChoiceText(0) == "ASK ABOUT ECHO STEP" &&
+              game.update({.interactPressed = true}) &&
+              game.dialogueText() == "DOUBLE JUMP OPENS THE CENTRAL GATE.",
+          "the real ability-unlock projection enables Mira's conditional advice branch");
     check(integration.beginGame(), "new game resets the temporary framework mirror");
+    game.start();
     echo::framework::StateValue abilityState{};
     check(integration.gameState().get(
               {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},

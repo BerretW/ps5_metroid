@@ -77,6 +77,15 @@ try {
     [IO.File]::WriteAllText($dialogue, "{ not valid json")
     Expect-Rejection "Invalid engineer dialogue"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
+    $validDialogue = [Text.Encoding]::UTF8.GetString($originalDialogue)
+    $invalidCondition = $validDialogue.Replace('"key": "player.echo_step_unlocked"',
+        '"key": "player.unknown_flag"')
+    if ($invalidCondition -eq $validDialogue) {
+        throw "Could not create an invalid Echo Step dialogue fixture."
+    }
+    [IO.File]::WriteAllText($dialogue, $invalidCondition, (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Echo Step advice choice"
+    [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
     Remove-Item -LiteralPath $dialogue -Force
     Expect-Rejection "Packaged engineer dialogue is missing"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
@@ -113,4 +122,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue, missing dialogue, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue, invalid ability condition, missing dialogue, digest corruption, signed misaligned ELF."

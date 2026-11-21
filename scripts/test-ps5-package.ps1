@@ -72,11 +72,23 @@ if (Test-Path -LiteralPath $assetDir) {
                 throw "Invalid engineer dialogue: $($_.Exception.Message)"
             }
             if ($dialogue.schemaVersion -ne 1 -or $dialogue.id -ne "echo:dialogue/engineer" -or
-                -not $dialogue.version -or -not $dialogue.startNode -or
+                $dialogue.version -lt 2 -or -not $dialogue.startNode -or
                 -not ($dialogue.nodes -is [array]) -or
                 $dialogue.nodes.Count -lt 1 -or $dialogue.nodes.Count -gt 64 -or
                 @($dialogue.nodes | Where-Object { $_.id -eq $dialogue.startNode }).Count -ne 1) {
                 throw "Invalid engineer dialogue: required metadata or start node is missing."
+            }
+            $echoStepChoices = @($dialogue.nodes | ForEach-Object { $_.choices } |
+                Where-Object { $_.id -eq "ask_echo_step" })
+            if ($echoStepChoices.Count -ne 1 -or
+                $echoStepChoices[0].visibleWhen.op -ne "compare" -or
+                $echoStepChoices[0].visibleWhen.key -ne "player.echo_step_unlocked" -or
+                $echoStepChoices[0].visibleWhen.comparison -ne "eq" -or
+                $echoStepChoices[0].visibleWhen.value -ne $true -or
+                @($dialogue.nodes | Where-Object {
+                    $_.id -eq $echoStepChoices[0].targetNode
+                }).Count -ne 1) {
+                throw "Invalid engineer dialogue: Echo Step advice choice is missing or not correctly gated."
             }
         } else {
             throw "Unexpected asset type: $($asset.Name)"

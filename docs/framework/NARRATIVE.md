@@ -64,6 +64,8 @@ The module does not persist conversation progress or execute scripts from conten
 
 The reusable module is selectable with `ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON` and depends on `ECHO_FRAMEWORK_ENABLE_DATA`. PROJECT ECHO requires and links both. Startup loads [game configuration](../../assets/framework/game.json) and [Mira's dialogue](../../assets/framework/engineer.json), each limited to 16 KiB, and fails explicitly if required content or modules are invalid. The game projects ownership into `inventory.maintenance_key`; its compiled `echo.inventory.grant` action accepts only `echo:item/maintenance_key`. Content cannot execute scripts or select arbitrary actions.
 
+Mira's content revision 2 adds an Echo Step advice choice gated by the existing `player.echo_step_unlocked` state. The SDL host mirrors that state when the ability is collected or restored from Continue; the choice becomes available when the player next speaks to her.
+
 The current dialogue panel supports single-line ASCII letters, digits, space, `+`, `%`, `:`, `-`, `.`, and `/`. Speaker names may contain at most 39 characters, lines 80, and choices 72; the adapter rejects unsupported or oversized text. The generic framework loader still supports UTF-8. Localized text and a wider font are future work.
 
-Conversation position is not saved. The existing autosave format and inventory remain authoritative, so Continue restarts any conversation and reflects whether the key is owned. See [controls](../CONTROLS.md). A previous controller package worked on PS5, but this integrated dialogue requires a new hardware test.
+Conversation position is not saved. The existing autosave format and inventory remain authoritative, so Continue restarts any conversation and reflects whether the key and Echo Step are owned. See [controls](../CONTROLS.md). A previous controller package worked on PS5, but this dialogue content revision requires a new hardware test.
