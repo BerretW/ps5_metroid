@@ -26,6 +26,7 @@ if(ECHO_FRAMEWORK_ENABLE_DATA)
     )
     FetchContent_MakeAvailable(yyjson)
     add_subdirectory(data)
+    add_subdirectory(inventory)
 endif()
 
 if(ECHO_FRAMEWORK_ENABLE_NARRATIVE)

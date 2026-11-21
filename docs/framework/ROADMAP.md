@@ -4,6 +4,10 @@
 
 Module lifecycle, bounded entities/components, typed events, explicit actions, generic state/conditions, JSON wrapper, content validation, versioned state serialization, storage contract, headless demonstration, a small Echo Step integration, and the fixed-capacity component metadata/configuration registry are implemented and covered by focused tests. Deterministic schema export, a resource-manifest validator, and a registry-driven host CLI editor proof are available behind `ECHO_FRAMEWORK_BUILD_TOOLS`.
 
+The first continuation milestone, a unified capability manifest, is implemented: framework and optional module fragments are merged with the live component registry, sorted deterministically, validated against declared action capabilities, and exported under explicit format/API versions.
+
+The generic host editor has a manifest discovery/selection mode with manifest-backed property display. It checks compatibility and component versions against statically compiled registries; JSON cannot load modules or factories. The PROJECT ECHO host validator checks its actual game configuration and dialogue against the compiled module, action, resource, component, and text contracts. These host tools are opt-in and do not replace runtime validation.
+
 ## 0.3 gameplay save integration
 
 - The operator's 2026-11-21 PS5 diagnostic run passed directory checks, write, replacement, read-back and slot enumeration using the sandbox-compatible provider path.
@@ -22,8 +26,10 @@ Module lifecycle, bounded entities/components, typed events, explicit actions, g
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 
+The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. Attribute, equipment, reusable abilities, quest/cutscene, combat/AI, world/map, and genre-example systems remain future work. Host-tool and headless results do not imply PS5 hardware verification.
+
 The operator confirmed on 2026-11-20 that the controller-only framework build launches and runs on PS5, reported the PS5 save-provider diagnostic passing on 2026-11-21, and later confirmed gameplay autosaving and settings persistence work on the integrated build. These are operator-reported results; keyboard rebinding itself has not been tested on PS5.
 
 On 2026-11-21, the operator also confirmed an earlier controller package works on PS5. The subsequent schema and dialogue integration requires a separate console test.
 
-PROJECT ECHO now uses the bounded dialogue module for Engineer Mira, with the shared `echo::Game` still authoritative for inventory and progression. Reusable inventory, equipment, attributes, abilities, quests, RPG, combat, physics, movement, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.
+PROJECT ECHO uses the bounded dialogue module for Engineer Mira and the bounded inventory module for a progression key and a conditional, consumable Health Cell, with the shared `echo::Game` still authoritative for gameplay progression and health. Equipment, attributes, reusable abilities, quests, RPG, combat, physics, movement, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.

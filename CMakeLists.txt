@@ -29,7 +29,7 @@ add_library(echo_game
 )
 target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
-target_link_libraries(echo_game PUBLIC EchoFramework::Narrative)
+target_link_libraries(echo_game PUBLIC EchoFramework::Narrative EchoFramework::Inventory)
 
 if(ECHO_FRAMEWORK_BUILD_TOOLS)
     add_executable(echo_project_component_editor framework/tools/component_editor.cpp)
@@ -38,9 +38,46 @@ if(ECHO_FRAMEWORK_BUILD_TOOLS)
     target_compile_features(echo_project_component_editor PRIVATE cxx_std_20)
 
     add_executable(echo_project_schema_export framework/tools/schema_export.cpp)
-    target_compile_definitions(echo_project_schema_export PRIVATE ECHO_PROJECT_COMPONENTS)
+    target_compile_definitions(echo_project_schema_export PRIVATE
+        ECHO_PROJECT_COMPONENTS ECHO_MANIFEST_HAS_NARRATIVE
+        ECHO_MANIFEST_HAS_INVENTORY)
     target_link_libraries(echo_project_schema_export PRIVATE echo_game)
     target_compile_features(echo_project_schema_export PRIVATE cxx_std_20)
+
+    add_executable(echo_project_content_validate
+        framework/tools/project_content_validate.cpp)
+    target_link_libraries(echo_project_content_validate PRIVATE echo_game)
+    target_compile_features(echo_project_content_validate PRIVATE cxx_std_20)
+
+    if(ECHO_FRAMEWORK_BUILD_TESTS)
+        set(ECHO_PROJECT_CAPABILITY_MANIFEST
+            "${CMAKE_CURRENT_BINARY_DIR}/project-capability-manifest.json")
+        add_custom_command(
+            OUTPUT "${ECHO_PROJECT_CAPABILITY_MANIFEST}"
+            COMMAND $<TARGET_FILE:echo_project_schema_export>
+                    "${ECHO_PROJECT_CAPABILITY_MANIFEST}"
+            DEPENDS echo_project_schema_export
+            VERBATIM
+        )
+        add_custom_target(echo_project_manifest_fixture
+            DEPENDS "${ECHO_PROJECT_CAPABILITY_MANIFEST}")
+        add_dependencies(echo_project_content_validate
+            echo_project_manifest_fixture)
+
+        find_program(ECHO_POWERSHELL_EXECUTABLE NAMES pwsh.exe powershell.exe)
+        if(ECHO_POWERSHELL_EXECUTABLE)
+            add_test(NAME echo_project_content_validator
+                COMMAND "${ECHO_POWERSHELL_EXECUTABLE}" -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/project_content_validator_tests.ps1"
+                    -Validator $<TARGET_FILE:echo_project_content_validate>
+                    -GameConfig "${CMAKE_CURRENT_SOURCE_DIR}/assets/framework/game.json"
+                    -Dialogue "${CMAKE_CURRENT_SOURCE_DIR}/assets/framework/engineer.json"
+                        -ItemCatalog "${CMAKE_CURRENT_SOURCE_DIR}/assets/framework/items.json"
+                    -Manifest "${ECHO_PROJECT_CAPABILITY_MANIFEST}"
+            )
+        endif()
+    endif()
 endif()
 
 if(MSVC)

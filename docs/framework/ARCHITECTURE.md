@@ -2,7 +2,7 @@
 
 `EchoFramework::Core` is a static C++20 library without SDL headers or platform calls. It contains module lifecycle, state, action, and condition implementations. `EchoFramework::Entities` and `EchoFramework::Events` are opt-in interface targets for header-only facilities. `EchoFramework::Data` is a separate static target and does not leak yyjson types through its public API.
 
-PROJECT ECHO's SDL adapter loads `assets/framework/game.json` and `assets/framework/engineer.json`, selects compiled modules, validates resource IDs, instantiates Mira's transform, and mirrors gameplay state for conditions. `echo::Game` remains authoritative; framework state is a temporary projection, not a second gameplay save or progression source.
+PROJECT ECHO's SDL adapter loads `assets/framework/game.json`, `assets/framework/engineer.json`, and the selected bounded item catalog, validates compiled modules and resource IDs, instantiates Mira's transform, and mirrors gameplay state for conditions. `echo::Game` remains authoritative; framework state is a temporary projection, not a second gameplay save or progression source.
 
 ## Existing application boundary
 

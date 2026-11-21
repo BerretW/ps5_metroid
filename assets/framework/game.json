@@ -3,6 +3,7 @@
   "modules": [
     "echo.state",
     "echo.narrative.dialogue",
+    "echo.rpg.inventory",
     "echo.project_echo"
   ],
   "technician": {
@@ -23,9 +24,17 @@
       "type": "item"
     },
     {
+      "id": "echo:item/health_cell",
+      "type": "item"
+    },
+    {
       "id": "echo:dialogue/engineer",
       "type": "dialogue",
-      "dependsOn": ["echo:ability/echo_step", "echo:item/maintenance_key"]
+      "dependsOn": [
+        "echo:ability/echo_step",
+        "echo:item/maintenance_key",
+        "echo:item/health_cell"
+      ]
     },
     {
       "id": "echo:sprite/player",

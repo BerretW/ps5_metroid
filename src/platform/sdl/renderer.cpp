@@ -484,8 +484,17 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     panel({206, 12, 152, 38}, SDL_Color{4, 10, 17, 218});
     text(218, 18, "INVENTORY", 1, kMuted);
     const bool hasMaintenanceKey = game.inventory().contains(ItemId::MaintenanceKey);
-    text(218, 32, hasMaintenanceKey ? "MAINTENANCE KEY" : "EMPTY",
-         1, hasMaintenanceKey ? kCyan : kMuted);
+    std::array<char, 32> inventoryText{};
+    std::snprintf(inventoryText.data(), inventoryText.size(), "KEY %s CELL %u",
+                  hasMaintenanceKey ? "YES" : "NO",
+                  static_cast<unsigned>(game.inventory().quantity(ItemId::HealthCell)));
+    text(218, 32, inventoryText.data(), 1,
+         hasMaintenanceKey || game.inventory().contains(ItemId::HealthCell) ? kCyan : kMuted);
+    if (!paused && !game.dialogueActive() && player.health < 5 &&
+        game.inventory().contains(ItemId::HealthCell)) {
+        text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 HEAL" : "H HEAL",
+             1, kCyan);
+    }
 
     if (game.gateBlocked()) {
         panel({188, 274, 264, 42}, SDL_Color{4, 10, 17, 230});

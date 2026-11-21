@@ -1,5 +1,6 @@
 #pragma once
 
+#include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
 #include "game/project_components.hpp"
 
@@ -58,6 +59,7 @@ struct Input {
     bool jumpHeld{};
     bool shootHeld{};
     bool interactPressed{};
+    bool useItemPressed{};
 };
 
 struct Player {
@@ -89,17 +91,26 @@ struct Projectile {
 enum class ItemId : std::uint8_t {
     None,
     MaintenanceKey,
+    HealthCell,
     Count
 };
 
-struct Inventory {
-    static constexpr std::size_t kCapacity = 8;
+struct Inventory : framework::FixedInventory<ItemId, 8> {
+    using Storage = framework::FixedInventory<ItemId, 8>;
+    static constexpr std::size_t kCapacity = Storage::kCapacity;
 
-    std::array<ItemId, kCapacity> items{};
-    std::size_t count{};
-
-    [[nodiscard]] bool contains(ItemId item) const noexcept;
-    [[nodiscard]] bool add(ItemId item) noexcept;
+    [[nodiscard]] bool contains(ItemId item) const noexcept {
+        return Storage::contains(item);
+    }
+    [[nodiscard]] bool add(ItemId item) noexcept {
+        return add(item, 1, 1);
+    }
+    [[nodiscard]] bool add(ItemId item, std::uint16_t maxStack,
+                           std::uint16_t amount) noexcept {
+        if (item == ItemId::None || item >= ItemId::Count) return false;
+        if (maxStack == 1 && contains(item)) return true;
+        return static_cast<bool>(Storage::add(item, maxStack, amount));
+    }
 };
 
 struct GameCheckpoint {
@@ -124,7 +135,8 @@ public:
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
         Vec2 technicianPosition,
-        float interactionReach = kDefaultInteractionReach) noexcept;
+        float interactionReach = kDefaultInteractionReach,
+        framework::InventoryModule* inventoryModule = nullptr) noexcept;
     [[nodiscard]] framework::Status setDialogueLanguage(
         framework::DialogueLanguage language) noexcept;
     void start() noexcept;
@@ -170,6 +182,7 @@ private:
     [[nodiscard]] framework::Status updateDialogue(const Input& input) noexcept;
     [[nodiscard]] static framework::ActionResult grantDialogueItem(
         void* context, const framework::ActionRequest& request) noexcept;
+    [[nodiscard]] framework::Status useHealthCell() noexcept;
     void damagePlayer() noexcept;
     void enterRoom(RoomId destination, bool fromLeft) noexcept;
     [[nodiscard]] bool collidesWithWorld(const Rect& bounds) const noexcept;
@@ -203,6 +216,7 @@ private:
     std::size_t dialogueSelection_{};
     int dialogueDirection_{};
     framework::DialogueLanguage dialogueLanguage_{framework::DialogueLanguage::English};
+    framework::InventoryModule* inventoryModule_{};
 };
 
 } // namespace echo

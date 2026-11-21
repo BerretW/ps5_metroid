@@ -17,6 +17,11 @@ inline constexpr std::array<std::string_view, Inventory::kCapacity> kInventoryKe
     "inventory.item.0", "inventory.item.1", "inventory.item.2", "inventory.item.3",
     "inventory.item.4", "inventory.item.5", "inventory.item.6", "inventory.item.7",
 }};
+inline constexpr std::array<std::string_view, Inventory::kCapacity> kInventoryQuantityKeys{{
+    "inventory.quantity.0", "inventory.quantity.1", "inventory.quantity.2",
+    "inventory.quantity.3", "inventory.quantity.4", "inventory.quantity.5",
+    "inventory.quantity.6", "inventory.quantity.7",
+}};
 
 } // namespace game_persistence_detail
 
@@ -56,6 +61,9 @@ inline framework::Status encodeGameCheckpoint(const Game& game,
         if (const Status next = setInteger(
                 game_persistence_detail::kInventoryKeys[index],
                 static_cast<std::int64_t>(checkpoint.inventory.items[index])); !next) return next;
+        if (const Status next = setInteger(
+                game_persistence_detail::kInventoryQuantityKeys[index],
+                checkpoint.inventory.quantities[index]); !next) return next;
     }
     for (std::size_t index = 0; index < checkpoint.enemyHealth.size(); ++index) {
         const char* const key = index == 0 ? "enemy.0.health" : "enemy.1.health";
@@ -136,12 +144,28 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         const std::string_view key = game_persistence_detail::kInventoryKeys[index];
         std::int64_t value{};
         if (!getInteger(key, value) || value <= 0 ||
-            value >= static_cast<std::int64_t>(ItemId::Count) ||
-            !candidate.inventory.add(static_cast<ItemId>(value)) ||
-            candidate.inventory.count != index + 1) {
+            value >= static_cast<std::int64_t>(ItemId::Count)) {
             return {ErrorCode::CorruptData, key,
                     "Autosave inventory item is invalid or duplicated."};
         }
+        std::uint16_t quantity = 1;
+        StateValue quantityValue{};
+        if (get(game_persistence_detail::kInventoryQuantityKeys[index], quantityValue)) {
+            if (quantityValue.type != ValueType::Integer || quantityValue.integer <= 0 ||
+                quantityValue.integer > std::numeric_limits<std::uint16_t>::max()) {
+                return {ErrorCode::CorruptData,
+                        game_persistence_detail::kInventoryQuantityKeys[index],
+                        "Autosave inventory quantity is invalid."};
+            }
+            quantity = static_cast<std::uint16_t>(quantityValue.integer);
+        }
+        candidate.inventory.items[index] = static_cast<ItemId>(value);
+        candidate.inventory.quantities[index] = quantity;
+        ++candidate.inventory.count;
+    }
+    if (!candidate.inventory.valid()) {
+        return {ErrorCode::CorruptData, "inventory",
+                "Autosave inventory slots are malformed."};
     }
     if (candidate.hasDoubleJump != candidate.abilityCollected ||
         candidate.abilityCollected != echoStepUnlocked) {

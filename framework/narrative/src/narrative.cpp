@@ -1,4 +1,5 @@
 #include "echo/framework/narrative.hpp"
+#include "echo/framework/capability_manifest.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -9,6 +10,13 @@ namespace {
 constexpr std::array<std::string_view, 1> kDialogueServices{
     "echo.service.dialogue",
 };
+constexpr std::array<ManifestModuleDescriptor, 1> kNarrativeModuleManifest{{
+    {"echo.narrative.dialogue", "Dialogue", 1, {}, {},
+     kDialogueServices, {}},
+}};
+constexpr std::array<ManifestSchemaDescriptor, 1> kNarrativeSchemaManifest{{
+    {"echo.narrative.dialogue_json", 1},
+}};
 constexpr ModuleInfo kDialogueModuleInfo{
     "echo.narrative.dialogue",
     "Dialogue",
@@ -407,6 +415,11 @@ void DialogueDocument::reset() noexcept {
 
 const ModuleInfo& DialogueModule::info() const noexcept {
     return kDialogueModuleInfo;
+}
+
+CapabilityManifestFragment narrativeCapabilityManifestFragment() noexcept {
+    return {.modules = kNarrativeModuleManifest,
+            .contentSchemas = kNarrativeSchemaManifest};
 }
 
 bool DialogueModule::initialize(ModuleContext& context) noexcept {

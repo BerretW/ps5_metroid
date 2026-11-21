@@ -9,6 +9,13 @@ if(TARGET EchoFramework::Data)
     target_compile_features(echo_framework_data_tests PRIVATE cxx_std_20)
     add_test(NAME echo_framework_data COMMAND echo_framework_data_tests)
 
+    if(TARGET EchoFramework::Inventory)
+        add_executable(echo_framework_inventory_tests inventory_tests.cpp)
+        target_link_libraries(echo_framework_inventory_tests PRIVATE EchoFramework::Inventory)
+        target_compile_features(echo_framework_inventory_tests PRIVATE cxx_std_20)
+        add_test(NAME echo_framework_inventory COMMAND echo_framework_inventory_tests)
+    endif()
+
     if(WIN32)
         add_executable(echo_framework_windows_storage_tests windows_save_storage_tests.cpp)
         target_link_libraries(echo_framework_windows_storage_tests PRIVATE EchoFramework::Data)

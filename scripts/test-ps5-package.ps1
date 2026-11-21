@@ -49,6 +49,7 @@ if (Test-Path -LiteralPath $assetDir) {
             if ($gameConfig.game -ne "echo.project_echo" -or
                 @($gameConfig.modules) -notcontains "echo.state" -or
                 @($gameConfig.modules) -notcontains "echo.narrative.dialogue" -or
+                @($gameConfig.modules) -notcontains "echo.rpg.inventory" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
                 -not ($gameConfig.resources -is [array]) -or
                 -not ($gameConfig.technician.transform.position -is [array]) -or
@@ -58,6 +59,9 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:item/maintenance_key" -and $_.type -eq "item"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:item/health_cell" -and $_.type -eq "item"
                 }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
             }
@@ -90,6 +94,53 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1) {
                 throw "Invalid engineer dialogue: Echo Step advice choice is missing or not correctly gated."
             }
+            $healthCellChoices = @($dialogue.nodes | ForEach-Object { $_.choices } |
+                Where-Object { $_.id -eq "take_health_cell" })
+            $healthCellConditions = @($healthCellChoices[0].visibleWhen.conditions)
+            if ($healthCellChoices.Count -ne 1 -or
+                $healthCellChoices[0].visibleWhen.op -ne "and" -or
+                $healthCellConditions.Count -ne 2 -or
+                @($healthCellConditions | Where-Object {
+                    $_.op -eq "compare" -and $_.key -eq "player.needs_healing" -and
+                    $_.comparison -eq "eq" -and $_.value -eq $true
+                }).Count -ne 1 -or
+                @($healthCellConditions | Where-Object {
+                    $_.op -eq "compare" -and $_.key -eq "inventory.health_cell" -and
+                    $_.comparison -eq "eq" -and $_.value -eq $false
+                }).Count -ne 1 -or
+                $healthCellChoices[0].onSelect.id -ne "echo.inventory.grant" -or
+                $healthCellChoices[0].onSelect.parameters[0].value -ne "echo:item/health_cell" -or
+                @($dialogue.nodes | Where-Object {
+                    $_.id -eq $healthCellChoices[0].targetNode
+                }).Count -ne 1) {
+                throw "Invalid engineer dialogue: Health Cell offer is missing or incorrectly gated."
+            }
+        } elseif ($asset.Extension -eq ".json" -and
+                  $asset.FullName -eq (Join-Path $assetDir "framework\items.json")) {
+            if ($asset.Length -eq 0 -or $asset.Length -gt 16KB) {
+                throw "Invalid item catalog: file must be between 1 byte and 16 KiB."
+            }
+            try {
+                $itemCatalog = Get-Content -LiteralPath $asset.FullName -Raw |
+                    ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid item catalog: $($_.Exception.Message)"
+            }
+            if ($itemCatalog.schemaVersion -ne 1 -or
+                -not ($itemCatalog.items -is [array]) -or
+                $itemCatalog.items.Count -lt 1 -or $itemCatalog.items.Count -gt 32 -or
+                @($itemCatalog.items | Where-Object {
+                    $_.id -eq "echo:item/maintenance_key" -and
+                    $_.key -eq 1 -and $_.maxStack -eq 1 -and
+                    $_.displayName -eq "Maintenance Key"
+                }).Count -ne 1 -or
+                @($itemCatalog.items | Where-Object {
+                    $_.id -eq "echo:item/health_cell" -and
+                    $_.key -eq 2 -and $_.maxStack -eq 3 -and
+                    $_.displayName -eq "Health Cell"
+                }).Count -ne 1) {
+                throw "Invalid item catalog: schema or required project item definition is missing."
+            }
         } else {
             throw "Unexpected asset type: $($asset.Name)"
         }
@@ -100,6 +151,9 @@ if (Test-Path -LiteralPath $assetDir) {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\engineer.json") -PathType Leaf)) {
         throw "Packaged engineer dialogue is missing."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\items.json") -PathType Leaf)) {
+        throw "Packaged item catalog is missing."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\stb.txt") -PathType Leaf)) {
         throw "Packaged PNG decoder license is missing: licenses\stb.txt"

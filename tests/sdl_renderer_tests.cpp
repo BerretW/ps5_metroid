@@ -102,13 +102,26 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
               static_cast<bool>(game.update({.interactPressed = true})) &&
               static_cast<bool>(game.update({.interactPressed = true})),
           "checkpoint fixture acquires the key through the loaded dialogue");
+    echo::GameCheckpoint checkpoint = game.checkpoint();
+    check(checkpoint.inventory.add(echo::ItemId::HealthCell, 3, 2) &&
+              game.restore(checkpoint),
+          "checkpoint fixture adds a stack of catalogued health cells");
     GameState saved{};
     check(static_cast<bool>(echo::platform::encodeGameCheckpoint(game, saved)),
           "game checkpoint encodes to framework state");
     echo::GameCheckpoint restored{};
     check(static_cast<bool>(echo::platform::decodeGameCheckpoint(saved, restored)) &&
-              restored.inventory.contains(echo::ItemId::MaintenanceKey),
-          "game checkpoint round-trip preserves inventory");
+              restored.inventory.contains(echo::ItemId::MaintenanceKey) &&
+              restored.inventory.quantity(echo::ItemId::HealthCell) == 2,
+          "game checkpoint round-trip preserves keys and consumable stack quantities");
+
+    GameState legacyInventory = saved;
+    check(legacyInventory.erase(
+              {StateScope::Global, {}, "inventory.quantity.0"}) &&
+              static_cast<bool>(echo::platform::decodeGameCheckpoint(
+                  legacyInventory, restored)) &&
+              restored.inventory.quantities[0] == 1,
+          "pre-stack saves default missing item quantities to one");
 
     GameState invalid = saved;
     check(static_cast<bool>(invalid.set(
@@ -119,6 +132,15 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     check(!echo::platform::decodeGameCheckpoint(invalid, unchanged) &&
               unchanged.playerHealth == 3 && unchanged.inventory.count == 0,
           "checkpoint decoder rejects invalid inventory without partial output");
+    GameState invalidQuantity = saved;
+    check(static_cast<bool>(invalidQuantity.set(
+              {StateScope::Global, {}, "inventory.quantity.0"},
+              StateValue::fromInteger(0))),
+          "invalid inventory quantity fixture is stored");
+    check(echo::platform::decodeGameCheckpoint(invalidQuantity, unchanged).code ==
+              echo::framework::ErrorCode::CorruptData &&
+              unchanged.playerHealth == 3 && unchanged.inventory.count == 0,
+          "checkpoint decoder rejects invalid quantities without partial output");
 
     GameState migrated{};
     check(echo::platform::migrateGameCheckpointSave(1, migrated, nullptr),
@@ -179,7 +201,8 @@ int main() {
         echo::platform::FrameworkIntegration integration;
         const auto status = integration.initialize(
             ECHO_SOURCE_ASSETS "framework/game.json",
-            ECHO_SOURCE_ASSETS "framework/engineer.json");
+            ECHO_SOURCE_ASSETS "framework/engineer.json",
+            ECHO_SOURCE_ASSETS "framework/items.json");
         if (!status || !integration.beginGame()) {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
@@ -250,8 +273,25 @@ int main() {
                   static_cast<bool>(dialogueGame.update({.interactPressed = true})),
               "selecting the key choice succeeds");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
-        check(emptyInventory != capture(keyboardWindow, {206, 12, 152, 38}),
+        const auto keyInventory = capture(keyboardWindow, {206, 12, 152, 38});
+        check(emptyInventory != keyInventory,
               "inventory HUD updates when the maintenance key is acquired");
+        echo::GameCheckpoint healthCellCheckpoint = dialogueGame.checkpoint();
+        healthCellCheckpoint.playerHealth = 4;
+        check(healthCellCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 2) &&
+                  dialogueGame.restore(healthCellCheckpoint),
+              "renderer fixture restores an injured player carrying health cells");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        const auto healthCellInventory = capture(keyboardWindow, {206, 12, 152, 38});
+        const auto keyboardHealPrompt = capture(keyboardWindow, {481, 54, 80, 14});
+        pad.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        const auto playStationHealPrompt = capture(padWindow, {481, 54, 80, 14});
+        check(keyInventory != healthCellInventory,
+              "inventory HUD displays the consumable stack");
+        check(keyboardHealPrompt != std::vector<Uint32>{} &&
+                  playStationHealPrompt != std::vector<Uint32>{} &&
+                  keyboardHealPrompt != playStationHealPrompt,
+              "the heal prompt shows keyboard and PlayStation-specific controls");
 
         pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");

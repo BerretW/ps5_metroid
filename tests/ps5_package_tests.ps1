@@ -85,10 +85,35 @@ try {
     }
     [IO.File]::WriteAllText($dialogue, $invalidCondition, (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "Echo Step advice choice"
+    $invalidHealthCellCondition = $validDialogue.Replace(
+        '"key": "player.needs_healing"', '"key": "player.unknown_flag"')
+    if ($invalidHealthCellCondition -eq $validDialogue) {
+        throw "Could not create an invalid Health Cell dialogue fixture."
+    }
+    [IO.File]::WriteAllText($dialogue, $invalidHealthCellCondition,
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Health Cell offer"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
     Remove-Item -LiteralPath $dialogue -Force
     Expect-Rejection "Packaged engineer dialogue is missing"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
+    $itemCatalog = Join-Path $fixture "assets\framework\items.json"
+    $originalItemCatalog = [IO.File]::ReadAllBytes($itemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $itemDocument.items = @($itemDocument.items | Where-Object {
+        $_.id -ne "echo:item/health_cell"
+    })
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    [IO.File]::WriteAllText($itemCatalog, "{ not valid json")
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    Remove-Item -LiteralPath $itemCatalog -Force
+    Expect-Rejection "Packaged item catalog is missing"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -122,4 +147,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue, invalid ability condition, missing dialogue, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, invalid ability/Health Cell conditions, missing item definitions/dialogue/catalog, digest corruption, signed misaligned ELF."

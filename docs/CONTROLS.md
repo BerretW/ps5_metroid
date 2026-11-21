@@ -6,6 +6,7 @@
 | Jump / double jump | Space (configurable) | A | Cross × |
 | Fire | J (configurable) | X | Square □ |
 | Interact / advance dialogue / use door | E (configurable) | Y | Triangle △ |
+| Use Health Cell | H | Right shoulder | R1 |
 | Select dialogue choice | Left/Right arrows or A/D | Left stick or D-pad left/right | Left stick or D-pad left/right |
 | Pause / resume | Escape / Enter | Start / A | Options / Cross × |
 | Toggle map | M | Not assigned | Touchpad press |
@@ -21,6 +22,6 @@ Options lets you select EN or CS for Mira's dialogue with left/right (D-pad left
 
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
 
-Mira's horizontal interaction reach is configurable in [game.json](../assets/framework/game.json); see [component schemas](framework/COMPONENT_SCHEMAS.md) for limits and how to try a different value.
+After collecting a Health Cell from Mira while injured, press H on keyboard or R1 on DualSense to restore up to two health. A cell is not consumed at full health. Mira only offers another while you are injured and have none in inventory. Her horizontal interaction reach is configurable in [game.json](../assets/framework/game.json); see [component schemas](framework/COMPONENT_SCHEMAS.md) for limits and how to try a different value.
 
 PS5 physical keyboard and IME support remain disabled. SDL's PS5 backend maps cross to A, circle to B, square to X, triangle to Y, touchpad to TOUCHPAD and Options to START. The lab queries actual SDL backend capabilities; its rumble/lightbar tests need hardware confirmation. See [DualSense Lab](DUALSENSE_LAB.md), [compatibility findings](DUALSENSE_COMPATIBILITY.md) and the [hardware checklist](DUALSENSE_HARDWARE_TESTS.md).

@@ -1,4 +1,7 @@
-#include "echo/framework/schema.hpp"
+#include "echo/framework/capability_manifest.hpp"
+#ifdef ECHO_MANIFEST_HAS_INVENTORY
+#include "echo/framework/inventory.hpp"
+#endif
 #ifdef ECHO_PROJECT_COMPONENTS
 #include "game/project_components.hpp"
 #endif
@@ -28,10 +31,26 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    std::array<char, 64 * 1024> output{};
+    std::array<echo::framework::CapabilityManifestFragment, 4> fragments{{
+        echo::framework::frameworkCapabilityManifestFragment(),
+    }};
+#ifdef ECHO_MANIFEST_HAS_NARRATIVE
+    fragments[1] = echo::framework::narrativeCapabilityManifestFragment();
+    std::size_t fragmentCount = 2;
+#else
+    std::size_t fragmentCount = 1;
+#endif
+#ifdef ECHO_MANIFEST_HAS_INVENTORY
+    fragments[fragmentCount++] = echo::framework::inventoryCapabilityManifestFragment();
+#endif
+#ifdef ECHO_PROJECT_COMPONENTS
+    fragments[fragmentCount++] = echo::projectCapabilityManifestFragment();
+#endif
+    std::array<char, 128 * 1024> output{};
     std::size_t written{};
-    status = echo::framework::exportComponentManifest(
-        registry, output.data(), output.size(), written);
+    status = echo::framework::exportCapabilityManifest(
+        registry, {fragments.data(), fragmentCount},
+        output.data(), output.size(), written);
     if (!status) {
         std::fprintf(stderr, "Schema export failed: %.*s\n",
                      static_cast<int>(status.detail.size()), status.detail.data());
@@ -49,6 +68,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Could not write complete schema manifest.\n");
         return 1;
     }
-    std::printf("Exported %zu component schemas to %s.\n", registry.size(), argv[1]);
+    std::printf("Exported a manifest with %zu components from %zu capability fragments to %s.\n",
+                registry.size(), fragmentCount, argv[1]);
     return 0;
 }

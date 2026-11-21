@@ -65,7 +65,8 @@ if(ECHO_PS5_GAME)
     target_include_directories(project_echo_ps5 PRIVATE
         "${echo_root}/src"
         "${echo_root}/third_party"
-        "${echo_root}/framework/core/include")
+        "${echo_root}/framework/core/include"
+        "${echo_root}/framework/inventory/include")
     target_compile_definitions(project_echo_ps5 PRIVATE SDL_MAIN_HANDLED)
     if(ECHO_PS5_STARTUP_DIAGNOSTICS)
         target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -87,5 +88,6 @@ if(ECHO_PS5_GAME)
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
     target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
         EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
+        EchoFramework::Inventory
         --end-group --as-needed ${stubs})
 endif()

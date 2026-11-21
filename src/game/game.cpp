@@ -68,8 +68,32 @@ constexpr float kJumpBufferSeconds = 0.12F;
 constexpr std::string_view kEngineerDialogue = "echo:dialogue/engineer";
 constexpr std::string_view kGrantItemAction = "echo.inventory.grant";
 constexpr std::string_view kMaintenanceKeyResource = "echo:item/maintenance_key";
+constexpr std::string_view kHealthCellResource = "echo:item/health_cell";
 constexpr framework::StateAddress kHasMaintenanceKey{
     framework::StateScope::Global, {}, "inventory.maintenance_key"};
+constexpr framework::StateAddress kHasHealthCell{
+    framework::StateScope::Global, {}, "inventory.health_cell"};
+constexpr framework::StateAddress kNeedsHealing{
+    framework::StateScope::Global, {}, "player.needs_healing"};
+
+struct ProjectItemMapping {
+    std::string_view resource;
+    ItemId id;
+    std::uint32_t key;
+    std::uint16_t maxStack;
+};
+
+constexpr std::array<ProjectItemMapping, 2> kProjectItems{{
+    {kMaintenanceKeyResource, ItemId::MaintenanceKey, 1, 1},
+    {kHealthCellResource, ItemId::HealthCell, 2, 3},
+}};
+
+[[nodiscard]] const ProjectItemMapping* findProjectItem(
+    std::string_view resource) noexcept {
+    const auto found = std::find_if(kProjectItems.begin(), kProjectItems.end(),
+        [resource](const ProjectItemMapping& item) { return item.resource == resource; });
+    return found == kProjectItems.end() ? nullptr : &*found;
+}
 
 [[nodiscard]] std::size_t roomIndex(RoomId room) noexcept {
     return static_cast<std::size_t>(room);
@@ -77,33 +101,14 @@ constexpr framework::StateAddress kHasMaintenanceKey{
 
 } // namespace
 
-bool Inventory::contains(ItemId item) const noexcept {
-    const std::size_t validCount = std::min(count, items.size());
-    return std::find(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(validCount), item) !=
-           items.begin() + static_cast<std::ptrdiff_t>(validCount);
-}
-
-bool Inventory::add(ItemId item) noexcept {
-    if (item == ItemId::None || item >= ItemId::Count) {
-        return false;
-    }
-    if (contains(item)) {
-        return true;
-    }
-    if (count >= items.size()) {
-        return false;
-    }
-    items[count++] = item;
-    return true;
-}
-
 Game::Game() noexcept {
     start();
 }
 
 framework::Status Game::configureDialogue(
     const framework::DialogueModule& module, framework::GameState& state,
-    Vec2 technicianPosition, float interactionReach) noexcept {
+    Vec2 technicianPosition, float interactionReach,
+    framework::InventoryModule* inventoryModule) noexcept {
     using namespace framework;
     if (dialogueSession_.active()) {
         return {ErrorCode::InvalidState, kEngineerDialogue,
@@ -112,6 +117,10 @@ framework::Status Game::configureDialogue(
     if (!module.initialized()) {
         return {ErrorCode::InvalidState, kEngineerDialogue,
                 "The dialogue module must be initialized before configuring the game."};
+    }
+    if (inventoryModule != nullptr && !inventoryModule->initialized()) {
+        return {ErrorCode::InvalidState, "echo.rpg.inventory",
+                "The inventory module must be initialized before configuring the game."};
     }
     if (!std::isfinite(technicianPosition.x) || !std::isfinite(technicianPosition.y) ||
         technicianPosition.x < 0.0F || technicianPosition.y < 0.0F ||
@@ -138,15 +147,31 @@ framework::Status Game::configureDialogue(
             }
             if (action.id != kGrantItemAction || action.parameters.size() != 1 ||
                 action.parameters[0].name != "item" ||
-                action.parameters[0].value.type != ValueType::String ||
-                action.parameters[0].value.stringValue() != kMaintenanceKeyResource) {
+                action.parameters[0].value.type != ValueType::String) {
                 return {ErrorCode::InvalidValue, "dialogue.action",
-                        "The engineer dialogue contains an unsupported action or item."};
+                        "The engineer dialogue contains an unsupported action or parameter."};
+            }
+            const std::string_view resource =
+                action.parameters[0].value.stringValue();
+            const ProjectItemMapping* item = findProjectItem(resource);
+            if (item == nullptr) {
+                return {ErrorCode::InvalidValue, "dialogue.action",
+                        "The engineer dialogue contains an unsupported item."};
+            }
+            if (inventoryModule != nullptr) {
+                const ItemDefinition* catalogItem =
+                    inventoryModule->catalog().find(resource);
+                if (catalogItem == nullptr || catalogItem->key != item->key ||
+                    catalogItem->maxStack != item->maxStack) {
+                    return {ErrorCode::MissingDependency, resource,
+                            "The dialogue item does not match its compiled inventory contract."};
+                }
             }
         }
     }
     dialogueModule_ = &module;
     dialogueState_ = &state;
+    inventoryModule_ = inventoryModule;
     technician_.x = technicianPosition.x;
     technician_.y = technicianPosition.y;
     interactionReach_ = interactionReach;
@@ -232,7 +257,19 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     }
     Inventory validatedInventory{};
     for (std::size_t itemIndex = 0; itemIndex < checkpointValue.inventory.count; ++itemIndex) {
-        if (!validatedInventory.add(checkpointValue.inventory.items[itemIndex])) {
+        const ItemId item = checkpointValue.inventory.items[itemIndex];
+        if (item == ItemId::None || item >= ItemId::Count) {
+            return false;
+        }
+        std::uint16_t maxStack = item == ItemId::HealthCell ? 3 : 1;
+        if (inventoryModule_ != nullptr) {
+            const framework::ItemDefinition* definition =
+                inventoryModule_->catalog().find(static_cast<std::uint32_t>(item));
+            if (definition == nullptr) return false;
+            maxStack = definition->maxStack;
+        }
+        if (!validatedInventory.add(item, maxStack,
+                                   checkpointValue.inventory.quantities[itemIndex])) {
             return false;
         }
         if (validatedInventory.count != itemIndex + 1) {
@@ -375,6 +412,10 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     accessBlocked_ = false;
     if (dialogueSession_.active()) {
         return updateDialogue(input);
+    }
+    if (input.useItemPressed) {
+        const framework::Status status = useHealthCell();
+        if (!status) return status;
     }
     invulnerabilityTimer_ = std::max(0.0F, invulnerabilityTimer_ - dt);
     shotCooldown_ = std::max(0.0F, shotCooldown_ - dt);
@@ -569,9 +610,17 @@ framework::Status Game::syncDialogueState() noexcept {
         return {framework::ErrorCode::InvalidState, kEngineerDialogue,
                 "Dialogue state has not been configured."};
     }
-    return dialogueState_->set(
+    framework::Status status = dialogueState_->set(
         kHasMaintenanceKey,
         framework::StateValue::fromBoolean(inventory_.contains(ItemId::MaintenanceKey)));
+    if (!status) return status;
+    status = dialogueState_->set(
+        kHasHealthCell,
+        framework::StateValue::fromBoolean(inventory_.contains(ItemId::HealthCell)));
+    if (!status) return status;
+    return dialogueState_->set(
+        kNeedsHealing,
+        framework::StateValue::fromBoolean(player_.health < 5));
 }
 
 framework::Status Game::setDialogueLanguage(framework::DialogueLanguage language) noexcept {
@@ -626,16 +675,44 @@ framework::ActionResult Game::grantDialogueItem(
     auto* game = static_cast<Game*>(context);
     if (game == nullptr || request.parameters.size() != 1 ||
         request.parameters[0].name != "item" ||
-        request.parameters[0].value.type != ValueType::String ||
-        request.parameters[0].value.stringValue() != kMaintenanceKeyResource) {
+        request.parameters[0].value.type != ValueType::String) {
         return {{ErrorCode::InvalidValue, kGrantItemAction,
-                 "The inventory action requires the maintenance-key item."}, {}, false};
+                 "The inventory action requires one supported project item."}, {}, false};
     }
-    if (!game->inventory_.add(ItemId::MaintenanceKey)) {
-        return {{ErrorCode::CapacityExceeded, kMaintenanceKeyResource,
-                 "The maintenance key could not be added to the inventory."}, {}, false};
+    const ProjectItemMapping* item =
+        findProjectItem(request.parameters[0].value.stringValue());
+    if (item == nullptr) {
+        return {{ErrorCode::InvalidValue, kGrantItemAction,
+                 "The inventory action references an unsupported project item."}, {}, false};
+    }
+    std::uint16_t maxStack = item->maxStack;
+    if (game->inventoryModule_ != nullptr) {
+        const framework::ItemDefinition* definition =
+            game->inventoryModule_->catalog().find(item->resource);
+        if (definition == nullptr || definition->key != item->key ||
+            definition->maxStack != item->maxStack) {
+            return {{ErrorCode::MissingDependency, item->resource,
+                     "The item has no matching compiled inventory definition."},
+                    {}, false};
+        }
+        maxStack = definition->maxStack;
+    }
+    if (!game->inventory_.add(item->id, maxStack, 1)) {
+        return {{ErrorCode::CapacityExceeded, item->resource,
+                 "The item could not be added to the inventory."}, {}, false};
     }
     return {Status::success(), {}, false};
+}
+
+framework::Status Game::useHealthCell() noexcept {
+    if (player_.health >= 5 ||
+        !inventory_.contains(ItemId::HealthCell)) {
+        return framework::Status::success();
+    }
+    const framework::Status removed = inventory_.remove(ItemId::HealthCell);
+    if (!removed) return removed;
+    player_.health = std::min(5, player_.health + 2);
+    return framework::Status::success();
 }
 
 framework::Status Game::updateDialogue(const Input& input) noexcept {

@@ -421,6 +421,7 @@ struct SoundState {
     int deaths{};
     int enemyHealth{};
     int livingEnemies{};
+    std::uint32_t healthCellCount{};
     echo::RoomId room{};
     bool abilityCollected{};
     bool hasMaintenanceKey{};
@@ -447,6 +448,7 @@ SoundState captureSoundState(const echo::Game& game) noexcept {
     state.room = game.roomId();
     state.abilityCollected = game.abilityCollected();
     state.hasMaintenanceKey = game.inventory().contains(echo::ItemId::MaintenanceKey);
+    state.healthCellCount = game.inventory().quantity(echo::ItemId::HealthCell);
     state.gateBlocked = game.gateBlocked();
     state.completed = game.completed();
     return state;
@@ -473,6 +475,8 @@ unsigned soundEventsBetween(const SoundState& before, const SoundState& after) n
     }
     if ((after.abilityCollected && !before.abilityCollected) ||
         (after.hasMaintenanceKey && !before.hasMaintenanceKey) ||
+        after.healthCellCount > before.healthCellCount ||
+        after.health > before.health ||
         (after.completed && !before.completed)) {
         events |= bit(SoundId::Pickup);
     }
@@ -612,6 +616,7 @@ int main(int, char**) {
     std::array<char, 512> assetsRoot{};
     std::array<char, 512> gameConfigPath{};
     std::array<char, 512> dialoguePath{};
+    std::array<char, 512> itemCatalogPath{};
     if (!echo::platform::assetRoot(assetsRoot.data(), assetsRoot.size())) {
         logMessage("Framework initialization failed: asset directory is unavailable");
         SDL_Quit();
@@ -633,9 +638,18 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
+    const int itemCatalogPathLength = std::snprintf(
+        itemCatalogPath.data(), itemCatalogPath.size(), "%sframework/items.json", assetsRoot.data());
+    if (itemCatalogPathLength <= 0 ||
+        static_cast<std::size_t>(itemCatalogPathLength) >= itemCatalogPath.size()) {
+        logMessage("Framework initialization failed: item catalog path is too long");
+        SDL_Quit();
+        return 1;
+    }
     echo::platform::FrameworkIntegration framework;
     const echo::framework::Status frameworkStatus =
-        framework.initialize(gameConfigPath.data(), dialoguePath.data());
+        framework.initialize(gameConfigPath.data(), dialoguePath.data(),
+                             itemCatalogPath.data());
     if (!frameworkStatus) {
         logMessage("Framework initialization failed");
         logMessage(frameworkStatus.detail);
@@ -764,6 +778,7 @@ int main(int, char**) {
         echo::framework::DialogueLanguage::English;
     bool pendingJump = false;
     bool pendingInteract = false;
+    bool pendingUseItem = false;
     bool pendingPause = false;
     bool gameSessionActive = false;
     double secondsSinceAutosave = 0.0;
@@ -1506,6 +1521,9 @@ int main(int, char**) {
                         pendingJump = true;
                     } else if (!paused && button == SDL_CONTROLLER_BUTTON_Y) {
                         pendingInteract = true;
+                    } else if (!paused &&
+                               button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+                        pendingUseItem = true;
                     } else if (paused && button == SDL_CONTROLLER_BUTTON_A) {
                         paused = false;
                     }
@@ -1637,6 +1655,8 @@ int main(int, char**) {
                     pendingJump = true;
                 } else if (!paused && key == bindings.interact) {
                     pendingInteract = true;
+                } else if (!paused && key == SDLK_h) {
+                    pendingUseItem = true;
                 }
             }
         }
@@ -1694,6 +1714,7 @@ int main(int, char**) {
                 jumpHeld,
                 shootHeld,
                 pendingInteract,
+                pendingUseItem,
             };
             const SoundState before = captureSoundState(game);
             const echo::framework::Status gameplayStatus = game.update(input);
@@ -1714,11 +1735,13 @@ int main(int, char**) {
                 after.livingEnemies < before.livingEnemies ||
                 after.abilityCollected != before.abilityCollected ||
                 after.hasMaintenanceKey != before.hasMaintenanceKey ||
+                after.healthCellCount != before.healthCellCount ||
                 after.completed != before.completed) {
                 (void)saveCurrentGame();
             }
             pendingJump = false;
             pendingInteract = false;
+            pendingUseItem = false;
             accumulator -= echo::kFixedStep;
         }
         if (gameSessionActive && screen == Screen::Playing && secondsSinceAutosave >= 30.0) {

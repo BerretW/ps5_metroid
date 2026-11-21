@@ -1,5 +1,6 @@
 #pragma once
 
+#include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
 #include "game/project_components.hpp"
 
@@ -59,7 +60,8 @@ public:
     FrameworkIntegration& operator=(const FrameworkIntegration&) = delete;
 
     [[nodiscard]] framework::Status initialize(const char* configPath,
-                                                const char* dialoguePath) noexcept;
+                                                const char* dialoguePath,
+                                                const char* itemCatalogPath = nullptr) noexcept;
     [[nodiscard]] framework::Status configureGame(Game& game) noexcept;
     [[nodiscard]] framework::Status beginGame() noexcept;
     [[nodiscard]] framework::Status resumeGame(const framework::GameState& state) noexcept;
@@ -71,6 +73,7 @@ public:
 private:
     framework_detail::StateModule stateModule_{};
     framework_detail::ProjectEchoModule projectModule_{};
+    framework::InventoryModule inventoryModule_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};

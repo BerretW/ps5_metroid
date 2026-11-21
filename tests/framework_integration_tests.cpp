@@ -30,6 +30,7 @@ int main() {
     constexpr const char* fixturePath = "echo-framework-invalid-config-test.json";
     constexpr const char* configPath = ECHO_SOURCE_ASSETS "framework/game.json";
     constexpr const char* dialoguePath = ECHO_SOURCE_ASSETS "framework/engineer.json";
+    constexpr const char* itemCatalogPath = ECHO_SOURCE_ASSETS "framework/items.json";
     const auto writeFixture = [&](std::string_view content) {
         std::ofstream fixture(fixturePath, std::ios::binary);
         fixture.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -43,8 +44,8 @@ int main() {
         check(static_cast<bool>(fixture), "invalid configuration fixture is written");
     }
     {
-        echo::platform::FrameworkIntegration missingModule;
-        const auto status = missingModule.initialize(fixturePath, dialoguePath);
+        auto missingModule = std::make_unique<echo::platform::FrameworkIntegration>();
+        const auto status = missingModule->initialize(fixturePath, dialoguePath);
         check(status.code == echo::framework::ErrorCode::MissingDependency &&
                   status.subject == "echo.project_echo",
               "single-module configuration rejects the missing PROJECT ECHO adapter");
@@ -55,8 +56,8 @@ int main() {
         fixture << "{ invalid dialogue json";
         fixture.close();
         check(static_cast<bool>(fixture), "invalid dialogue fixture is written");
-        echo::platform::FrameworkIntegration malformedDialogue;
-        check(malformedDialogue.initialize(configPath, fixturePath).code ==
+        auto malformedDialogue = std::make_unique<echo::platform::FrameworkIntegration>();
+        check(malformedDialogue->initialize(configPath, fixturePath, itemCatalogPath).code ==
                   echo::framework::ErrorCode::ParseError,
               "malformed dialogue content fails startup explicitly");
     }
@@ -72,10 +73,10 @@ int main() {
             ]
         })";
         check(writeFixture(shiftedConfig), "shifted engineer configuration is written");
-        echo::platform::FrameworkIntegration shifted;
+        auto shifted = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game shiftedGame;
-        check(shifted.initialize(fixturePath, dialoguePath) &&
-                  shifted.configureGame(shiftedGame) &&
+        check(shifted->initialize(fixturePath, dialoguePath) &&
+                  shifted->configureGame(shiftedGame) &&
                   shiftedGame.technicianBounds().x == 250.0F &&
                   !shiftedGame.technicianNearby(),
               "changing the registered transform changes the engineer's gameplay position");
@@ -99,17 +100,17 @@ int main() {
         };
         check(writeFixture(configForInteraction(R"({"horizontalReach":46})")),
               "narrow interaction config is written");
-        echo::platform::FrameworkIntegration narrow;
+        auto narrow = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game narrowGame;
-        check(narrow.initialize(fixturePath, dialoguePath) &&
-                  narrow.configureGame(narrowGame) && !narrowGame.technicianNearby(),
+        check(narrow->initialize(fixturePath, dialoguePath) &&
+                  narrow->configureGame(narrowGame) && !narrowGame.technicianNearby(),
               "configured narrow reach changes gameplay");
         check(writeFixture(configForInteraction(R"({"horizontalReach":47})")),
               "wide interaction config is written");
-        echo::platform::FrameworkIntegration wide;
+        auto wide = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game wideGame;
-        check(wide.initialize(fixturePath, dialoguePath) &&
-                  wide.configureGame(wideGame) && wideGame.technicianNearby(),
+        check(wide->initialize(fixturePath, dialoguePath) &&
+                  wide->configureGame(wideGame) && wideGame.technicianNearby(),
               "configured wider reach allows talking from the same position");
         const auto checkpoint = wideGame.checkpoint();
         wideGame.start();
@@ -135,16 +136,16 @@ int main() {
                  "null"}) {
             check(writeFixture(configForInteraction(invalid)),
                   "invalid interaction config is written");
-            echo::platform::FrameworkIntegration invalidInteraction;
-            check(invalidInteraction.initialize(fixturePath, dialoguePath).code ==
+            auto invalidInteraction = std::make_unique<echo::platform::FrameworkIntegration>();
+            check(invalidInteraction->initialize(fixturePath, dialoguePath).code ==
                       echo::framework::ErrorCode::InvalidValue,
                   "invalid interaction component is rejected before gameplay");
         }
         check(writeFixture(configForInteraction("{}")), "default interaction config is written");
-        echo::platform::FrameworkIntegration defaults;
+        auto defaults = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game defaultGame;
-        check(defaults.initialize(fixturePath, dialoguePath) &&
-                  defaults.configureGame(defaultGame) && defaultGame.technicianNearby(),
+        check(defaults->initialize(fixturePath, dialoguePath) &&
+                  defaults->configureGame(defaultGame) && defaultGame.technicianNearby(),
               "omitted component property uses the legacy reach");
         constexpr std::string_view legacyConfig = R"({
             "game": "echo.project_echo",
@@ -174,8 +175,8 @@ int main() {
             ]
         })";
         check(writeFixture(unsupportedTransform), "unsupported transform fixture is written");
-        echo::platform::FrameworkIntegration invalidTransform;
-        check(invalidTransform.initialize(fixturePath, dialoguePath).code ==
+        auto invalidTransform = std::make_unique<echo::platform::FrameworkIntegration>();
+        check(invalidTransform->initialize(fixturePath, dialoguePath).code ==
                   echo::framework::ErrorCode::InvalidValue,
               "unsupported engineer transform fields fail rather than being ignored");
     }
@@ -199,10 +200,10 @@ int main() {
             }]
         })";
         check(writeFixture(unsupportedAction), "unsupported dialogue action fixture is written");
-        echo::platform::FrameworkIntegration invalidAction;
+        auto invalidAction = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game invalidGame;
-        check(invalidAction.initialize(configPath, fixturePath) &&
-                  invalidAction.configureGame(invalidGame).code ==
+        check(invalidAction->initialize(configPath, fixturePath, itemCatalogPath) &&
+                  invalidAction->configureGame(invalidGame).code ==
                       echo::framework::ErrorCode::InvalidValue &&
                   !invalidGame.inventory().contains(echo::ItemId::MaintenanceKey),
               "unsupported compiled actions are rejected before gameplay changes");
@@ -222,8 +223,8 @@ int main() {
             if (!writeFixture(json)) {
                 return echo::framework::ErrorCode::StorageFailure;
             }
-            echo::platform::FrameworkIntegration candidate;
-            return candidate.initialize(configPath, fixturePath).code;
+            auto candidate = std::make_unique<echo::platform::FrameworkIntegration>();
+            return candidate->initialize(configPath, fixturePath, itemCatalogPath).code;
         };
         check(displayStatus(std::string(39, 'A'), std::string(80, 'A'),
                             std::string(72, 'A')) == echo::framework::ErrorCode::None,
@@ -243,18 +244,23 @@ int main() {
               "unsupported ASCII glyphs also fail explicitly");
     }
     check(std::remove(fixturePath) == 0, "dialogue display fixture is removed");
-    echo::platform::FrameworkIntegration integration;
-    check(integration.initialize("missing-framework-config.json", dialoguePath).code ==
+    auto missingItemCatalog = std::make_unique<echo::platform::FrameworkIntegration>();
+    check(missingItemCatalog->initialize(configPath, dialoguePath).code ==
+              echo::framework::ErrorCode::InvalidArgument,
+          "selected inventory module requires its external item catalog");
+    auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
+    check(integration->initialize("missing-framework-config.json", dialoguePath).code ==
               echo::framework::ErrorCode::NotFound,
           "missing game configuration is reported");
-    check(integration.initialize(configPath, "missing-engineer-dialogue.json").code ==
+    check(integration->initialize(configPath, "missing-engineer-dialogue.json",
+                                  itemCatalogPath).code ==
               echo::framework::ErrorCode::NotFound,
           "missing dialogue content is reported");
-    check(integration.initialize(configPath, dialoguePath),
+    check(integration->initialize(configPath, dialoguePath, itemCatalogPath),
           "PROJECT ECHO module configuration initializes");
-    check(integration.beginGame(), "framework state resets at a new game");
+    check(integration->beginGame(), "framework state resets at a new game");
     echo::Game game;
-    check(integration.configureGame(game), "game binds the initialized dialogue module");
+    check(integration->configureGame(game), "game binds the initialized dialogue module");
     check(game.technicianBounds().x == 108.0F && game.technicianBounds().y == 280.0F,
           "schema-instantiated transform positions the engineer in the game");
     check(game.update({.interactPressed = true}) &&
@@ -266,10 +272,10 @@ int main() {
           "packaged dialogue loads, renders a choice view, and grants the gameplay key");
     check(game.update({.interactPressed = true}) && !game.dialogueActive(),
           "the initial key-offer conversation can be closed");
-    check(integration.notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
-    check(integration.unlockEventCount() == 1,
+    check(integration->notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
+    check(integration->unlockEventCount() == 1,
           "ability transition publishes one typed framework event");
-    check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 1,
+    check(integration->notifyEchoStepUnlocked() && integration->unlockEventCount() == 1,
           "repeated state synchronization does not duplicate the unlock event");
     check(game.update({.interactPressed = true}) &&
               game.update({.interactPressed = true}) &&
@@ -279,26 +285,26 @@ int main() {
               game.update({.interactPressed = true}) &&
               game.dialogueText() == "DOUBLE JUMP OPENS THE CENTRAL GATE.",
           "the real ability-unlock projection enables Mira's conditional advice branch");
-    check(integration.beginGame(), "new game resets the temporary framework mirror");
+    check(integration->beginGame(), "new game resets the temporary framework mirror");
     game.start();
     echo::framework::StateValue abilityState{};
-    check(integration.gameState().get(
+    check(integration->gameState().get(
               {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
               abilityState) &&
               abilityState.type == echo::framework::ValueType::Boolean &&
               !abilityState.boolean,
           "new game clears the previously unlocked ability state");
-    check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 2,
+    check(integration->notifyEchoStepUnlocked() && integration->unlockEventCount() == 2,
           "a later game emits a new ability transition");
     echo::framework::GameState savedState{};
     check(savedState.set(
               {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
               echo::framework::StateValue::fromBoolean(true)),
           "fixture save state records the unlocked ability");
-    check(integration.resumeGame(savedState), "framework state restores from a save");
-    check(integration.notifyEchoStepUnlocked() && integration.unlockEventCount() == 2,
+    check(integration->resumeGame(savedState), "framework state restores from a save");
+    check(integration->notifyEchoStepUnlocked() && integration->unlockEventCount() == 2,
           "resuming an unlocked ability does not publish a duplicate transition");
-    integration.shutdown();
+    integration->shutdown();
 
     if (failures != 0) {
         std::cerr << failures << " framework integration test(s) failed\n";

@@ -39,15 +39,22 @@ cmake -S . -B build/framework-tools -DECHO_FRAMEWORK_ENABLE_DATA=ON -DECHO_FRAME
 cmake --build build/framework-tools --config Release
 ```
 
-`echo_schema_export <output.json>` exports the statically registered built-in framework schemas. It currently contains `echo:component/transform2d`; it does not discover or load game modules. To export project-specific descriptors, register them in a host-side executable and call `exportComponentManifest`.
+`echo_schema_export <output.json>` exports the unified framework capability manifest, including the statically registered built-in component schemas and (when enabled) Dialogue metadata. It does not discover or load game modules. See [capability manifests](CAPABILITY_MANIFEST.md) for the format and the project-specific exporter.
 
 `echo_content_validate <resource-manifest.json>` parses one bounded UTF-8 resource manifest and validates stable IDs, types, dependencies, and cycles through `ContentRegistry`. It does not validate game-specific component instances or load their resources.
 
-`echo_component_editor <component-id> <config.json> [resource-manifest.json]` prints fields and editor hints by walking the registered descriptor, then validates and instantiates the supplied JSON through the same registry. Its proof-of-concept registry currently contains only the built-in `Transform2D`; project-specific editors must register their compiled descriptors rather than add hardcoded property lists.
+`echo_component_editor <component-id> <config.json> [resource-manifest.json]` prints fields and editor hints by walking the registered descriptor, then validates and instantiates the supplied JSON through the same registry. To use the versioned capability manifest as the editor's discovery and selection contract:
+
+```powershell
+.\build\windows\framework\tools\echo_component_editor.exe --manifest framework-manifest.json
+.\build\windows\framework\tools\echo_component_editor.exe --manifest framework-manifest.json echo:component/transform2d transform.json
+```
+
+Manifest mode checks the format/API version, sorted unique component IDs, and each component version against the registry compiled into that editor. It lists or allows editing only components present in both. The manifest cannot load a module or factory, and the compiled descriptor remains authoritative for validation and instantiation. The generic editor contains only the built-in `Transform2D`; the project editor includes project components only when compiled with their static descriptors.
 
 When configured from the PROJECT ECHO root with `ECHO_FRAMEWORK_BUILD_TOOLS=ON`,
-`echo_project_component_editor` and `echo_project_schema_export` reuse those
-tools with both the core and project descriptors registered. The project editor
+`echo_project_component_editor` and `echo_project_schema_export` use both the
+core and project descriptors. The project editor
 accepts a standalone component object, for example `{"horizontalReach":75}`,
 not the entire game configuration:
 
@@ -56,8 +63,8 @@ not the entire game configuration:
 .\build\framework-tools\Release\echo_project_schema_export.exe project-schemas.json
 ```
 
-The export includes both component types and their metadata. The generic tools
-remain independent of game-specific code. The example paths are for a
+The export includes framework and game-specific metadata and both component
+types. The generic tools remain independent of game-specific code. The example paths are for a
 multi-configuration Visual Studio generator; for Ninja, omit `Release\` from
 the executable paths.
 

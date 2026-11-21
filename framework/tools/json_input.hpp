@@ -8,22 +8,27 @@
 namespace echo::framework::tools {
 
 [[nodiscard]] inline Status readJsonFile(const char* path, JsonDocument& document,
-                                         JsonError& error) noexcept {
+                                         JsonError& error,
+                                         std::size_t maximumBytes = kMaxJsonBytes) noexcept {
     if (path == nullptr) {
         return {ErrorCode::InvalidArgument, {}, "JSON input path is required."};
+    }
+    if (maximumBytes == 0 || maximumBytes > kMaxJsonBytes) {
+        return {ErrorCode::InvalidArgument, path,
+                "JSON input limit must be within the framework byte limit."};
     }
 
     std::FILE* file = std::fopen(path, "rb");
     if (file == nullptr) {
         return {ErrorCode::StorageFailure, path, "Could not open JSON input."};
     }
-    char* input = static_cast<char*>(std::malloc(kMaxJsonBytes + 1));
+    char* input = static_cast<char*>(std::malloc(maximumBytes + 1));
     if (input == nullptr) {
         std::fclose(file);
         return {ErrorCode::StorageFailure, path, "Could not allocate JSON input buffer."};
     }
 
-    const std::size_t size = std::fread(input, 1, kMaxJsonBytes + 1, file);
+    const std::size_t size = std::fread(input, 1, maximumBytes + 1, file);
     const bool readFailed = std::ferror(file) != 0;
     const int closeResult = std::fclose(file);
     if (readFailed || closeResult != 0) {
@@ -34,9 +39,10 @@ namespace echo::framework::tools {
         std::free(input);
         return {ErrorCode::InvalidValue, path, "JSON input is empty."};
     }
-    if (size > kMaxJsonBytes) {
+    if (size > maximumBytes) {
         std::free(input);
-        return {ErrorCode::CapacityExceeded, path, "JSON input exceeds the 1 MiB limit."};
+        return {ErrorCode::CapacityExceeded, path,
+                "JSON input exceeds its configured byte limit."};
     }
 
     const Status parsed = JsonDocument::parse(input, size, document, error);

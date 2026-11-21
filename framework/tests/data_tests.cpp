@@ -1,4 +1,4 @@
-#include "echo/framework/schema.hpp"
+#include "echo/framework/capability_manifest.hpp"
 
 #include <array>
 #include <cstring>
@@ -243,6 +243,120 @@ void testComponentSchemas() {
           "components with optional and required dependency edges are registered");
     check(dependencyCycle.validate().code == ErrorCode::DependencyCycle,
           "cycles through present optional dependencies are rejected");
+}
+
+void testCapabilityManifest() {
+    using namespace echo::framework;
+    const std::array<std::string_view, 1> required{"echo.test.base"};
+    const std::array<std::string_view, 1> provided{"echo.test.service"};
+    const std::array<ManifestModuleDescriptor, 2> modules{{
+        {"echo.test.zeta", "Zeta", 2, required, {}, provided, {}},
+        {"echo.test.alpha", "Alpha", 1, {}, {}, {}, {}},
+    }};
+    const std::array<ManifestCapabilityDescriptor, 1> capabilities{{
+        {"echo.test.write"},
+    }};
+    const std::array<ManifestActionParameter, 1> parameters{{
+        {"amount", "integer", true},
+    }};
+    const std::array<ManifestActionDescriptor, 1> actions{{
+        {"echo.test.grant", "echo.test.write", false, parameters},
+    }};
+    const std::array<ManifestEventDescriptor, 1> events{{
+        {"echo.test.event.collected", 3, parameters},
+    }};
+    const std::array<ManifestSchemaDescriptor, 1> schemas{{
+        {"echo.test.item_json", 2},
+    }};
+    const std::array<std::string_view, 2> constraints{
+        "Zed constraint.", "Alpha constraint."};
+    const std::array<ManifestFeatureDescriptor, 1> features{{
+        {"echo.test.feature", "A test feature.", constraints},
+    }};
+    const CapabilityManifestFragment frameworkFragment =
+        frameworkCapabilityManifestFragment();
+    const CapabilityManifestFragment customFragment{
+        .modules = modules,
+        .capabilities = capabilities,
+        .actions = actions,
+        .events = events,
+        .contentSchemas = schemas,
+        .runtimeFeatures = features,
+    };
+    const std::array<CapabilityManifestFragment, 2> firstOrder{{
+        frameworkFragment, customFragment}};
+    const std::array<CapabilityManifestFragment, 2> reverseOrder{{
+        customFragment, frameworkFragment}};
+    ComponentTypeRegistry components{};
+    check(registerCoreComponentTypes(components),
+          "capability manifest registers the authoritative built-in component schema");
+
+    std::array<char, 32 * 1024> first{};
+    std::array<char, 32 * 1024> second{};
+    std::size_t firstBytes{}, secondBytes{};
+    const Status firstStatus = exportCapabilityManifest(
+        components, firstOrder, first.data(), first.size(), firstBytes);
+    check(firstStatus, firstStatus.detail);
+    if (!firstStatus) return;
+    const Status secondStatus = exportCapabilityManifest(
+        components, reverseOrder, second.data(), second.size(), secondBytes);
+    check(secondStatus &&
+              firstBytes == secondBytes &&
+              std::memcmp(first.data(), second.data(), firstBytes) == 0,
+          "manifest ordering is deterministic across fragment registration order");
+    if (!secondStatus) return;
+
+    JsonDocument document{};
+    JsonError error{};
+    const Status parseStatus = JsonDocument::parse(first.data(), firstBytes, document, error);
+    check(parseStatus, parseStatus.detail);
+    if (!parseStatus) return;
+    const JsonValue root = document.root();
+    std::int64_t version{};
+    check(root.find("manifestVersion").integer(version) && version == 1 &&
+              root.find("framework").find("apiVersion").integer(version) && version == 1,
+          "manifest declares supported manifest and framework API versions");
+    check(root.find("modules").size() == 2,
+          "manifest composes module metadata and sorts by stable ID");
+
+    std::string_view firstModule{};
+    std::string_view secondModule{};
+    check(root.find("modules").at(0).find("id").string(firstModule) &&
+              root.find("modules").at(1).find("id").string(secondModule),
+          "module identifiers are present");
+    check(firstModule == "echo.test.alpha" && secondModule == "echo.test.zeta",
+          "module fragments are sorted deterministically");
+    check(root.find("components").size() == 1 &&
+              root.find("components").at(0).find("id").string(firstModule) &&
+              firstModule == "echo:component/transform2d",
+          "manifest includes schemas from the live component registry");
+    check(root.find("actions").size() == 1 &&
+              root.find("capabilities").size() == 1 &&
+              root.find("capabilities").at(0).string(firstModule) &&
+              firstModule == "echo.test.write" &&
+              root.find("conditionOperators").size() == 5 &&
+              root.find("resourceTypes").size() == 7 &&
+              root.find("events").size() == 1 &&
+              root.find("contentSchemas").size() == 3 &&
+              root.find("runtimeFeatures").size() == 2,
+          "manifest includes action, condition, resource, event, schema, and feature metadata");
+
+    const std::array<CapabilityManifestFragment, 2> duplicateFragments{{
+        customFragment, customFragment}};
+    check(exportCapabilityManifest(components, duplicateFragments, second.data(),
+                                   second.size(), secondBytes).code == ErrorCode::DuplicateId,
+          "duplicate IDs across module-provided fragments are rejected");
+    const std::array<CapabilityManifestFragment, 1> undeclaredCapability{{
+        {.actions = actions},
+    }};
+    check(exportCapabilityManifest(components, undeclaredCapability, second.data(),
+                                   second.size(), secondBytes).code == ErrorCode::NotFound,
+          "actions referencing undeclared capabilities are rejected");
+    std::array<char, 1> tooSmall{'x'};
+    check(exportCapabilityManifest(components, firstOrder, tooSmall.data(),
+                                   tooSmall.size(), secondBytes).code ==
+              ErrorCode::BufferTooSmall && tooSmall[0] == '\0',
+          "manifest export reports bounded output exhaustion without partial output");
 }
 
 void testJsonAndContent() {
@@ -613,6 +727,7 @@ void testSaveCodecAndStorage() {
 
 int main() {
     testComponentSchemas();
+    testCapabilityManifest();
     testJsonAndContent();
     testJsonConditions();
     testSaveCodecAndStorage();

@@ -291,6 +291,47 @@ void testLabDoorRequiresKey() {
           "research lab door remains locked without the maintenance key");
 }
 
+void testHealthCellDialogueAndUse() {
+    DialogueFixture fixture;
+    echo::Game game;
+    check(static_cast<bool>(fixture.bind(game)),
+          "health-cell test binds the engineer dialogue");
+    echo::GameCheckpoint damaged = game.checkpoint();
+    damaged.playerHealth = 3;
+    check(damaged.inventory.add(echo::ItemId::MaintenanceKey) &&
+              game.restore(damaged),
+          "damaged player checkpoint restores with the lab key");
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 1 &&
+              game.dialogueChoiceText(0) == "TAKE HEALTH CELL",
+          "Mira offers a health cell only when the player is hurt and has none");
+    step(game, {.interactPressed = true});
+    check(game.inventory().quantity(echo::ItemId::HealthCell) == 1 &&
+              game.dialogueText() == "USE THE HEALTH CELL WHEN YOU NEED IT.",
+          "the JSON dialogue action grants the catalogued health cell");
+    step(game, {.interactPressed = true});
+    check(!game.dialogueActive(), "health-cell grant dialogue can be dismissed");
+    check(static_cast<bool>(game.update({.useItemPressed = true})) &&
+              game.player().health == 5 &&
+              game.inventory().quantity(echo::ItemId::HealthCell) == 0,
+          "using a health cell restores up to two health and consumes one item");
+    check(static_cast<bool>(game.update({.useItemPressed = true})) &&
+              game.player().health == 5,
+          "using the item action without a remaining cell is a safe no-op");
+
+    echo::Game fullHealth;
+    echo::GameCheckpoint fullCheckpoint = fullHealth.checkpoint();
+    check(fullCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 1) &&
+              fullHealth.restore(fullCheckpoint),
+          "full-health fixture accepts a valid health cell");
+    check(static_cast<bool>(fullHealth.update({.useItemPressed = true})) &&
+              fullHealth.player().health == 5 &&
+              fullHealth.inventory().quantity(echo::ItemId::HealthCell) == 1,
+          "a health cell is not consumed when health is already full");
+}
+
 void testProjectileCombatAndDamage() {
     echo::Game game;
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "combat test reaches maintenance tunnel");
@@ -364,6 +405,7 @@ int main() {
     testCheckpointRoundTrip();
     testRoomTransition();
     testTechnicianDialogueAndInventory();
+    testHealthCellDialogueAndUse();
     testLabDoorRequiresKey();
     testProjectileCombatAndDamage();
     testHazardDeathAndRespawn();

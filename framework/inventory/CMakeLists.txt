@@ -1,0 +1,11 @@
+add_library(echo_framework_inventory STATIC src/inventory.cpp)
+add_library(EchoFramework::Inventory ALIAS echo_framework_inventory)
+target_include_directories(echo_framework_inventory PUBLIC include)
+target_compile_features(echo_framework_inventory PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_inventory PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_inventory PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_inventory PRIVATE -Wall -Wextra -Wpedantic)
+endif()

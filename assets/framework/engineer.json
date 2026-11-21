@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "echo:dialogue/engineer",
-  "version": 3,
+  "version": 4,
   "startNode": "greeting",
   "nodes": [
     {
@@ -89,8 +89,46 @@
             "comparison": "eq",
             "value": true
           }
+        },
+        {
+          "id": "take_health_cell",
+          "label": "TAKE HEALTH CELL",
+          "labelCs": "VEZMI SI LECIVY CLANEK",
+          "targetNode": "health_cell_granted",
+          "visibleWhen": {
+            "op": "and",
+            "conditions": [
+              {
+                "op": "compare",
+                "scope": "global",
+                "key": "player.needs_healing",
+                "comparison": "eq",
+                "value": true
+              },
+              {
+                "op": "compare",
+                "scope": "global",
+                "key": "inventory.health_cell",
+                "comparison": "eq",
+                "value": false
+              }
+            ]
+          },
+          "onSelect": {
+            "id": "echo.inventory.grant",
+            "parameters": [
+              {"name": "item", "value": "echo:item/health_cell"}
+            ]
+          }
         }
       ]
+    },
+    {
+      "id": "health_cell_granted",
+      "speaker": "ENGINEER MIRA",
+      "speakerCs": "INŽENÝRKA MÍRA",
+      "text": "USE THE HEALTH CELL WHEN YOU NEED IT.",
+      "textCs": "POUZIJ ZDRAVOTNI CLANEK AZ BUDE TREBA."
     },
     {
       "id": "echo_step_hint",
