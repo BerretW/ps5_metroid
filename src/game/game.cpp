@@ -65,7 +65,11 @@ constexpr float kJumpImpulse = 420.0F;
 constexpr float kMaximumFallSpeed = 520.0F;
 constexpr float kCoyoteSeconds = 0.10F;
 constexpr float kJumpBufferSeconds = 0.12F;
-constexpr Rect kTechnicianBounds{108.0F, 280.0F, 28.0F, 40.0F};
+constexpr std::string_view kEngineerDialogue = "echo:dialogue/engineer";
+constexpr std::string_view kGrantItemAction = "echo.inventory.grant";
+constexpr std::string_view kMaintenanceKeyResource = "echo:item/maintenance_key";
+constexpr framework::StateAddress kHasMaintenanceKey{
+    framework::StateScope::Global, {}, "inventory.maintenance_key"};
 
 [[nodiscard]] std::size_t roomIndex(RoomId room) noexcept {
     return static_cast<std::size_t>(room);
@@ -97,6 +101,52 @@ Game::Game() noexcept {
     start();
 }
 
+framework::Status Game::configureDialogue(
+    const framework::DialogueModule& module, framework::GameState& state,
+    Vec2 technicianPosition) noexcept {
+    using namespace framework;
+    if (dialogueSession_.active()) {
+        return {ErrorCode::InvalidState, kEngineerDialogue,
+                "Dialogue services cannot change during a conversation."};
+    }
+    if (!module.initialized()) {
+        return {ErrorCode::InvalidState, kEngineerDialogue,
+                "The dialogue module must be initialized before configuring the game."};
+    }
+    if (!std::isfinite(technicianPosition.x) || !std::isfinite(technicianPosition.y) ||
+        technicianPosition.x < 0.0F || technicianPosition.y < 0.0F ||
+        technicianPosition.x > static_cast<float>(kRoomWidth) - technician_.width ||
+        technicianPosition.y > static_cast<float>(kRoomHeight) - technician_.height) {
+        return {ErrorCode::InvalidValue, "technician.transform",
+                "The engineer position must fit inside the Landing Bay."};
+    }
+    const DialogueDefinition* definition = nullptr;
+    const Status found = module.find(kEngineerDialogue, definition);
+    if (!found) {
+        return found;
+    }
+    for (const DialogueNode& node : definition->nodes) {
+        for (const DialogueChoice& choice : node.choices) {
+            const ActionRequest& action = choice.onSelect;
+            if (action.id.empty()) {
+                continue;
+            }
+            if (action.id != kGrantItemAction || action.parameters.size() != 1 ||
+                action.parameters[0].name != "item" ||
+                action.parameters[0].value.type != ValueType::String ||
+                action.parameters[0].value.stringValue() != kMaintenanceKeyResource) {
+                return {ErrorCode::InvalidValue, "dialogue.action",
+                        "The engineer dialogue contains an unsupported action or item."};
+            }
+        }
+    }
+    dialogueModule_ = &module;
+    dialogueState_ = &state;
+    technician_.x = technicianPosition.x;
+    technician_.y = technicianPosition.y;
+    return Status::success();
+}
+
 void Game::start() noexcept {
     room_ = RoomId::LandingBay;
     player_ = {{42.0F, kFloorY}, {}, 5, 1, true, false};
@@ -115,7 +165,12 @@ void Game::start() noexcept {
     gateBlocked_ = false;
     accessBlocked_ = false;
     completed_ = false;
-    dialogueLine_ = -1;
+    dialogueSession_.reset();
+    dialogueLine_ = {};
+    dialogueChoices_.fill({});
+    dialogueChoiceCount_ = 0;
+    dialogueSelection_ = 0;
+    dialogueDirection_ = 0;
     deaths_ = 0;
     inventory_ = {};
 }
@@ -186,7 +241,8 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         }
     }
 
-    Game restored{};
+    Game restored = *this;
+    restored.start();
     restored.room_ = checkpointValue.room;
     restored.player_.position = checkpointValue.playerPosition;
     restored.player_.velocity = checkpointValue.playerVelocity;
@@ -247,31 +303,16 @@ int Game::livingEnemies(RoomId room) const noexcept {
 }
 
 Rect Game::technicianBounds() const noexcept {
-    return kTechnicianBounds;
+    return technician_;
 }
 
 bool Game::technicianNearby() const noexcept {
     if (room_ != RoomId::LandingBay) {
         return false;
     }
-    const Rect reach{kTechnicianBounds.x - 52.0F, kTechnicianBounds.y - 20.0F,
-                     kTechnicianBounds.width + 104.0F, kTechnicianBounds.height + 40.0F};
+    const Rect reach{technician_.x - 52.0F, technician_.y - 20.0F,
+                     technician_.width + 104.0F, technician_.height + 40.0F};
     return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
-}
-
-std::string_view Game::dialogueText() const noexcept {
-    switch (dialogueLine_) {
-    case 0:
-        return "ENGINEER: LAB ACCESS IS LOCKED.";
-    case 1:
-        return "ECHO STEP IS IN THE RESEARCH LAB.";
-    case 2:
-        return "TAKE THIS MAINTENANCE KEY.";
-    case 3:
-        return "ENGINEER: THE KEY OPENS THE LAB DOOR.";
-    default:
-        return {};
-    }
 }
 
 bool Game::overlaps(const Rect& first, const Rect& second) noexcept {
@@ -318,26 +359,16 @@ bool Game::overlapsHazard(const Rect& bounds) const noexcept {
     return false;
 }
 
-void Game::update(const Input& input, float deltaSeconds) noexcept {
+framework::Status Game::update(const Input& input, float deltaSeconds) noexcept {
     if (completed_) {
-        return;
+        return framework::Status::success();
     }
 
     const float dt = std::clamp(deltaSeconds, 0.0F, 0.05F);
     gateBlocked_ = false;
     accessBlocked_ = false;
-    if (dialogueLine_ >= 0) {
-        if (input.interactPressed) {
-            if (dialogueLine_ == 0) {
-                dialogueLine_ = 1;
-            } else if (dialogueLine_ == 1) {
-                dialogueLine_ = 2;
-                (void)inventory_.add(ItemId::MaintenanceKey);
-            } else {
-                dialogueLine_ = -1;
-            }
-        }
-        return;
+    if (dialogueSession_.active()) {
+        return updateDialogue(input);
     }
     invulnerabilityTimer_ = std::max(0.0F, invulnerabilityTimer_ - dt);
     shotCooldown_ = std::max(0.0F, shotCooldown_ - dt);
@@ -365,9 +396,13 @@ void Game::update(const Input& input, float deltaSeconds) noexcept {
     }
 
     if (input.interactPressed) {
-        interact();
+        const framework::Status status = interact(input.moveX);
+        if (!status) {
+            return status;
+        }
     }
     resolveRoomEdges();
+    return framework::Status::success();
 }
 
 void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
@@ -523,11 +558,133 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
     }
 }
 
-void Game::interact() noexcept {
+framework::Status Game::syncDialogueState() noexcept {
+    if (dialogueState_ == nullptr) {
+        return {framework::ErrorCode::InvalidState, kEngineerDialogue,
+                "Dialogue state has not been configured."};
+    }
+    return dialogueState_->set(
+        kHasMaintenanceKey,
+        framework::StateValue::fromBoolean(inventory_.contains(ItemId::MaintenanceKey)));
+}
+
+framework::Status Game::refreshDialogue() noexcept {
+    if (!dialogueSession_.active()) {
+        dialogueLine_ = {};
+        dialogueChoices_.fill({});
+        dialogueChoiceCount_ = 0;
+        dialogueSelection_ = 0;
+        return framework::Status::success();
+    }
+    framework::DialogueLineView line{};
+    const framework::Status inspected = dialogueSession_.inspect(*dialogueState_, line);
+    if (!inspected) {
+        return inspected;
+    }
+    std::array<framework::DialogueChoiceView, framework::kMaxDialogueChoices> choices{};
+    for (std::size_t index = 0; index < line.availableChoices; ++index) {
+        const framework::Status status =
+            dialogueSession_.choiceAt(*dialogueState_, index, choices[index]);
+        if (!status) {
+            return status;
+        }
+    }
+    dialogueLine_ = line;
+    dialogueChoices_ = choices;
+    dialogueChoiceCount_ = line.availableChoices;
+    if (dialogueSelection_ >= dialogueChoiceCount_) {
+        dialogueSelection_ = 0;
+    }
+    return framework::Status::success();
+}
+
+framework::ActionResult Game::grantDialogueItem(
+    void* context, const framework::ActionRequest& request) noexcept {
+    using namespace framework;
+    auto* game = static_cast<Game*>(context);
+    if (game == nullptr || request.parameters.size() != 1 ||
+        request.parameters[0].name != "item" ||
+        request.parameters[0].value.type != ValueType::String ||
+        request.parameters[0].value.stringValue() != kMaintenanceKeyResource) {
+        return {{ErrorCode::InvalidValue, kGrantItemAction,
+                 "The inventory action requires the maintenance-key item."}, {}, false};
+    }
+    if (!game->inventory_.add(ItemId::MaintenanceKey)) {
+        return {{ErrorCode::CapacityExceeded, kMaintenanceKeyResource,
+                 "The maintenance key could not be added to the inventory."}, {}, false};
+    }
+    return {Status::success(), {}, false};
+}
+
+framework::Status Game::updateDialogue(const Input& input) noexcept {
+    using namespace framework;
+    const int direction = std::clamp(input.moveX, -1, 1);
+    if (direction != 0 && direction != dialogueDirection_ && dialogueChoiceCount_ > 1) {
+        if (direction > 0) {
+            dialogueSelection_ = (dialogueSelection_ + 1) % dialogueChoiceCount_;
+        } else {
+            dialogueSelection_ = (dialogueSelection_ + dialogueChoiceCount_ - 1) %
+                                 dialogueChoiceCount_;
+        }
+    }
+    dialogueDirection_ = direction;
+    if (!input.interactPressed) {
+        return Status::success();
+    }
+    Status status = syncDialogueState();
+    if (!status) {
+        return status;
+    }
+    status = refreshDialogue();
+    if (!status) {
+        return status;
+    }
+    if (dialogueChoiceCount_ == 0) {
+        status = dialogueSession_.advance(*dialogueState_);
+    } else {
+        ActionRegistry actions{};
+        status = actions.addCapability("echo.inventory.write");
+        if (!status) {
+            return status;
+        }
+        status = actions.registerAction(
+            kGrantItemAction, "echo.inventory.write", &Game::grantDialogueItem, this);
+        if (!status) {
+            return status;
+        }
+        actions.setGameActive(true);
+        status = dialogueSession_.select(
+            dialogueChoices_[dialogueSelection_].id, *dialogueState_, &actions);
+    }
+    if (!status) {
+        return status;
+    }
+    dialogueSelection_ = 0;
+    status = syncDialogueState();
+    return status ? refreshDialogue() : status;
+}
+
+framework::Status Game::interact(int moveDirection) noexcept {
     const Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
     if (technicianNearby()) {
-        dialogueLine_ = inventory_.contains(ItemId::MaintenanceKey) ? 3 : 0;
-        return;
+        if (dialogueModule_ == nullptr || dialogueState_ == nullptr) {
+            return {framework::ErrorCode::InvalidState, kEngineerDialogue,
+                    "The engineer dialogue has not been configured."};
+        }
+        framework::Status status = syncDialogueState();
+        if (!status) {
+            return status;
+        }
+        status = dialogueModule_->start(kEngineerDialogue, dialogueSession_);
+        if (!status) {
+            return status;
+        }
+        dialogueDirection_ = std::clamp(moveDirection, -1, 1);
+        status = refreshDialogue();
+        if (!status) {
+            dialogueSession_.reset();
+        }
+        return status;
     }
     if (room_ == RoomId::MaintenanceTunnel &&
         overlaps(playerBounds, {970.0F, 272.0F, 44.0F, 48.0F})) {
@@ -539,6 +696,7 @@ void Game::interact() noexcept {
     } else if (room_ == RoomId::ResearchLab && player_.position.x < 120.0F) {
         enterRoom(RoomId::MaintenanceTunnel, false);
     }
+    return framework::Status::success();
 }
 
 void Game::resolveRoomEdges() noexcept {

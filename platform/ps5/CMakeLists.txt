@@ -30,6 +30,9 @@ if(ECHO_PS5_GAME)
     file(TO_CMAKE_PATH "${SDL_SOURCE}" SDL_SOURCE)
     get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
     add_subdirectory("${echo_root}/framework" framework)
+    if(NOT TARGET EchoFramework::Narrative)
+        message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
+    endif()
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
@@ -83,6 +86,6 @@ if(ECHO_PS5_GAME)
         "-T${native}/ps5-pie.ld" "--version-script=${native}/app-symbols.map" -e _start)
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
     target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
-        EchoFramework::Core EchoFramework::Data
+        EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
         --end-group --as-needed ${stubs})
 endif()

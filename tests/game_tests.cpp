@@ -1,7 +1,11 @@
 #include "game/game.hpp"
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <memory>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -15,9 +19,51 @@ void check(bool condition, std::string_view message) {
     }
 }
 
+class DialogueFixture {
+public:
+    DialogueFixture() {
+        std::ifstream input(ECHO_SOURCE_ASSETS "framework/engineer.json", std::ios::binary);
+        if (!input) {
+            status_ = {echo::framework::ErrorCode::NotFound, "engineer.json",
+                       "Dialogue test asset could not be opened."};
+            return;
+        }
+        const std::string source{std::istreambuf_iterator<char>(input),
+                                 std::istreambuf_iterator<char>()};
+        document_ = std::make_unique<echo::framework::DialogueDocument>();
+        echo::framework::JsonError error{};
+        status_ = document_->parse(source.data(), source.size(), error);
+        if (!status_) return;
+        status_ = module_.add(*document_->definition());
+        if (!status_) return;
+        echo::framework::ModuleContext context{};
+        if (!module_.initialize(context)) {
+            status_ = {echo::framework::ErrorCode::InitializationFailed, "dialogue",
+                       "Dialogue test module could not initialize."};
+        }
+    }
+
+    ~DialogueFixture() { module_.shutdown(); }
+
+    [[nodiscard]] echo::framework::Status bind(echo::Game& game) noexcept {
+        return status_ ? game.configureDialogue(module_, state_, {108.0F, 280.0F})
+                       : status_;
+    }
+
+private:
+    std::unique_ptr<echo::framework::DialogueDocument> document_{};
+    echo::framework::DialogueModule module_{};
+    echo::framework::GameState state_{};
+    echo::framework::Status status_{};
+};
+
 void step(echo::Game& game, echo::Input input, int ticks = 1) {
     for (int index = 0; index < ticks; ++index) {
-        game.update(input);
+        const auto status = game.update(input);
+        check(static_cast<bool>(status), status ? "game update succeeded" : status.detail);
+        if (!status) {
+            return;
+        }
         input.jumpPressed = false;
         input.interactPressed = false;
     }
@@ -127,12 +173,57 @@ void testRoomTransition() {
 }
 
 void testTechnicianDialogueAndInventory() {
+    echo::Game unconfigured;
+    check(unconfigured.update({.interactPressed = true}).code ==
+              echo::framework::ErrorCode::InvalidState &&
+              !unconfigured.dialogueActive(),
+          "dialogue without its required service reports an error");
+
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bind(game)), "game binds the loaded engineer dialogue");
     check(game.technicianNearby(), "technician is reachable from the Landing Bay start");
-    talkToTechnician(game);
+    step(game, {.interactPressed = true});
+    check(game.dialogueActive() && game.dialogueSpeaker() == "ENGINEER MIRA" &&
+              game.dialogueText() == "LAB ACCESS IS LOCKED.",
+          "engineer displays the first line from the JSON asset");
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 2 && game.selectedDialogueChoice() == 0 &&
+              game.dialogueChoiceText(0) == "TAKE MAINTENANCE KEY",
+          "the offer exposes conditional JSON choices");
+    const float position = game.player().position.x;
+    step(game, {.moveX = 1}, 3);
+    check(game.selectedDialogueChoice() == 1 && game.player().position.x == position,
+          "a held direction changes the choice once without moving the player");
+    step(game, {.moveX = 1, .interactPressed = true});
+    check(game.dialogueText() == "THE KEY OPENS THE LAB DOOR." &&
+              !game.inventory().contains(echo::ItemId::MaintenanceKey),
+          "the information choice follows its branch without granting the key");
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 2 && game.selectedDialogueChoice() == 0,
+          "the information branch loops back to the offer");
+    step(game, {.interactPressed = true});
+    check(game.inventory().contains(echo::ItemId::MaintenanceKey) &&
+              game.dialogueText() == "TAKE THIS MAINTENANCE KEY.",
+          "a registered action grants the key and enters the target line");
+    step(game, {.interactPressed = true});
+    check(!game.dialogueActive(), "the conversation can be dismissed");
     check(game.inventory().count == 1, "key pickup occupies one inventory slot");
     check(game.checkpoint().inventory.contains(echo::ItemId::MaintenanceKey),
           "checkpoint captures the inventory");
+
+    const echo::GameCheckpoint checkpoint = game.checkpoint();
+    check(game.restore(checkpoint), "a configured game restores its checkpoint");
+    step(game, {.interactPressed = true});
+    step(game, {.interactPressed = true});
+    check(game.dialogueChoiceCount() == 0,
+          "restored inventory hides choices that require not having the key");
+    step(game, {.interactPressed = true});
+    check(game.dialogueText() == "THE KEY OPENS THE LAB DOOR.",
+          "hidden choices follow the JSON fallback for a returning player");
+    step(game, {.interactPressed = true});
+    check(!game.dialogueActive() && game.inventory().count == 1,
+          "the repeat conversation preserves the restored inventory");
 }
 
 void testLabDoorRequiresKey() {
@@ -172,7 +263,9 @@ void testHazardDeathAndRespawn() {
 }
 
 void testAbilityGateAndBacktracking() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bind(game)), "progression game binds engineer dialogue");
     talkToTechnician(game);
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "progression reaches maintenance");
     check(moveUntilRoom(game, echo::RoomId::PowerStation, 1), "power station is reachable before the upgrade");

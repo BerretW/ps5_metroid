@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:dialogue/engineer",
+  "version": 1,
+  "startNode": "greeting",
+  "nodes": [
+    {
+      "id": "greeting",
+      "speaker": "ENGINEER MIRA",
+      "text": "LAB ACCESS IS LOCKED.",
+      "nextNode": "offer"
+    },
+    {
+      "id": "offer",
+      "speaker": "ENGINEER MIRA",
+      "text": "ECHO STEP IS IN THE RESEARCH LAB.",
+      "nextNode": "key_owner",
+      "choices": [
+        {
+          "id": "take_key",
+          "label": "TAKE MAINTENANCE KEY",
+          "targetNode": "key_granted",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "inventory.maintenance_key",
+            "comparison": "eq",
+            "value": false
+          },
+          "onSelect": {
+            "id": "echo.inventory.grant",
+            "parameters": [
+              {"name": "item", "value": "echo:item/maintenance_key"}
+            ]
+          }
+        },
+        {
+          "id": "ask_lab",
+          "label": "ASK ABOUT THE LAB",
+          "targetNode": "lab_hint",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "inventory.maintenance_key",
+            "comparison": "eq",
+            "value": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "lab_hint",
+      "speaker": "ENGINEER MIRA",
+      "text": "THE KEY OPENS THE LAB DOOR.",
+      "nextNode": "offer"
+    },
+    {
+      "id": "key_granted",
+      "speaker": "ENGINEER MIRA",
+      "text": "TAKE THIS MAINTENANCE KEY."
+    },
+    {
+      "id": "key_owner",
+      "speaker": "ENGINEER MIRA",
+      "text": "THE KEY OPENS THE LAB DOOR."
+    }
+  ]
+}

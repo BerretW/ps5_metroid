@@ -48,9 +48,35 @@ if (Test-Path -LiteralPath $assetDir) {
             }
             if ($gameConfig.game -ne "echo.project_echo" -or
                 @($gameConfig.modules) -notcontains "echo.state" -or
+                @($gameConfig.modules) -notcontains "echo.narrative.dialogue" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
-                -not ($gameConfig.resources -is [array])) {
+                -not ($gameConfig.resources -is [array]) -or
+                -not ($gameConfig.technician.transform.position -is [array]) -or
+                $gameConfig.technician.transform.position.Count -ne 2 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:dialogue/engineer" -and $_.type -eq "dialogue"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:item/maintenance_key" -and $_.type -eq "item"
+                }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
+        } elseif ($asset.Extension -eq ".json" -and
+                  $asset.FullName -eq (Join-Path $assetDir "framework\engineer.json")) {
+            if ($asset.Length -eq 0 -or $asset.Length -gt 16KB) {
+                throw "Invalid engineer dialogue: file must be between 1 byte and 16 KiB."
+            }
+            try {
+                $dialogue = Get-Content -LiteralPath $asset.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid engineer dialogue: $($_.Exception.Message)"
+            }
+            if ($dialogue.schemaVersion -ne 1 -or $dialogue.id -ne "echo:dialogue/engineer" -or
+                -not $dialogue.version -or -not $dialogue.startNode -or
+                -not ($dialogue.nodes -is [array]) -or
+                $dialogue.nodes.Count -lt 1 -or $dialogue.nodes.Count -gt 64 -or
+                @($dialogue.nodes | Where-Object { $_.id -eq $dialogue.startNode }).Count -ne 1) {
+                throw "Invalid engineer dialogue: required metadata or start node is missing."
             }
         } else {
             throw "Unexpected asset type: $($asset.Name)"
@@ -59,6 +85,9 @@ if (Test-Path -LiteralPath $assetDir) {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\game.json") -PathType Leaf)) {
         throw "Packaged framework game configuration is missing."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\engineer.json") -PathType Leaf)) {
+        throw "Packaged engineer dialogue is missing."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\stb.txt") -PathType Leaf)) {
         throw "Packaged PNG decoder license is missing: licenses\stb.txt"

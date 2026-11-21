@@ -1,9 +1,11 @@
+#include "game/game.hpp"
 #include "platform/sdl/framework_integration.hpp"
 
 #include <cstdlib>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -25,6 +27,14 @@ void check(echo::framework::Status status, std::string_view message) {
 
 int main() {
     constexpr const char* fixturePath = "echo-framework-invalid-config-test.json";
+    constexpr const char* configPath = ECHO_SOURCE_ASSETS "framework/game.json";
+    constexpr const char* dialoguePath = ECHO_SOURCE_ASSETS "framework/engineer.json";
+    const auto writeFixture = [&](std::string_view content) {
+        std::ofstream fixture(fixturePath, std::ios::binary);
+        fixture.write(content.data(), static_cast<std::streamsize>(content.size()));
+        fixture.close();
+        return static_cast<bool>(fixture);
+    };
     {
         std::ofstream fixture(fixturePath, std::ios::binary);
         fixture << R"({"game":"echo.project_echo","modules":["echo.state"],"resources":[]})";
@@ -33,19 +43,149 @@ int main() {
     }
     {
         echo::platform::FrameworkIntegration missingModule;
-        const auto status = missingModule.initialize(fixturePath);
+        const auto status = missingModule.initialize(fixturePath, dialoguePath);
         check(status.code == echo::framework::ErrorCode::MissingDependency &&
                   status.subject == "echo.project_echo",
               "single-module configuration rejects the missing PROJECT ECHO adapter");
     }
     check(std::remove(fixturePath) == 0, "configuration fixture is removed");
+    {
+        std::ofstream fixture(fixturePath, std::ios::binary);
+        fixture << "{ invalid dialogue json";
+        fixture.close();
+        check(static_cast<bool>(fixture), "invalid dialogue fixture is written");
+        echo::platform::FrameworkIntegration malformedDialogue;
+        check(malformedDialogue.initialize(configPath, fixturePath).code ==
+                  echo::framework::ErrorCode::ParseError,
+              "malformed dialogue content fails startup explicitly");
+    }
+    check(std::remove(fixturePath) == 0, "dialogue fixture is removed");
+    {
+        constexpr std::string_view shiftedConfig = R"({
+            "game": "echo.project_echo",
+            "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
+            "technician": {"transform": {"position": [250, 280]}},
+            "resources": [
+                {"id": "echo:dialogue/engineer", "type": "dialogue"},
+                {"id": "echo:item/maintenance_key", "type": "item"}
+            ]
+        })";
+        check(writeFixture(shiftedConfig), "shifted engineer configuration is written");
+        echo::platform::FrameworkIntegration shifted;
+        echo::Game shiftedGame;
+        check(shifted.initialize(fixturePath, dialoguePath) &&
+                  shifted.configureGame(shiftedGame) &&
+                  shiftedGame.technicianBounds().x == 250.0F &&
+                  !shiftedGame.technicianNearby(),
+              "changing the registered transform changes the engineer's gameplay position");
+        const auto checkpoint = shiftedGame.checkpoint();
+        shiftedGame.start();
+        check(shiftedGame.restore(checkpoint) &&
+                  shiftedGame.technicianBounds().x == 250.0F,
+              "new games and checkpoint restoration retain the configured engineer position");
+    }
+    check(std::remove(fixturePath) == 0, "shifted configuration fixture is removed");
+    {
+        constexpr std::string_view unsupportedTransform = R"({
+            "game": "echo.project_echo",
+            "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
+            "technician": {"transform": {"position": [108, 280], "scale": [2, 1]}},
+            "resources": [
+                {"id": "echo:dialogue/engineer", "type": "dialogue"},
+                {"id": "echo:item/maintenance_key", "type": "item"}
+            ]
+        })";
+        check(writeFixture(unsupportedTransform), "unsupported transform fixture is written");
+        echo::platform::FrameworkIntegration invalidTransform;
+        check(invalidTransform.initialize(fixturePath, dialoguePath).code ==
+                  echo::framework::ErrorCode::InvalidValue,
+              "unsupported engineer transform fields fail rather than being ignored");
+    }
+    check(std::remove(fixturePath) == 0, "unsupported transform fixture is removed");
+    {
+        constexpr std::string_view unsupportedAction = R"({
+            "schemaVersion": 1,
+            "id": "echo:dialogue/engineer",
+            "version": 1,
+            "startNode": "start",
+            "nodes": [{
+                "id": "start",
+                "speaker": "ENGINEER MIRA",
+                "text": "CHOOSE.",
+                "choices": [{
+                    "id": "invalid",
+                    "label": "INVALID",
+                    "targetNode": "",
+                    "onSelect": {"id": "echo.unsupported"}
+                }]
+            }]
+        })";
+        check(writeFixture(unsupportedAction), "unsupported dialogue action fixture is written");
+        echo::platform::FrameworkIntegration invalidAction;
+        echo::Game invalidGame;
+        check(invalidAction.initialize(configPath, fixturePath) &&
+                  invalidAction.configureGame(invalidGame).code ==
+                      echo::framework::ErrorCode::InvalidValue &&
+                  !invalidGame.inventory().contains(echo::ItemId::MaintenanceKey),
+              "unsupported compiled actions are rejected before gameplay changes");
+    }
+    check(std::remove(fixturePath) == 0, "unsupported action fixture is removed");
+    {
+        const auto displayStatus = [&](std::string_view speaker, std::string_view line,
+                                       std::string_view label) {
+            std::string json =
+                R"({"schemaVersion":1,"id":"echo:dialogue/engineer","version":1,"startNode":"start","nodes":[{"id":"start","speaker":")";
+            json.append(speaker);
+            json += R"(","text":")";
+            json.append(line);
+            json += R"(","choices":[{"id":"choice","label":")";
+            json.append(label);
+            json += R"(","targetNode":""}]}]})";
+            if (!writeFixture(json)) {
+                return echo::framework::ErrorCode::StorageFailure;
+            }
+            echo::platform::FrameworkIntegration candidate;
+            return candidate.initialize(configPath, fixturePath).code;
+        };
+        check(displayStatus(std::string(39, 'A'), std::string(80, 'A'),
+                            std::string(72, 'A')) == echo::framework::ErrorCode::None,
+              "dialogue text at each bitmap panel limit is accepted");
+        check(displayStatus(std::string(40, 'A'), "LINE", "CHOICE") ==
+                  echo::framework::ErrorCode::InvalidValue &&
+                  displayStatus("SPEAKER", std::string(81, 'A'), "CHOICE") ==
+                  echo::framework::ErrorCode::InvalidValue &&
+                  displayStatus("SPEAKER", "LINE", std::string(73, 'A')) ==
+                  echo::framework::ErrorCode::InvalidValue,
+              "dialogue text exceeding any bitmap panel limit is rejected");
+        check(displayStatus("SPEAKER", "\xC4\x8D", "CHOICE") ==
+                  echo::framework::ErrorCode::InvalidValue,
+              "unsupported UTF-8 glyphs fail explicitly instead of drawing blank text");
+        check(displayStatus("SPEAKER", "UNSUPPORTED!", "CHOICE") ==
+                  echo::framework::ErrorCode::InvalidValue,
+              "unsupported ASCII glyphs also fail explicitly");
+    }
+    check(std::remove(fixturePath) == 0, "dialogue display fixture is removed");
     echo::platform::FrameworkIntegration integration;
-    check(integration.initialize("missing-framework-config.json").code ==
+    check(integration.initialize("missing-framework-config.json", dialoguePath).code ==
               echo::framework::ErrorCode::NotFound,
           "missing game configuration is reported");
-    check(integration.initialize(ECHO_SOURCE_ASSETS "framework/game.json"),
+    check(integration.initialize(configPath, "missing-engineer-dialogue.json").code ==
+              echo::framework::ErrorCode::NotFound,
+          "missing dialogue content is reported");
+    check(integration.initialize(configPath, dialoguePath),
           "PROJECT ECHO module configuration initializes");
     check(integration.beginGame(), "framework state resets at a new game");
+    echo::Game game;
+    check(integration.configureGame(game), "game binds the initialized dialogue module");
+    check(game.technicianBounds().x == 108.0F && game.technicianBounds().y == 280.0F,
+          "schema-instantiated transform positions the engineer in the game");
+    check(game.update({.interactPressed = true}) &&
+              game.dialogueText() == "LAB ACCESS IS LOCKED." &&
+              game.update({.interactPressed = true}) &&
+              game.dialogueChoiceCount() == 2 &&
+              game.update({.interactPressed = true}) &&
+              game.inventory().contains(echo::ItemId::MaintenanceKey),
+          "packaged dialogue loads, renders a choice view, and grants the gameplay key");
     check(integration.notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
     check(integration.unlockEventCount() == 1,
           "ability transition publishes one typed framework event");

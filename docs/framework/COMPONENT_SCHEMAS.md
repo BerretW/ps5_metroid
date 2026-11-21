@@ -13,6 +13,8 @@
 
 Resource-reference existence is checked only when `validateConfig` or `instantiate` receives a `ContentRegistry`. Without a registry, IDs are syntax-checked but not resolved.
 
+PROJECT ECHO uses the built-in `Transform2D` descriptor to instantiate Mira's `technician.transform` from [game.json](../../assets/framework/game.json). The current game accepts a visible, unscaled, unrotated transform whose position fits inside the Landing Bay; invalid content fails explicitly during startup or game configuration.
+
 ## Host tools
 
 Configure a native host build with data and tools enabled, then build the tools:

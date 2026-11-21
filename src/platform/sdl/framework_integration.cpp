@@ -1,25 +1,112 @@
 #include "platform/sdl/framework_integration.hpp"
 
 #include "echo/framework/data.hpp"
+#include "echo/framework/schema.hpp"
+#include "game/game.hpp"
 
 #include <SDL.h>
 
 #include <array>
+#include <memory>
+#include <new>
 #include <string_view>
+#include <utility>
 
 namespace echo::platform {
 namespace {
 
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
-constexpr std::array<std::string_view, 1> kProjectDependencies{"echo.state"};
+constexpr std::array<std::string_view, 2> kProjectDependencies{
+    "echo.state", "echo.narrative.dialogue"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
+constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
 
 const framework::ModuleInfo kStateModuleInfo{
     "echo.state", "Echo state service", 1, {}, {}, kStateServices, {}};
 const framework::ModuleInfo kProjectModuleInfo{
     "echo.project_echo", "PROJECT ECHO adapter", 1,
     kProjectDependencies, {}, kProjectServices, {}};
+
+struct SdlFree {
+    void operator()(char* data) const noexcept { SDL_free(data); }
+};
+
+using FileBuffer = std::unique_ptr<char, SdlFree>;
+
+[[nodiscard]] bool supportsDialogueText(std::string_view text,
+                                        std::size_t maximum) noexcept {
+    if (text.size() > maximum) {
+        return false;
+    }
+    for (const char character : text) {
+        if (!((character >= 'A' && character <= 'Z') ||
+              (character >= 'a' && character <= 'z') ||
+              (character >= '0' && character <= '9') ||
+              character == ' ' || character == '+' || character == '%' ||
+              character == ':' || character == '-' || character == '.' ||
+              character == '/')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] framework::Status validateDialogueDisplay(
+    const framework::DialogueDefinition& definition) noexcept {
+    // The dialogue panel uses single-line, fixed-width bitmap text.
+    for (const framework::DialogueNode& node : definition.nodes) {
+        if (!supportsDialogueText(node.speaker, 39) ||
+            !supportsDialogueText(node.text, 80)) {
+            return {framework::ErrorCode::InvalidValue, "dialogue.text",
+                    "Dialogue speaker or line does not fit the game's ASCII bitmap font."};
+        }
+        for (const framework::DialogueChoice& choice : node.choices) {
+            if (!supportsDialogueText(choice.label, 72)) {
+                return {framework::ErrorCode::InvalidValue, "dialogue.label",
+                        "Dialogue choice does not fit the game's ASCII bitmap font."};
+            }
+        }
+    }
+    return framework::Status::success();
+}
+
+[[nodiscard]] framework::Status readContentFile(
+    const char* path, std::size_t limit, FileBuffer& data,
+    std::size_t& size) noexcept {
+    using namespace framework;
+    SDL_RWops* file = SDL_RWFromFile(path, "rb");
+    if (file == nullptr) {
+        return {ErrorCode::NotFound, path, "Required framework content could not be opened."};
+    }
+    const Sint64 fileSize = SDL_RWsize(file);
+    if (fileSize <= 0 || static_cast<std::uint64_t>(fileSize) > limit) {
+        SDL_RWclose(file);
+        return {ErrorCode::CapacityExceeded, path,
+                "Framework content is empty or exceeds its size limit."};
+    }
+    size = static_cast<std::size_t>(fileSize);
+    data.reset(static_cast<char*>(SDL_malloc(size)));
+    if (!data) {
+        SDL_RWclose(file);
+        return {ErrorCode::CapacityExceeded, path,
+                "Framework content buffer allocation failed."};
+    }
+    std::size_t bytesRead = 0;
+    while (bytesRead < size) {
+        const std::size_t count = SDL_RWread(file, data.get() + bytesRead, 1, size - bytesRead);
+        if (count == 0) {
+            break;
+        }
+        bytesRead += count;
+    }
+    const int closeResult = SDL_RWclose(file);
+    if (bytesRead != size || closeResult != 0) {
+        return {ErrorCode::StorageFailure, path,
+                "Framework content read or close failed."};
+    }
+    return Status::success();
+}
 
 } // namespace
 
@@ -41,49 +128,26 @@ FrameworkIntegration::~FrameworkIntegration() {
     shutdown();
 }
 
-framework::Status FrameworkIntegration::initialize(const char* configPath) noexcept {
+framework::Status FrameworkIntegration::initialize(const char* configPath,
+                                                    const char* dialoguePath) noexcept {
     if (initialized_) {
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration is already initialized."};
     }
-    if (configPath == nullptr) {
-        return {framework::ErrorCode::InvalidArgument, {}, "Framework game configuration path is required."};
+    if (configPath == nullptr || dialoguePath == nullptr) {
+        return {framework::ErrorCode::InvalidArgument, {},
+                "Framework game configuration and dialogue paths are required."};
     }
-    SDL_RWops* file = SDL_RWFromFile(configPath, "rb");
-    if (file == nullptr) {
-        return {framework::ErrorCode::NotFound, configPath, "Framework game configuration could not be opened."};
-    }
-    const Sint64 fileSize = SDL_RWsize(file);
-    if (fileSize <= 0 || static_cast<std::uint64_t>(fileSize) > kMaxGameConfigBytes) {
-        SDL_RWclose(file);
-        return {framework::ErrorCode::CapacityExceeded, configPath,
-                "Framework game configuration must be between 1 byte and 16 KiB."};
-    }
-    const auto size = static_cast<std::size_t>(fileSize);
-    auto* data = static_cast<char*>(SDL_malloc(size));
-    if (data == nullptr) {
-        SDL_RWclose(file);
-        return {framework::ErrorCode::CapacityExceeded, configPath,
-                "Framework configuration buffer allocation failed."};
-    }
-    std::size_t bytesRead = 0;
-    while (bytesRead < size) {
-        const std::size_t count = SDL_RWread(file, data + bytesRead, 1, size - bytesRead);
-        if (count == 0) {
-            break;
-        }
-        bytesRead += count;
-    }
-    const int closeResult = SDL_RWclose(file);
-    if (bytesRead != size || closeResult != 0) {
-        SDL_free(data);
-        return {framework::ErrorCode::StorageFailure, configPath,
-                "Framework game configuration read or close failed."};
+    FileBuffer data{};
+    std::size_t size{};
+    framework::Status status = readContentFile(configPath, kMaxGameConfigBytes, data, size);
+    if (!status) {
+        return status;
     }
     framework::JsonDocument document{};
     framework::JsonError jsonError{};
-    framework::Status status = framework::JsonDocument::parse(data, size, document, jsonError);
-    SDL_free(data);
+    status = framework::JsonDocument::parse(data.get(), size, document, jsonError);
+    data.reset();
     if (!status) {
         return status;
     }
@@ -96,6 +160,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath) noexc
                 "Configuration requires game echo.project_echo and a bounded modules array."};
     }
     bool stateSelected = false;
+    bool dialogueSelected = false;
     bool projectSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
@@ -103,11 +168,13 @@ framework::Status FrameworkIntegration::initialize(const char* configPath) noexc
             return {framework::ErrorCode::InvalidValue, "modules",
                     "Configured module IDs must be strings."};
         }
-        if (moduleId != "echo.state" && moduleId != "echo.project_echo") {
+        if (moduleId != "echo.state" && moduleId != "echo.narrative.dialogue" &&
+            moduleId != "echo.project_echo") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
         stateSelected = stateSelected || moduleId == "echo.state";
+        dialogueSelected = dialogueSelected || moduleId == "echo.narrative.dialogue";
         projectSelected = projectSelected || moduleId == "echo.project_echo";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
@@ -118,16 +185,87 @@ framework::Status FrameworkIntegration::initialize(const char* configPath) noexc
             }
         }
     }
-    if (!stateSelected || !projectSelected) {
+    if (!stateSelected || !dialogueSelected || !projectSelected) {
         return {framework::ErrorCode::MissingDependency, "echo.project_echo",
-                "The game configuration must select the state service and PROJECT ECHO adapter."};
+                "The game configuration must select state, dialogue, and PROJECT ECHO modules."};
     }
     framework::ContentRegistry content{};
     status = framework::loadResourceManifest(root, content);
     if (!status) {
         return {status.code, "resources", status.detail};
     }
+    framework::ResourceInfo dialogueResource{};
+    status = content.find("echo:dialogue/engineer", dialogueResource);
+    if (!status || dialogueResource.type != framework::ResourceType::Dialogue ||
+        dialogueResource.optional) {
+        return {framework::ErrorCode::MissingDependency, "echo:dialogue/engineer",
+                "The engineer dialogue must be a required dialogue resource."};
+    }
+    framework::ResourceInfo keyResource{};
+    status = content.find("echo:item/maintenance_key", keyResource);
+    if (!status || keyResource.type != framework::ResourceType::Item || keyResource.optional) {
+        return {framework::ErrorCode::MissingDependency, "echo:item/maintenance_key",
+                "The maintenance key must be a required item resource."};
+    }
+
+    const framework::JsonValue technician = root.find("technician");
+    if (!technician.isObject()) {
+        return {framework::ErrorCode::InvalidValue, "technician",
+                "Game configuration requires the engineer's component settings."};
+    }
+    framework::ComponentTypeRegistry componentTypes{};
+    status = framework::registerCoreComponentTypes(componentTypes);
+    if (!status) {
+        return status;
+    }
+    framework::ComponentInstance component{};
+    status = componentTypes.instantiate(
+        "echo:component/transform2d", technician.find("transform"), component, &content);
+    if (!status) {
+        return {status.code, "technician.transform", status.detail};
+    }
+    framework::Transform2DComponent transform{};
+    if (!component.read(transform) || !transform.visible || transform.scaleX != 1.0F ||
+        transform.scaleY != 1.0F || transform.rotationDegrees != 0.0F) {
+        return {framework::ErrorCode::InvalidValue, "technician.transform",
+                "The engineer requires a visible, unscaled, unrotated transform."};
+    }
+
+    status = readContentFile(dialoguePath, kMaxDialogueBytes, data, size);
+    if (!status) {
+        return status;
+    }
+    std::unique_ptr<framework::DialogueDocument> dialogue(
+        new (std::nothrow) framework::DialogueDocument{});
+    if (!dialogue) {
+        return {framework::ErrorCode::CapacityExceeded, "dialogue",
+                "Dialogue document allocation failed."};
+    }
+    status = dialogue->parse(data.get(), size, jsonError);
+    data.reset();
+    if (!status) {
+        return status;
+    }
+    if (dialogue->definition()->id != dialogueResource.id) {
+        return {framework::ErrorCode::InvalidValue, "dialogue",
+                "The dialogue file does not match the engineer resource ID."};
+    }
+    status = validateDialogueDisplay(*dialogue->definition());
+    if (!status) {
+        return status;
+    }
+    status = dialogueModule_.add(*dialogue->definition());
+    if (!status) {
+        return status;
+    }
+    dialogueDocument_ = std::move(dialogue);
+    technicianPosition_ = {transform.x, transform.y};
+
     status = modules_.add(stateModule_, stateSelected);
+    if (!status) {
+        return status;
+    }
+    status = modules_.add(dialogueModule_, dialogueSelected);
     if (!status) {
         return status;
     }
@@ -160,6 +298,16 @@ framework::Status FrameworkIntegration::initialize(const char* configPath) noexc
     }
     initialized_ = true;
     return framework::Status::success();
+}
+
+framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
+    if (!initialized_) {
+        return {framework::ErrorCode::InvalidState, "echo.project_echo",
+                "Framework integration must initialize before configuring the game."};
+    }
+    return game.configureDialogue(
+        dialogueModule_, stateModule_.state,
+        {technicianPosition_[0], technicianPosition_[1]});
 }
 
 framework::Status FrameworkIntegration::beginGame() noexcept {

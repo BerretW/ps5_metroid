@@ -30,7 +30,7 @@ Gameplay belongs in `src/game/`; SDL-specific input and presentation belong in `
 
 ## Prototype scope
 
-The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate. Engineer Mira offers a short interaction-driven dialogue in the Landing Bay and gives the Maintenance Key, which is tracked in the bounded player inventory and gates the Research Laboratory door. Volume and keyboard bindings persist in a separate versioned settings slot; gameplay progress and inventory use the autosave slot.
+The map has five connected rooms, tile-based floors/platforms/hazards, a maintenance enemy, a power-station enemy, projectiles, damage/invulnerability, respawn, a room camera, a map overlay, a menu, options, pause, and an Echo Step ability gate. Engineer Mira offers a JSON-driven dialogue with selectable choices in the Landing Bay and can give the Maintenance Key, which is tracked in the bounded player inventory and gates the Research Laboratory door. Her position is loaded through the Transform2D component schema. Volume and keyboard bindings persist in a separate versioned settings slot; gameplay progress and inventory use the autosave slot.
 
 Sprites and sounds are original, procedurally generated assets (see [ASSETS.md](ASSETS.md)); the player has idle/run/jump/fall animation frames. Final art, music, and comprehensive input-device QA are follow-up work.
 

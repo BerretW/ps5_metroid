@@ -485,11 +485,23 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(185, 196, "FACILITY EXIT REACHED", 1, kText);
     }
     if (game.dialogueActive()) {
-        panel({64, 234, 512, 82}, SDL_Color{4, 10, 17, 242});
-        panel({64, 234, 512, 3}, kCyan);
-        text(82, 248, "ENGINEER MIRA", 2, kText);
-        text(82, 275, game.dialogueText(), 1, kMuted);
-        text(486, 298, "NEXT", 1, kCyan);
+        panel({64, 210, 512, 106}, SDL_Color{4, 10, 17, 242});
+        panel({64, 210, 512, 3}, kCyan);
+        text(82, 220, game.dialogueSpeaker(), 2, kText);
+        text(82, 246, game.dialogueText(), 1, kMuted);
+        if (game.dialogueChoiceCount() != 0) {
+            std::array<char, 16> ordinal{};
+            std::snprintf(ordinal.data(), ordinal.size(), "%u/%u",
+                          static_cast<unsigned>(game.selectedDialogueChoice() + 1),
+                          static_cast<unsigned>(game.dialogueChoiceCount()));
+            text(82, 268, ordinal.data(), 1, kMuted);
+            text(124, 268, game.dialogueChoiceText(game.selectedDialogueChoice()), 1, kCyan);
+            text(82, 298, controls_ == ControlScheme::PlayStation
+                              ? "\x05 CHOOSE" : "LEFT/RIGHT CHOOSE", 1, kMuted);
+            text(474, 298, "SELECT", 1, kCyan);
+        } else {
+            text(486, 298, "NEXT", 1, kCyan);
+        }
         text(538, 296, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (paused) {

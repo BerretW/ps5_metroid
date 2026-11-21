@@ -13,6 +13,7 @@ description: Add statically linked Echo Framework modules with explicit dependen
 4. Add a CMake target only for real functionality. Link optional targets explicitly; runtime config selects code already present in the executable.
 5. Test successful ordering, missing dependencies, cycles, failure rollback, and reverse shutdown. Do not create empty genre modules.
 6. Update `docs/framework/MODULES.md` and the relevant service guide.
+7. Prefer `EchoFramework::Narrative` as the bounded optional-module example; preserve static definition lifetimes and explicit `GameState`/`ActionRegistry` flow.
 
 ## References
 
@@ -20,3 +21,4 @@ description: Add statically linked Echo Framework modules with explicit dependen
 - `framework/tests/core_tests.cpp`
 - `framework/examples/core_demo/`
 - `docs/framework/MODULES.md`
+- `docs/framework/NARRATIVE.md`

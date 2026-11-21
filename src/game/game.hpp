@@ -1,5 +1,7 @@
 #pragma once
 
+#include "echo/framework/narrative.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -118,8 +120,12 @@ class Game {
 public:
     Game() noexcept;
 
+    [[nodiscard]] framework::Status configureDialogue(
+        const framework::DialogueModule& module, framework::GameState& state,
+        Vec2 technicianPosition) noexcept;
     void start() noexcept;
-    void update(const Input& input, float deltaSeconds = kFixedStep) noexcept;
+    [[nodiscard]] framework::Status update(
+        const Input& input, float deltaSeconds = kFixedStep) noexcept;
     [[nodiscard]] GameCheckpoint checkpoint() const noexcept;
     [[nodiscard]] bool restore(const GameCheckpoint& checkpoint) noexcept;
 
@@ -139,8 +145,14 @@ public:
     [[nodiscard]] Rect abilityPickup() const noexcept { return abilityPickup_; }
     [[nodiscard]] Rect technicianBounds() const noexcept;
     [[nodiscard]] bool technicianNearby() const noexcept;
-    [[nodiscard]] bool dialogueActive() const noexcept { return dialogueLine_ >= 0; }
-    [[nodiscard]] std::string_view dialogueText() const noexcept;
+    [[nodiscard]] bool dialogueActive() const noexcept { return dialogueSession_.active(); }
+    [[nodiscard]] std::string_view dialogueSpeaker() const noexcept { return dialogueLine_.speaker; }
+    [[nodiscard]] std::string_view dialogueText() const noexcept { return dialogueLine_.text; }
+    [[nodiscard]] std::size_t dialogueChoiceCount() const noexcept { return dialogueChoiceCount_; }
+    [[nodiscard]] std::size_t selectedDialogueChoice() const noexcept { return dialogueSelection_; }
+    [[nodiscard]] std::string_view dialogueChoiceText(std::size_t index) const noexcept {
+        return index < dialogueChoiceCount_ ? dialogueChoices_[index].label : std::string_view{};
+    }
     [[nodiscard]] const Inventory& inventory() const noexcept { return inventory_; }
 
 private:
@@ -148,7 +160,12 @@ private:
     void updateEnemies(float deltaSeconds) noexcept;
     void updateProjectiles(const Input& input, float deltaSeconds) noexcept;
     void resolveRoomEdges() noexcept;
-    void interact() noexcept;
+    [[nodiscard]] framework::Status interact(int moveDirection) noexcept;
+    [[nodiscard]] framework::Status syncDialogueState() noexcept;
+    [[nodiscard]] framework::Status refreshDialogue() noexcept;
+    [[nodiscard]] framework::Status updateDialogue(const Input& input) noexcept;
+    [[nodiscard]] static framework::ActionResult grantDialogueItem(
+        void* context, const framework::ActionRequest& request) noexcept;
     void damagePlayer() noexcept;
     void enterRoom(RoomId destination, bool fromLeft) noexcept;
     [[nodiscard]] bool collidesWithWorld(const Rect& bounds) const noexcept;
@@ -169,9 +186,17 @@ private:
     bool gateBlocked_{};
     bool accessBlocked_{};
     bool completed_{};
-    int dialogueLine_{-1};
     int deaths_{};
     Inventory inventory_{};
+    Rect technician_{108.0F, 280.0F, 28.0F, 40.0F};
+    const framework::DialogueModule* dialogueModule_{};
+    framework::GameState* dialogueState_{};
+    framework::DialogueSession dialogueSession_{};
+    framework::DialogueLineView dialogueLine_{};
+    std::array<framework::DialogueChoiceView, framework::kMaxDialogueChoices> dialogueChoices_{};
+    std::size_t dialogueChoiceCount_{};
+    std::size_t dialogueSelection_{};
+    int dialogueDirection_{};
 };
 
 } // namespace echo

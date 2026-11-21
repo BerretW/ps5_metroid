@@ -20,11 +20,16 @@ option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" ${BUILD_
 option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" ${BUILD_TESTING})
 add_subdirectory(framework)
 
+if(NOT TARGET EchoFramework::Narrative)
+    message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
+endif()
+
 add_library(echo_game
     src/game/game.cpp
 )
 target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
+target_link_libraries(echo_game PUBLIC EchoFramework::Narrative)
 
 if(MSVC)
     target_compile_options(echo_game PRIVATE /W4 /permissive-)
@@ -50,10 +55,11 @@ target_compile_features(project_echo PRIVATE cxx_std_20)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
     EchoFramework::Core EchoFramework::Data)
-# Runtime assets are loaded from <executable dir>/assets.
-add_custom_command(TARGET project_echo POST_BUILD
+# Runtime assets are loaded from <executable dir>/assets, including on incremental builds.
+add_custom_target(echo_runtime_assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:project_echo>/assets")
+add_dependencies(project_echo echo_runtime_assets)
 
 if(MSVC)
     target_compile_options(project_echo PRIVATE /W4 /permissive-)
@@ -65,10 +71,12 @@ enable_testing()
 add_executable(echo_tests tests/game_tests.cpp)
 target_link_libraries(echo_tests PRIVATE echo_game)
 target_compile_features(echo_tests PRIVATE cxx_std_20)
+target_compile_definitions(echo_tests PRIVATE ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 add_test(NAME echo_gameplay COMMAND echo_tests)
 
 add_executable(echo_sdl_tests
     tests/sdl_renderer_tests.cpp
+    src/platform/sdl/framework_integration.cpp
     src/platform/sdl/renderer.cpp
     src/input/dualsense_diagnostics.cpp
 )
@@ -92,7 +100,7 @@ target_compile_features(echo_framework_integration_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_framework_integration_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 target_link_libraries(echo_framework_integration_tests PRIVATE
-    SDL2-static EchoFramework::Data)
+    echo_game SDL2-static EchoFramework::Data)
 if(MSVC)
     target_compile_options(echo_framework_integration_tests PRIVATE /W4 /permissive-)
 else()

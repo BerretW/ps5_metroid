@@ -1,4 +1,5 @@
 #include "platform/sdl/assets.hpp"
+#include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/renderer.hpp"
 #include "platform/sdl/settings_persistence.hpp"
@@ -59,15 +60,17 @@ void testSettingsPersistence() {
           "settings decoder rejects values with incorrect types");
 }
 
-void testGameCheckpointPersistence() {
+void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integration) {
     using echo::framework::GameState;
     using echo::framework::StateScope;
     using echo::framework::StateValue;
 
     echo::Game game;
-    game.update({.interactPressed = true});
-    game.update({.interactPressed = true});
-    game.update({.interactPressed = true});
+    check(static_cast<bool>(integration.configureGame(game)), "checkpoint game binds dialogue");
+    check(static_cast<bool>(game.update({.interactPressed = true})) &&
+              static_cast<bool>(game.update({.interactPressed = true})) &&
+              static_cast<bool>(game.update({.interactPressed = true})),
+          "checkpoint fixture acquires the key through the loaded dialogue");
     GameState saved{};
     check(static_cast<bool>(echo::platform::encodeGameCheckpoint(game, saved)),
           "game checkpoint encodes to framework state");
@@ -142,8 +145,15 @@ int main() {
     echo::platform::Renderer keyboard{ControlScheme::Keyboard};
     echo::platform::Renderer pad{ControlScheme::PlayStation};
     try {
+        echo::platform::FrameworkIntegration integration;
+        const auto status = integration.initialize(
+            ECHO_SOURCE_ASSETS "framework/game.json",
+            ECHO_SOURCE_ASSETS "framework/engineer.json");
+        if (!status || !integration.beginGame()) {
+            throw std::runtime_error("Framework test content failed to initialize.");
+        }
         testSettingsPersistence();
-        testGameCheckpointPersistence();
+        testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
             throw std::runtime_error(SDL_GetError());
         }
@@ -168,16 +178,34 @@ int main() {
         check(padHint != keyboardHint, "platform selection changes the gameplay prompts");
 
         echo::Game dialogueGame;
+        check(static_cast<bool>(integration.configureGame(dialogueGame)),
+              "renderer game binds loaded dialogue content");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         const auto emptyInventory = capture(keyboardWindow, {206, 12, 152, 38});
         const auto closedDialogue = capture(keyboardWindow, {64, 234, 512, 82});
-        dialogueGame.update({.interactPressed = true});
+        check(static_cast<bool>(dialogueGame.update({.interactPressed = true})),
+              "engineer conversation starts");
         check(dialogueGame.dialogueActive(), "nearby engineer can be talked to");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         check(closedDialogue != capture(keyboardWindow, {64, 234, 512, 82}),
               "engineer dialogue renders in the game viewport");
-        dialogueGame.update({.interactPressed = true});
-        dialogueGame.update({.interactPressed = true});
+        check(static_cast<bool>(dialogueGame.update({.interactPressed = true})) &&
+                  dialogueGame.dialogueChoiceCount() == 2,
+              "engineer dialogue shows choices");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        const auto firstChoice = capture(keyboardWindow, {82, 264, 340, 14});
+        check(static_cast<bool>(dialogueGame.update({.moveX = 1})),
+              "dialogue choice navigation succeeds");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(firstChoice != capture(keyboardWindow, {82, 264, 340, 14}),
+              "the selected dialogue choice changes on screen");
+        const auto keyboardChoiceHint = capture(keyboardWindow, {82, 296, 200, 12});
+        pad.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(keyboardChoiceHint != capture(padWindow, {82, 296, 200, 12}),
+              "dialogue choice navigation uses platform-specific prompts");
+        check(static_cast<bool>(dialogueGame.update({.moveX = -1})) &&
+                  static_cast<bool>(dialogueGame.update({.interactPressed = true})),
+              "selecting the key choice succeeds");
         keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
         check(emptyInventory != capture(keyboardWindow, {206, 12, 152, 38}),
               "inventory HUD updates when the maintenance key is acquired");
@@ -204,7 +232,12 @@ int main() {
                 game.player().position.x > 930.0F && game.player().position.x < 1040.0F) {
                 break;
             }
-            game.update({.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true});
+            const auto update = game.update(
+                {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true});
+            if (!update) {
+                check(false, "door prompt gameplay fixture updates");
+                break;
+            }
         }
         check(game.roomId() == echo::RoomId::MaintenanceTunnel &&
                   game.player().position.x > 930.0F && game.player().position.x < 1040.0F,

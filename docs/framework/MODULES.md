@@ -19,4 +19,6 @@ public:
 
 Targets are `EchoFramework::Core` plus optional `EchoFramework::Entities`, `EchoFramework::Events`, and `EchoFramework::Data`. `ECHO_FRAMEWORK_ENABLE_DATA` controls the data target; tests and the example are selected with `ECHO_FRAMEWORK_BUILD_TESTS` and `ECHO_FRAMEWORK_BUILD_EXAMPLE`. The `EchoFramework::Core` target does not imply genre modules.
 
-PROJECT ECHO's startup config lists `echo.state` and `echo.project_echo`; the adapter rejects unknown IDs so a data file cannot select code absent from the executable.
+The bounded dialogue service is provided by the optional `EchoFramework::Narrative` target and module ID `echo.narrative.dialogue` (`ECHO_FRAMEWORK_ENABLE_NARRATIVE`, on by default). It requires `EchoFramework::Data` for stable content-ID validation and advertises `echo.service.dialogue`. Definitions must be registered before module initialization and remain immutable and alive while sessions use them. See [narrative](NARRATIVE.md) for graph and action behavior.
+
+PROJECT ECHO's startup config selects `echo.state`, `echo.narrative.dialogue`, and `echo.project_echo`. All three are required by the game adapter, which rejects unknown IDs so a data file cannot select code absent from the executable. The reusable framework can still be built without the optional dialogue module.

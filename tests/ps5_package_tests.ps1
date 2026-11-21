@@ -1,10 +1,23 @@
 #requires -Version 5.1
+param([switch]$Controller)
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$package = Join-Path $root "dist\ps5\PPSA91007"
+$packageVariant = if ($Controller) { "ps5-controller" } else { "ps5" }
+$gameBuildName = if ($Controller) { "game-controller" } else { "game" }
+$package = Join-Path $root ("dist\" + $packageVariant + "\PPSA91007")
+$gameBuild = Join-Path $root ("build\ps5\" + $gameBuildName)
 $validator = Join-Path $root "scripts\test-ps5-package.ps1"
 $tool = Join-Path $root "build\ps5\host\ps5-native-tool.exe"
 & $validator -PackagePath $package
+if ($Controller) {
+    $report = Get-Content -LiteralPath (Join-Path $root "build\ps5\logs\PPSA91007-validation.json") -Raw |
+        ConvertFrom-Json
+    if (@($report.systemRuntimeModules) -contains "libSceKeyboard.prx" -or
+        @($report.systemRuntimeModules) -contains "libSceImeDialog.prx") {
+        throw "Controller package must not import PS5 keyboard or IME modules."
+    }
+}
 $projectLicense = Join-Path $package "licenses\PROJECT_ECHO.txt"
 if (-not (Test-Path -LiteralPath $projectLicense -PathType Leaf) -or
     (Get-FileHash -LiteralPath $projectLicense -Algorithm SHA256).Hash -ne
@@ -18,7 +31,7 @@ if (-not (Test-Path -LiteralPath $jsonLicense -PathType Leaf) -or
     (Get-FileHash -LiteralPath (Join-Path $root "licenses\yyjson.txt") -Algorithm SHA256).Hash) {
     throw "Package is missing the current yyjson license."
 }
-$sdlRevision = Join-Path $root "build\ps5\game\sdl\include\SDL2\SDL_revision.h"
+$sdlRevision = Join-Path $gameBuild "sdl\include\SDL2\SDL_revision.h"
 $expectedRevision = '#define SDL_REVISION "SDL-' + $sdlVersion + '-no-vcs"'
 if (-not ((Get-Content -LiteralPath $sdlRevision) -ccontains $expectedRevision)) {
     throw "SDL revision must not be derived from the parent Git repository."
@@ -59,6 +72,14 @@ try {
     [IO.File]::WriteAllText($gameConfig, "{ not valid json")
     Expect-Rejection "Invalid framework game configuration"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $dialogue = Join-Path $fixture "assets\framework\engineer.json"
+    $originalDialogue = [IO.File]::ReadAllBytes($dialogue)
+    [IO.File]::WriteAllText($dialogue, "{ not valid json")
+    Expect-Rejection "Invalid engineer dialogue"
+    [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
+    Remove-Item -LiteralPath $dialogue -Force
+    Expect-Rejection "Packaged engineer dialogue is missing"
+    [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -73,7 +94,7 @@ try {
     [IO.File]::WriteAllBytes($eboot, $bytes)
     Expect-Rejection "FSELF validation failed"
 
-    $elf = Join-Path $root "build\ps5\game\eboot.elf"
+    $elf = Join-Path $gameBuild "eboot.elf"
     $bytes = [IO.File]::ReadAllBytes($elf)
     $header = [int][BitConverter]::ToUInt64($bytes, 32)
     $address = [BitConverter]::ToUInt64($bytes, $header + 16)
@@ -92,4 +113,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 package tests PASS: project/yyjson licenses, SDL revision, isolated reports, valid package, corrupt PNG/config, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue, missing dialogue, digest corruption, signed misaligned ELF."

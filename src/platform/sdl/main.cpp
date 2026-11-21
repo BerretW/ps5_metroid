@@ -611,6 +611,7 @@ int main(int, char**) {
 
     std::array<char, 512> assetsRoot{};
     std::array<char, 512> gameConfigPath{};
+    std::array<char, 512> dialoguePath{};
     if (!echo::platform::assetRoot(assetsRoot.data(), assetsRoot.size())) {
         logMessage("Framework initialization failed: asset directory is unavailable");
         SDL_Quit();
@@ -624,16 +625,33 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
+    const int dialoguePathLength = std::snprintf(
+        dialoguePath.data(), dialoguePath.size(), "%sframework/engineer.json", assetsRoot.data());
+    if (dialoguePathLength <= 0 ||
+        static_cast<std::size_t>(dialoguePathLength) >= dialoguePath.size()) {
+        logMessage("Framework initialization failed: dialogue path is too long");
+        SDL_Quit();
+        return 1;
+    }
     echo::platform::FrameworkIntegration framework;
     const echo::framework::Status frameworkStatus =
-        framework.initialize(gameConfigPath.data());
+        framework.initialize(gameConfigPath.data(), dialoguePath.data());
     if (!frameworkStatus) {
         logMessage("Framework initialization failed");
         logMessage(frameworkStatus.detail);
         SDL_Quit();
         return 1;
     }
-    logMessage("Echo Framework core initialized from assets/framework/game.json");
+    echo::Game game;
+    const echo::framework::Status gameSetup = framework.configureGame(game);
+    if (!gameSetup) {
+        logMessage("Game content initialization failed");
+        logMessage(gameSetup.detail);
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+    logMessage("Echo Framework and engineer dialogue initialized from assets/framework");
 #if defined(__PROSPERO__)
     echo::framework::Ps5SaveStorage saveProvider{};
 #else
@@ -703,7 +721,6 @@ int main(int, char**) {
     diagnosticCheckpoint("ECHO DIAG 08a: assets attempted; before game state");
 #endif
 
-    echo::Game game;
     std::array<char, echo::framework::kMaxSaveBytes> saveScratch{};
     bool continueAvailable = false;
     bool settingsAvailable = false;
@@ -1219,7 +1236,7 @@ int main(int, char**) {
             logMessage(status.detail);
             return false;
         }
-        echo::Game resumed{};
+        echo::Game resumed = game;
         if (!resumed.restore(checkpoint)) {
             logMessage("Gameplay autosave checkpoint is invalid");
             return false;
@@ -1642,7 +1659,11 @@ int main(int, char**) {
                 pendingInteract,
             };
             const SoundState before = captureSoundState(game);
-            game.update(input);
+            const echo::framework::Status gameplayStatus = game.update(input);
+            if (!gameplayStatus) {
+                logMessage("Gameplay interaction failed");
+                logMessage(gameplayStatus.detail);
+            }
             const SoundState after = captureSoundState(game);
             soundEvents |= soundEventsBetween(before, after);
             if (!before.abilityCollected && after.abilityCollected) {

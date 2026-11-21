@@ -2,12 +2,27 @@
   "game": "echo.project_echo",
   "modules": [
     "echo.state",
+    "echo.narrative.dialogue",
     "echo.project_echo"
   ],
+  "technician": {
+    "transform": {
+      "position": [108, 280]
+    }
+  },
   "resources": [
     {
       "id": "echo:ability/echo_step",
       "type": "ability"
+    },
+    {
+      "id": "echo:item/maintenance_key",
+      "type": "item"
+    },
+    {
+      "id": "echo:dialogue/engineer",
+      "type": "dialogue",
+      "dependsOn": ["echo:ability/echo_step", "echo:item/maintenance_key"]
     },
     {
       "id": "echo:sprite/player",

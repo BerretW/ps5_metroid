@@ -1,0 +1,4 @@
+add_executable(echo_framework_narrative_demo main.cpp)
+target_link_libraries(echo_framework_narrative_demo PRIVATE EchoFramework::Narrative)
+target_compile_features(echo_framework_narrative_demo PRIVATE cxx_std_20)
+add_test(NAME echo_framework_narrative_demo COMMAND echo_framework_narrative_demo)
