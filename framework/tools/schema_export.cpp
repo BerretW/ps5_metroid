@@ -1,4 +1,7 @@
 #include "echo/framework/schema.hpp"
+#ifdef ECHO_PROJECT_COMPONENTS
+#include "game/project_components.hpp"
+#endif
 
 #include <array>
 #include <cstdio>
@@ -16,6 +19,14 @@ int main(int argc, char** argv) {
                      static_cast<int>(status.detail.size()), status.detail.data());
         return 1;
     }
+#ifdef ECHO_PROJECT_COMPONENTS
+    status = echo::registerProjectComponentTypes(registry);
+    if (!status) {
+        std::fprintf(stderr, "Project component registration failed: %.*s\n",
+                     static_cast<int>(status.detail.size()), status.detail.data());
+        return 1;
+    }
+#endif
 
     std::array<char, 64 * 1024> output{};
     std::size_t written{};

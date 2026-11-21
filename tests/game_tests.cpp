@@ -5,6 +5,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -45,8 +46,9 @@ public:
 
     ~DialogueFixture() { module_.shutdown(); }
 
-    [[nodiscard]] echo::framework::Status bind(echo::Game& game) noexcept {
-        return status_ ? game.configureDialogue(module_, state_, {108.0F, 280.0F})
+    [[nodiscard]] echo::framework::Status bind(
+        echo::Game& game, float reach = echo::kDefaultInteractionReach) noexcept {
+        return status_ ? game.configureDialogue(module_, state_, {108.0F, 280.0F}, reach)
                        : status_;
     }
 
@@ -186,6 +188,24 @@ void testTechnicianDialogueAndInventory() {
           "dialogue without its required service reports an error");
 
     DialogueFixture fixture;
+    echo::Game reachTest;
+    check(static_cast<bool>(fixture.bind(reachTest, 46.0F)) &&
+              !reachTest.technicianNearby() &&
+              static_cast<bool>(reachTest.update({.interactPressed = true})) &&
+              !reachTest.dialogueActive(),
+          "dialogue remains unavailable at the exact non-overlapping reach boundary");
+    check(static_cast<bool>(fixture.bind(reachTest, 47.0F)) &&
+              reachTest.technicianNearby() &&
+              static_cast<bool>(reachTest.update({.interactPressed = true})) &&
+              reachTest.dialogueActive(),
+          "an increased reach enables dialogue at the same player position");
+    echo::Game invalidReach;
+    check(fixture.bind(invalidReach, -1.0F).code == echo::framework::ErrorCode::InvalidValue &&
+              fixture.bind(invalidReach, echo::kMaxInteractionReach + 1.0F).code ==
+                  echo::framework::ErrorCode::InvalidValue &&
+              fixture.bind(invalidReach, std::numeric_limits<float>::quiet_NaN()).code ==
+                  echo::framework::ErrorCode::InvalidValue,
+          "game rejects negative, excessive and non-finite interaction reaches");
     echo::Game game;
     check(static_cast<bool>(fixture.bind(game)), "game binds the loaded engineer dialogue");
     check(game.technicianNearby(), "technician is reachable from the Landing Bay start");

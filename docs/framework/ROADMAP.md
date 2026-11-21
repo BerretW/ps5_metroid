@@ -10,14 +10,15 @@ Module lifecycle, bounded entities/components, typed events, explicit actions, g
 - PROJECT ECHO now persists a bounded gameplay checkpoint through the platform save provider and offers Continue for its single autosave slot. Windows tests and PS5 static package validation pass; the operator reported gameplay saving works on PS5 on 2026-11-21.
 - Volume and keyboard bindings now persist in a separate versioned `settings` slot. Windows round-trip and validation tests pass; the operator confirms settings persistence works on PS5. Keyboard rebinding itself remains unavailable to test there because PS5 keyboard input is disabled.
 - Current checkpoint fields are room, player position/velocity/health/facing, Echo Step, completion/death progress, enemy health and bounded inventory. Version-one gameplay saves migrate by granting the newly introduced Maintenance Key, preserving their previous route access. Additional object/component state is intentionally not implicit.
+- Mira's bounded JSON dialogue supports English and Czech with a persisted language selection and a bitmap font for Czech glyphs. Windows tests and PS5 static validation pass; this revision still requires console testing.
+- The project registers a dialogue-interaction component with bounded, configurable horizontal reach. It is used by the game and exposed to opt-in project-specific schema editor and export tools; existing configurations retain the old reach. Windows tests and PS5 static validation pass, while this revision needs a console run.
 
 ## Remaining before broader game migration
 
 - Extract a reusable application lifecycle coordinator when a second application needs it; today PROJECT ECHO's SDL adapter coordinates startup and shutdown while the existing SDL loop remains in control.
 - Split state/actions/conditions into independently selectable compiled targets if a consumer requires finer granularity; currently these share the static core target.
 - Design schema-specific migration tests for real content evolution.
-- Extend the built-in-only editor proof with project-registered component types and additional runtime content integration. The game already instantiates Mira's built-in `Transform2D` from its startup config.
-- Add localization and a font that can render it; Mira's existing English dialogue now uses bounded per-dialogue JSON, conditions, and the compiled inventory action.
+- Extend the project editor beyond its current single game-specific component as real content requires it.
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 

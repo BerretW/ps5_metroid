@@ -1,6 +1,7 @@
 #pragma once
 
 #include "echo/framework/narrative.hpp"
+#include "game/project_components.hpp"
 
 #include <array>
 #include <cstddef>
@@ -122,7 +123,8 @@ public:
 
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
-        Vec2 technicianPosition) noexcept;
+        Vec2 technicianPosition,
+        float interactionReach = kDefaultInteractionReach) noexcept;
     [[nodiscard]] framework::Status setDialogueLanguage(
         framework::DialogueLanguage language) noexcept;
     void start() noexcept;
@@ -191,6 +193,7 @@ private:
     int deaths_{};
     Inventory inventory_{};
     Rect technician_{108.0F, 280.0F, 28.0F, 40.0F};
+    float interactionReach_{kDefaultInteractionReach};
     const framework::DialogueModule* dialogueModule_{};
     framework::GameState* dialogueState_{};
     framework::DialogueSession dialogueSession_{};

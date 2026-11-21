@@ -31,6 +31,18 @@ target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
 target_link_libraries(echo_game PUBLIC EchoFramework::Narrative)
 
+if(ECHO_FRAMEWORK_BUILD_TOOLS)
+    add_executable(echo_project_component_editor framework/tools/component_editor.cpp)
+    target_compile_definitions(echo_project_component_editor PRIVATE ECHO_PROJECT_COMPONENTS)
+    target_link_libraries(echo_project_component_editor PRIVATE echo_game)
+    target_compile_features(echo_project_component_editor PRIVATE cxx_std_20)
+
+    add_executable(echo_project_schema_export framework/tools/schema_export.cpp)
+    target_compile_definitions(echo_project_schema_export PRIVATE ECHO_PROJECT_COMPONENTS)
+    target_link_libraries(echo_project_schema_export PRIVATE echo_game)
+    target_compile_features(echo_project_schema_export PRIVATE cxx_std_20)
+endif()
+
 if(MSVC)
     target_compile_options(echo_game PRIVATE /W4 /permissive-)
 else()

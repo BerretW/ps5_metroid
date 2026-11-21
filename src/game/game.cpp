@@ -103,7 +103,7 @@ Game::Game() noexcept {
 
 framework::Status Game::configureDialogue(
     const framework::DialogueModule& module, framework::GameState& state,
-    Vec2 technicianPosition) noexcept {
+    Vec2 technicianPosition, float interactionReach) noexcept {
     using namespace framework;
     if (dialogueSession_.active()) {
         return {ErrorCode::InvalidState, kEngineerDialogue,
@@ -119,6 +119,11 @@ framework::Status Game::configureDialogue(
         technicianPosition.y > static_cast<float>(kRoomHeight) - technician_.height) {
         return {ErrorCode::InvalidValue, "technician.transform",
                 "The engineer position must fit inside the Landing Bay."};
+    }
+    if (!std::isfinite(interactionReach) || interactionReach < 0.0F ||
+        interactionReach > kMaxInteractionReach) {
+        return {ErrorCode::InvalidValue, "technician.interaction",
+                "The engineer interaction reach is outside its supported range."};
     }
     const DialogueDefinition* definition = nullptr;
     const Status found = module.find(kEngineerDialogue, definition);
@@ -144,6 +149,7 @@ framework::Status Game::configureDialogue(
     dialogueState_ = &state;
     technician_.x = technicianPosition.x;
     technician_.y = technicianPosition.y;
+    interactionReach_ = interactionReach;
     return Status::success();
 }
 
@@ -310,8 +316,8 @@ bool Game::technicianNearby() const noexcept {
     if (room_ != RoomId::LandingBay) {
         return false;
     }
-    const Rect reach{technician_.x - 52.0F, technician_.y - 20.0F,
-                     technician_.width + 104.0F, technician_.height + 40.0F};
+    const Rect reach{technician_.x - interactionReach_, technician_.y - 20.0F,
+                     technician_.width + 2.0F * interactionReach_, technician_.height + 40.0F};
     return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
 }
 

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -85,6 +86,83 @@ int main() {
               "new games and checkpoint restoration retain the configured engineer position");
     }
     check(std::remove(fixturePath) == 0, "shifted configuration fixture is removed");
+    {
+        const auto configForInteraction = [](std::string_view interaction) {
+            std::string json = R"({"game":"echo.project_echo",
+                "modules":["echo.state","echo.narrative.dialogue","echo.project_echo"],
+                "technician":{"transform":{"position":[108,280]},"interaction":)";
+            json.append(interaction);
+            json += R"(},"resources":[
+                {"id":"echo:dialogue/engineer","type":"dialogue"},
+                {"id":"echo:item/maintenance_key","type":"item"}]})";
+            return json;
+        };
+        check(writeFixture(configForInteraction(R"({"horizontalReach":46})")),
+              "narrow interaction config is written");
+        echo::platform::FrameworkIntegration narrow;
+        echo::Game narrowGame;
+        check(narrow.initialize(fixturePath, dialoguePath) &&
+                  narrow.configureGame(narrowGame) && !narrowGame.technicianNearby(),
+              "configured narrow reach changes gameplay");
+        check(writeFixture(configForInteraction(R"({"horizontalReach":47})")),
+              "wide interaction config is written");
+        echo::platform::FrameworkIntegration wide;
+        echo::Game wideGame;
+        check(wide.initialize(fixturePath, dialoguePath) &&
+                  wide.configureGame(wideGame) && wideGame.technicianNearby(),
+              "configured wider reach allows talking from the same position");
+        const auto checkpoint = wideGame.checkpoint();
+        wideGame.start();
+        check(wideGame.restore(checkpoint) && wideGame.technicianNearby(),
+              "new games and checkpoint restoration retain the configured reach");
+        check(writeFixture(configForInteraction(R"({"horizontalReach":0})")),
+              "minimum interaction reach config is written");
+        auto minimum = std::make_unique<echo::platform::FrameworkIntegration>();
+        echo::Game minimumGame;
+        check(minimum->initialize(fixturePath, dialoguePath) &&
+                  minimum->configureGame(minimumGame) && !minimumGame.technicianNearby(),
+              "minimum interaction reach is accepted");
+        check(writeFixture(configForInteraction(R"({"horizontalReach":128})")),
+              "maximum interaction reach config is written");
+        auto maximum = std::make_unique<echo::platform::FrameworkIntegration>();
+        echo::Game maximumGame;
+        check(maximum->initialize(fixturePath, dialoguePath) &&
+                  maximum->configureGame(maximumGame) && maximumGame.technicianNearby(),
+              "maximum interaction reach is accepted");
+        for (const std::string_view invalid : {
+                 R"({"horizontalReach":-1})", R"({"horizontalReach":129})",
+                 R"({"horizontalReach":"far"})", R"({"horizontalReach":40,"extra":1})",
+                 "null"}) {
+            check(writeFixture(configForInteraction(invalid)),
+                  "invalid interaction config is written");
+            echo::platform::FrameworkIntegration invalidInteraction;
+            check(invalidInteraction.initialize(fixturePath, dialoguePath).code ==
+                      echo::framework::ErrorCode::InvalidValue,
+                  "invalid interaction component is rejected before gameplay");
+        }
+        check(writeFixture(configForInteraction("{}")), "default interaction config is written");
+        echo::platform::FrameworkIntegration defaults;
+        echo::Game defaultGame;
+        check(defaults.initialize(fixturePath, dialoguePath) &&
+                  defaults.configureGame(defaultGame) && defaultGame.technicianNearby(),
+              "omitted component property uses the legacy reach");
+        constexpr std::string_view legacyConfig = R"({
+            "game": "echo.project_echo",
+            "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
+            "technician": {"transform": {"position": [108, 280]}},
+            "resources": [
+                {"id": "echo:dialogue/engineer", "type": "dialogue"},
+                {"id": "echo:item/maintenance_key", "type": "item"}
+            ]
+        })";
+        check(writeFixture(legacyConfig), "legacy configuration is written");
+        auto legacy = std::make_unique<echo::platform::FrameworkIntegration>();
+        echo::Game legacyGame;
+        check(legacy->initialize(fixturePath, dialoguePath) &&
+                  legacy->configureGame(legacyGame) && legacyGame.technicianNearby(),
+              "legacy configurations without the component retain the original reach");
+    }
+    check(std::remove(fixturePath) == 0, "interaction configuration fixture is removed");
     {
         constexpr std::string_view unsupportedTransform = R"({
             "game": "echo.project_echo",

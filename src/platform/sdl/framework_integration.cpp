@@ -209,6 +209,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
+    status = registerProjectComponentTypes(componentTypes);
+    if (!status) {
+        return status;
+    }
     framework::ComponentInstance component{};
     status = componentTypes.instantiate(
         "echo:component/transform2d", technician.find("transform"), component, &content);
@@ -220,6 +224,19 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         transform.scaleY != 1.0F || transform.rotationDegrees != 0.0F) {
         return {framework::ErrorCode::InvalidValue, "technician.transform",
                 "The engineer requires a visible, unscaled, unrotated transform."};
+    }
+    DialogueInteractionComponent interaction{};
+    const framework::JsonValue interactionConfig = technician.find("interaction");
+    if (interactionConfig.valid()) {
+        status = componentTypes.instantiate(
+            kDialogueInteractionComponentId, interactionConfig, component, &content);
+        if (!status) {
+            return {status.code, "technician.interaction", status.detail};
+        }
+        if (!component.read(interaction)) {
+            return {framework::ErrorCode::InvalidState, "technician.interaction",
+                    "The engineer interaction component has an invalid representation."};
+        }
     }
 
     status = readContentFile(dialoguePath, kMaxDialogueBytes, data, size);
@@ -251,6 +268,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     }
     dialogueDocument_ = std::move(dialogue);
     technicianPosition_ = {transform.x, transform.y};
+    technicianInteractionReach_ = interaction.horizontalReach;
 
     status = modules_.add(stateModule_, stateSelected);
     if (!status) {
@@ -298,7 +316,7 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     }
     return game.configureDialogue(
         dialogueModule_, stateModule_.state,
-        {technicianPosition_[0], technicianPosition_[1]});
+        {technicianPosition_[0], technicianPosition_[1]}, technicianInteractionReach_);
 }
 
 framework::Status FrameworkIntegration::beginGame() noexcept {

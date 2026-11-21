@@ -1,5 +1,8 @@
 #include "echo/framework/schema.hpp"
 #include "json_input.hpp"
+#ifdef ECHO_PROJECT_COMPONENTS
+#include "game/project_components.hpp"
+#endif
 
 #include <cstdio>
 
@@ -103,6 +106,13 @@ int main(int argc, char** argv) {
         echo::framework::tools::reportStatus(status);
         return 1;
     }
+#ifdef ECHO_PROJECT_COMPONENTS
+    status = echo::registerProjectComponentTypes(components);
+    if (!status) {
+        echo::framework::tools::reportStatus(status);
+        return 1;
+    }
+#endif
     const echo::framework::ComponentTypeDescriptor* descriptor = nullptr;
     status = components.find(argv[1], descriptor);
     if (!status) {

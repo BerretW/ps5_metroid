@@ -1,6 +1,7 @@
 #pragma once
 
 #include "echo/framework/narrative.hpp"
+#include "game/project_components.hpp"
 
 #include <array>
 #include <cstddef>
@@ -78,6 +79,7 @@ private:
     framework_detail::UnlockListener unlockListener_{};
     framework::Subscription unlockSubscription_{};
     std::array<float, 2> technicianPosition_{};
+    float technicianInteractionReach_{kDefaultInteractionReach};
     bool initialized_{};
 };
 
