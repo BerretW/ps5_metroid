@@ -1,4 +1,4 @@
-#include "platform/sdl/gpu_canvas.hpp"
+#include "platform/presentation/gpu_canvas.hpp"
 
 #include <algorithm>
 #include <array>

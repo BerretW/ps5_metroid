@@ -2,10 +2,15 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
-    [switch]$RunTests
+    [switch]$RunTests,
+    [switch]$LegacySDL,
+    [switch]$VulkanGpuTests
 )
 
 $ErrorActionPreference = "Stop"
+if ($LegacySDL -and $VulkanGpuTests) {
+    throw "-VulkanGpuTests requires the Vulkan build, not -LegacySDL."
+}
 $root = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $root "build\windows"
 $logDir = Join-Path $buildDir ".build-logs"
@@ -92,6 +97,8 @@ $testOptions = ""
 if ($RunTests) {
     $testOptions = " -DECHO_FRAMEWORK_BUILD_TESTS=ON -DECHO_FRAMEWORK_BUILD_TOOLS=ON"
 }
+$graphicsBackend = if ($LegacySDL) { "SDL" } else { "Vulkan" }
+$testOptions += " -DECHO_GRAPHICS_BACKEND=$graphicsBackend -DECHO_VULKAN_GPU_TESTS=$($VulkanGpuTests.IsPresent)"
 $configure = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE={3} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DECHO_MSVC_INCLUDE_PREFIX={4}"{5}' -f `
     $vsDevCmd, $root, $buildDir, $Configuration, $includePrefix, $testOptions
 $configureExitCode = Invoke-CommandLine "configure" $configure
@@ -115,4 +122,10 @@ if ($RunTests) {
     }
 }
 
-Write-Output ("Build complete: {0}" -f (Join-Path $buildDir "project_echo.exe"))
+if (-not $LegacySDL) {
+    Write-Output ("Build complete: Vulkan {0}; legacy SDL {1}" -f
+        (Join-Path $buildDir "project_echo_vulkan.exe"),
+        (Join-Path $buildDir "project_echo.exe"))
+} else {
+    Write-Output ("Build complete: legacy SDL {0}" -f (Join-Path $buildDir "project_echo.exe"))
+}

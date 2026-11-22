@@ -6,11 +6,11 @@
 #include "echo/framework/world.hpp"
 #include "echo/framework/vulkan_backend.hpp"
 #include "platform/sdl/assets.hpp"
-#include "platform/sdl/canvas_assets.hpp"
+#include "platform/presentation/canvas_assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
-#include "platform/sdl/gpu_canvas.hpp"
-#include "platform/sdl/menu_glyph.hpp"
+#include "platform/presentation/gpu_canvas.hpp"
+#include "platform/presentation/menu_glyph.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <array>

@@ -1,10 +1,12 @@
 #include "platform/sdl/assets.hpp"
-#include "platform/sdl/bitmap_font.hpp"
+#include "platform/presentation/bitmap_font.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/gameplay_vfx.hpp"
 #include "platform/sdl/renderer.hpp"
 #include "platform/sdl/settings_persistence.hpp"
+#include "platform/sdl/vulkan_window.hpp"
+#include "platform/presentation/world_projection.hpp"
 
 #include <SDL.h>
 
@@ -32,6 +34,57 @@ void check(bool condition, std::string_view message) {
         ++failures;
         std::cerr << "FAIL: " << message << '\n';
     }
+}
+
+void testVulkanWindowMapping() {
+    using echo::rendering::windowToLogical;
+    float x{}, y{};
+    check(windowToLogical(640, 360, 1280, 720, 1280, 720, 640, 360, x, y) &&
+              x == 320.0F && y == 180.0F,
+          "Vulkan window center maps to the logical center");
+    check(windowToLogical(200, 180, 1600, 720, 1600, 720, 640, 360, x, y) &&
+              x == 20.0F && y == 90.0F,
+          "Vulkan mouse mapping accounts for integer scaling and side bars");
+    check(windowToLogical(400, 300, 800, 600, 1600, 1200, 640, 360, x, y) &&
+              x == 320.0F && y == 180.0F,
+          "Vulkan mouse mapping accounts for high-DPI drawable sizes");
+    check(windowToLogical(160, 90, 320, 180, 320, 180, 640, 360, x, y) &&
+              x == 320.0F && y == 180.0F,
+          "Vulkan mouse mapping supports windows smaller than the logical view");
+    check(!windowToLogical(0, 0, 0, 720, 1280, 720, 640, 360, x, y),
+          "Vulkan mouse mapping rejects a zero-sized window");
+
+    SDL_Window* window = SDL_CreateWindow("window controls test", 0, 0, 640, 360, SDL_WINDOW_HIDDEN);
+    check(window != nullptr, "window controls test window created");
+    if (window == nullptr) return;
+    check(echo::platform::applyVulkanDisplayMode(window, echo::platform::DisplayMode::Window1080),
+          "Vulkan window accepts a windowed display mode without an SDL renderer");
+    int width{}, height{};
+    SDL_GetWindowSize(window, &width, &height);
+    check(width == 1920 && height == 1080, "Vulkan display mode updates the actual window size");
+    check(!echo::platform::applyVulkanDisplayMode(window, echo::platform::DisplayMode::Count),
+          "Vulkan window rejects invalid display modes");
+    SDL_DestroyWindow(window);
+}
+
+void testWorldPresentation() {
+    const auto projected = echo::platform::projectIsometric(96.0F, 32.0F);
+    check(projected.x == 64.0F && projected.y == 64.0F,
+          "isometric projection preserves the 2:1 world mapping");
+    echo::Player player{};
+    player.onGround = true;
+    check(echo::platform::playerAnimationFrame(player, 500) == 1,
+          "idle animation advances at the existing cadence");
+    player.velocity.x = 21.0F;
+    check(echo::platform::playerAnimationFrame(player, 270) == 5,
+          "running animation selects its fourth frame");
+    player.onGround = false;
+    player.velocity.y = -1.0F;
+    check(echo::platform::playerAnimationFrame(player, 270) == 6,
+          "jump animation takes priority while airborne");
+    player.velocity.y = 1.0F;
+    check(echo::platform::playerAnimationFrame(player, 270) == 7,
+          "fall animation takes priority while airborne");
 }
 
 void testFixedStepParticles() {
@@ -967,6 +1020,7 @@ int main() {
         keyboard.setGameState(&integration.gameState());
         pad.setGameState(&integration.gameState());
         testSettingsPersistence();
+        testWorldPresentation();
         testFixedStepParticles();
         testDamageFlash();
         testGameplayVfx();
@@ -980,6 +1034,7 @@ int main() {
             throw std::runtime_error(SDL_GetError());
         }
         SDL_Window* padWindow = createdWindow(keyboardWindow);
+        testVulkanWindowMapping();
         echo::Game game;
 
         keyboard.drawGame(game, false, false, "SPACE", "J", "E");

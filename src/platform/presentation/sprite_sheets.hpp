@@ -1,6 +1,6 @@
 #pragma once
 
-#include "platform/sdl/renderer.hpp"
+#include "platform/presentation.hpp"
 
 namespace echo::platform {
 

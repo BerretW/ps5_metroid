@@ -1,5 +1,22 @@
 # Architecture
 
+## Graphics ownership
+
+- **Vulkan is the default backend.** Windows builds expose `project_echo_vulkan.exe`;
+  PS5 Vulkan is the default `-Target Game` selection.
+- **SDL is a legacy graphics target, frozen.** Critical crash/security/build fixes
+  only; no new rendering, shader, VFX, material or UI graphics work.
+- **SDL platform services remain.** Input, audio, events and storage can use SDL
+  APIs; SDL rendering APIs are not presentation architecture.
+- **Presentation extraction is incomplete.** PROJECT ECHO records menus, HUD,
+  world, lighting, particles and UI through `echo::rendering::ICanvas2D` and
+  `CanvasBatch2D`, but the game presentation implementation still shares the
+  SDL renderer, SDL types and SDL timing. Canvas assets, GPU canvas, glyph
+  helpers, bitmap text rasterization, sprite definitions and projection/animation
+  helpers have been moved to presentation code.
+- **GPU ownership is Vulkan.** `framework/rendering_vulkan/` owns device,
+  swapchain, resources, synchronization and presentation.
+
 - `src/game/`: deterministic 60 Hz movement, tile collision, combat, room transitions, health, hazards, NPC interaction/dialogue, bounded inventory, and ability progression.
 - `src/platform/sdl/`: SDL lifecycle, keyboard/controller mapping, PNG/WAV asset loading (`assets.cpp`, stb_image in `stb_image_impl.c`), sprite renderer with built-in rectangle fallback, 8-voice callback audio mixer, menu, dialogue, inventory HUD, map, and pause overlay.
 - `framework/core/`: SDL-free static module registry, typed game state/actions/conditions, generation-based entity components, and bounded typed events.
@@ -13,11 +30,11 @@
 - `platform/ps5/`: isolated cross-build configuration and stable application identity.
 - `patches/`: pinned SDL native-application fixes applied only to a build-local source copy.
 
-Rooms are tile-span data in `src/game/game.cpp`. The renderer reads the same room and entity state as the simulation and applies a horizontal camera independently from physics. Window rendering uses SDL's logical 640x360 viewport and integer scaling.
+The renderer reads room and entity state from the simulation and applies a camera independently from physics. Both renderers use a 640x360 logical viewport with integer scaling where possible; Vulkan also maps window input through its drawable viewport.
 
 Gameplay does not know about sound. The platform layer snapshots game state before and after each fixed step and derives effects from changes (new projectile, jump impulse, health loss, enemy hit/defeat, pickup, room change, blocked gate). Assets are optional at runtime: a missing or invalid file is logged and the corresponding sprite falls back to rectangles, or the effect stays silent (the shot keeps a synthesized fallback).
 
-The application targets SDL2's software-friendly drawing APIs. Windows still tries acceleration then falls back to software. PS5 selects software rendering and the source-built PS5 SDL backend. Its framebuffer patch separates driver-owned pixels from SDL's public window surface and returns the required format/pixel/pitch outputs.
+The legacy SDL renderer tries acceleration then software on Windows; its PS5 variant selects software rendering and the source-built PS5 SDL backend. Its framebuffer patch separates driver-owned pixels from SDL's public window surface and returns the required format/pixel/pitch outputs. The default PS5 Vulkan variant uses RADV VideoOut instead of SDL video.
 
 The PS5 CRT is the native-application boilerplate `_start`, not either SDK's payload entry point. The target uses SDK C/C++ headers, static SDL, system import stubs and the reproduced clean-room runtime. Full libc++, payload libc and payload CRT archives are not linked. Normal PS5 logging uses stdio under `/data/project_echo/logs`; the opt-in startup diagnostic build instead adds pre-SDL kernel I/O and notifications. Windows logging is unchanged. The controller-only PS5 application is user-reported playable; the keyboard-enabled build still crashes at `sceKeyboardInit`. Evidence and remaining checks are recorded in [acceptance status](STATUS.md).
 

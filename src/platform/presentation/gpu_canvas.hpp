@@ -1,7 +1,7 @@
 #pragma once
 
 #include "echo/framework/canvas_batch.hpp"
-#include "platform/sdl/canvas_assets.hpp"
+#include "platform/presentation/canvas_assets.hpp"
 
 #include <memory>
 

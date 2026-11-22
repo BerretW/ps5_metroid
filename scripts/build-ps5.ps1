@@ -6,10 +6,21 @@ param(
     [switch]$StartupDiagnostics,
     [switch]$SkipPs5Keyboard,
     [switch]$SaveStorageDiagnostics,
-    [switch]$Vulkan
+    [switch]$Vulkan,
+    [switch]$LegacySDL
 )
 
 $ErrorActionPreference = "Stop"
+if ($Vulkan -and $LegacySDL) {
+    throw "-Vulkan and -LegacySDL cannot be combined."
+}
+if ($Target -eq "Game" -and -not $LegacySDL -and
+    -not $StartupDiagnostics -and -not $SaveStorageDiagnostics) {
+    $Vulkan = $true
+}
+if ($Vulkan -and $Target -eq "Game") {
+    $SkipPs5Keyboard = $true
+}
 $root = Split-Path -Parent $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $root "dependencies.ps5.json") -Raw | ConvertFrom-Json
 $deps = Join-Path $root ".deps"

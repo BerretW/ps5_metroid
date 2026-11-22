@@ -1,13 +1,55 @@
-#include "platform/sdl/canvas_assets.hpp"
-#include "platform/sdl/assets.hpp"
-#include "platform/sdl/sprite_sheets.hpp"
+#include "platform/presentation/canvas_assets.hpp"
+#include "platform/presentation/sprite_sheets.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+extern "C" {
+unsigned char* echo_decode_png_rgba(const unsigned char* data, int length, int* width, int* height);
+void echo_free_png(unsigned char* pixels);
+}
 
 namespace echo::platform {
 namespace {
+
+struct RgbaImage {
+    unsigned char* pixels{};
+    int width{};
+    int height{};
+};
+
+bool loadPngRgba(const char* path, RgbaImage& image) noexcept {
+    echo_free_png(image.pixels);
+    image = {};
+    if (!path) return false;
+    FILE* file = std::fopen(path, "rb");
+    if (!file) return false;
+    if (std::fseek(file, 0, SEEK_END) != 0) { std::fclose(file); return false; }
+    const long size = std::ftell(file);
+    if (size <= 0 || size > 4 * 1024 * 1024 || std::fseek(file, 0, SEEK_SET) != 0) {
+        std::fclose(file);
+        return false;
+    }
+    std::unique_ptr<unsigned char[]> bytes{new (std::nothrow) unsigned char[static_cast<std::size_t>(size)]};
+    if (!bytes) { std::fclose(file); return false; }
+    if (std::fread(bytes.get(), 1, static_cast<std::size_t>(size), file) != static_cast<std::size_t>(size) ||
+        std::fclose(file) != 0) return false;
+    int width{}, height{};
+    image.pixels = echo_decode_png_rgba(bytes.get(), static_cast<int>(size), &width, &height);
+    if (!image.pixels || width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4U > 64ULL * 1024ULL * 1024ULL) {
+        echo_free_png(image.pixels);
+        image = {};
+        return false;
+    }
+    image.width = width;
+    image.height = height;
+    return true;
+}
 
 bool sameMaterial(const framework::WorldMaterialSpec& left,
                   const framework::WorldMaterialSpec& right) noexcept {
@@ -35,7 +77,7 @@ bool loadMaterialMap(rendering::IRenderBackend& backend, const char* assetRoot,
         return false;
     }
     if (texture.width != base.width || texture.height != base.height) {
-        SDL_Log("Canvas material map dimensions must match its base sprite sheet: %s",
+        std::fprintf(stderr, "Canvas material map dimensions must match its base sprite sheet: %s\n",
                 fullPath.data());
         return false;
     }
@@ -47,7 +89,7 @@ bool addWorldSprite(rendering::IRenderBackend& backend, const char* assetRoot,
                     const framework::WorldMaterialSpec& material,
                     CanvasWorldSprites& sprites) noexcept {
     if (sheetPath.empty() || !framework::WorldModule::validSpritePath(sheetPath)) {
-        SDL_Log("Canvas world sprite path is invalid");
+        std::fprintf(stderr, "Canvas world sprite path is invalid\n");
         return false;
     }
     for (std::size_t index = 0; index < sprites.count; ++index) {
@@ -56,14 +98,14 @@ bool addWorldSprite(rendering::IRenderBackend& backend, const char* assetRoot,
     }
     if (sprites.count == sprites.sheets.size() ||
         sheetPath.size() >= CanvasWorldSprite{}.path.size()) {
-        SDL_Log("Canvas world sprite capacity or path length exceeded");
+        std::fprintf(stderr, "Canvas world sprite capacity or path length exceeded\n");
         return false;
     }
     std::array<char, 1200> fullPath{};
     const int written = std::snprintf(fullPath.data(), fullPath.size(), "%s%.*s", assetRoot,
                                       static_cast<int>(sheetPath.size()), sheetPath.data());
     if (written <= 0 || written >= static_cast<int>(fullPath.size())) {
-        SDL_Log("Canvas world sprite asset path is too long");
+        std::fprintf(stderr, "Canvas world sprite asset path is too long\n");
         return false;
     }
     CanvasWorldSprite& entry = sprites.sheets[sprites.count];
@@ -92,8 +134,8 @@ bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
     RgbaImage image{};
     if (!loadPngRgba(path, image)) return false;
     if (static_cast<std::uint64_t>(image.width) * image.height * 4U > 16U * 1024U * 1024U) {
-        SDL_Log("Canvas PNG exceeds the GPU upload limit: %s", path);
-        freePngRgba(image);
+        std::fprintf(stderr, "Canvas PNG exceeds the GPU upload limit: %s\n", path);
+        echo_free_png(image.pixels);
         return false;
     }
     width = static_cast<std::uint32_t>(image.width);
@@ -101,9 +143,9 @@ bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
     const auto byteCount = static_cast<std::size_t>(width) * height * 4U;
     const auto status = backend.createTexture(width, height,
         {reinterpret_cast<const std::byte*>(image.pixels), byteCount}, texture, colorSpace);
-    freePngRgba(image);
+    echo_free_png(image.pixels);
     if (!status) {
-        SDL_Log("Canvas texture upload failed [%u] %.*s: %.*s",
+        std::fprintf(stderr, "Canvas texture upload failed [%u] %.*s: %.*s\n",
                 static_cast<unsigned>(status.code), static_cast<int>(status.subject.size()),
                 status.subject.data(), static_cast<int>(status.detail.size()), status.detail.data());
         width = height = 0;
@@ -115,7 +157,7 @@ bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
 bool loadCanvasSprites(rendering::IRenderBackend& backend, const char* assetRoot,
                        CanvasSprites& sprites) noexcept {
     if (!assetRoot || !assetRoot[0]) {
-        SDL_Log("Canvas sprite asset root is missing");
+        std::fprintf(stderr, "Canvas sprite asset root is missing\n");
         return false;
     }
     for (std::size_t index = 0; index < sprites.size(); ++index) {
@@ -123,7 +165,7 @@ bool loadCanvasSprites(rendering::IRenderBackend& backend, const char* assetRoot
         const int written = std::snprintf(path.data(), path.size(), "%s%s",
                                           assetRoot, kSpriteSheets[index].file);
         if (written <= 0 || written >= static_cast<int>(path.size())) {
-            SDL_Log("Canvas sprite asset path is too long");
+            std::fprintf(stderr, "Canvas sprite asset path is too long\n");
             return false;
         }
         CanvasSprite& sprite = sprites[index];
@@ -136,7 +178,7 @@ bool loadCanvasSprites(rendering::IRenderBackend& backend, const char* assetRoot
 bool loadCanvasWorldSprites(rendering::IRenderBackend& backend, const char* assetRoot,
                             const WorldLayout& world, CanvasWorldSprites& sprites) noexcept {
     if (!assetRoot || !assetRoot[0]) {
-        SDL_Log("Canvas world asset root is missing");
+        std::fprintf(stderr, "Canvas world asset root is missing\n");
         return false;
     }
     const auto addObject = [&](const framework::ObjectDefinition* object) {
@@ -164,7 +206,7 @@ bool loadCanvasWorldSprites(rendering::IRenderBackend& backend, const char* asse
         }
     }
     if (sprites.count == 0) {
-        SDL_Log("Canvas world has no sprite sheets");
+        std::fprintf(stderr, "Canvas world has no sprite sheets\n");
         return false;
     }
     return true;

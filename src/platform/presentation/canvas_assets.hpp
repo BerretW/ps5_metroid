@@ -1,6 +1,7 @@
 #pragma once
 
-#include "platform/sdl/renderer.hpp"
+#include "game/game.hpp"
+#include "platform/presentation.hpp"
 
 namespace echo::platform {
 

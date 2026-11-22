@@ -1,7 +1,4 @@
-#include "platform/sdl/menu_glyph.hpp"
-#include "platform/sdl/assets.hpp"
-
-#include <SDL.h>
+#include "platform/presentation/menu_glyph.hpp"
 #include <webp/decode.h>
 
 #include <algorithm>
@@ -13,13 +10,57 @@
 #include <new>
 #include <string_view>
 
+extern "C" {
+unsigned char* echo_decode_png_rgba(const unsigned char* data, int length, int* width, int* height);
+int echo_png_info(const unsigned char* data, int length, int* width, int* height);
+void echo_free_png(unsigned char* pixels);
+}
+
 namespace echo::platform {
 namespace {
 using rendering::ErrorCode;
 using rendering::Status;
 
+inline constexpr std::size_t kMaxAssetBytes = 4 * 1024 * 1024;
+inline constexpr std::uint64_t kMaxDecodedPngBytes = 64ULL * 1024ULL * 1024ULL;
+
+struct RgbaImage {
+    unsigned char* pixels{};
+    int width{};
+    int height{};
+};
+
 Status failure(ErrorCode code, std::string_view detail) noexcept {
     return {code, "menu glyph", detail};
+}
+
+bool decodePngRgba(std::span<const std::byte> bytes, RgbaImage& image) noexcept {
+    echo_free_png(image.pixels);
+    image = {};
+    if (bytes.empty() || bytes.size() > kMaxAssetBytes) return false;
+    int width{}, height{};
+    if (!echo_png_info(reinterpret_cast<const unsigned char*>(bytes.data()),
+                       static_cast<int>(bytes.size()), &width, &height) ||
+        width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(width) * height * 4U > kMaxDecodedPngBytes)
+        return false;
+    image.pixels = echo_decode_png_rgba(
+        reinterpret_cast<const unsigned char*>(bytes.data()),
+        static_cast<int>(bytes.size()), &width, &height);
+    if (!image.pixels || width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(width) * height * 4U > kMaxDecodedPngBytes) {
+        echo_free_png(image.pixels);
+        image = {};
+        return false;
+    }
+    image.width = width;
+    image.height = height;
+    return true;
+}
+
+void freePngRgba(RgbaImage& image) noexcept {
+    echo_free_png(image.pixels);
+    image = {};
 }
 
 int digit(char value) noexcept {
@@ -77,7 +118,7 @@ Status readAsset(const char* root, const char* name, Bytes& output) noexcept {
     FILE* file = std::fopen(path.data(), "rb");
     if (!file) {
         const int error = errno;
-        if (error != ENOENT) SDL_Log("Menu glyph unavailable: %s (errno %d)", path.data(), error);
+        if (error != ENOENT) std::fprintf(stderr, "Menu glyph unavailable: %s (errno %d)\n", path.data(), error);
         return failure(error == ENOENT ? ErrorCode::NotFound : ErrorCode::StorageFailure, "glyph asset unavailable");
     }
     if (std::fseek(file, 0, SEEK_END) != 0) {

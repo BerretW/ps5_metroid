@@ -26,6 +26,17 @@ add_subdirectory(framework)
 add_subdirectory(framework/rendering)
 add_subdirectory(framework/vfx)
 
+set(ECHO_GRAPHICS_BACKEND "Vulkan" CACHE STRING "Production graphics backend")
+set_property(CACHE ECHO_GRAPHICS_BACKEND PROPERTY STRINGS Vulkan SDL)
+if(NOT ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan" AND NOT ECHO_GRAPHICS_BACKEND STREQUAL "SDL")
+    message(FATAL_ERROR "ECHO_GRAPHICS_BACKEND must be Vulkan or SDL.")
+endif()
+
+if(WIN32 AND ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/webp.cmake")
+    add_subdirectory(framework/rendering_vulkan)
+endif()
+
 if(NOT TARGET EchoFramework::Narrative)
     message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
 endif()
@@ -132,9 +143,69 @@ else()
     target_compile_options(project_echo PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+    if(WIN32 AND ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan")
+        add_executable(project_echo_vulkan
+            src/platform/sdl/main.cpp
+            src/platform/sdl/framework_integration.cpp
+            src/platform/sdl/renderer.cpp
+            src/platform/presentation/canvas_assets.cpp
+            src/platform/presentation/gpu_canvas.cpp
+            src/platform/presentation/menu_glyph.cpp
+            src/platform/sdl/assets.cpp
+            src/platform/sdl/stb_image_impl.c
+            src/input/dualsense_diagnostics.cpp
+        )
+        target_compile_features(project_echo_vulkan PRIVATE cxx_std_20)
+        target_include_directories(project_echo_vulkan PRIVATE
+            src third_party framework/rendering/include framework/rendering_vulkan/include
+            "${libwebp_SOURCE_DIR}/src")
+        target_compile_definitions(project_echo_vulkan PRIVATE SDL_MAIN_HANDLED ECHO_VULKAN_RENDERER)
+        target_link_libraries(project_echo_vulkan PRIVATE
+            echo_game SDL2-static webpdecoder user32
+            EchoFramework::Core EchoFramework::Data EchoFramework::Power EchoFramework::Narrative
+            EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
+            EchoFramework::Abilities EchoFramework::Quests EchoFramework::Cutscenes
+            EchoFramework::World EchoFramework::VFX EchoFramework::Rendering
+            EchoFramework::RenderingVulkan)
+        find_program(ECHO_GLSLANG glslangValidator HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
+        find_program(ECHO_SPIRV_VAL spirv-val HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
+        set(echo_game_shaders)
+        foreach(stage vert frag)
+            set(shader_source "${CMAKE_CURRENT_SOURCE_DIR}/experiments/vulkan3d/assets/shaders/scene.${stage}")
+            set(shader_output "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders/scene.${stage}.spv")
+            add_custom_command(OUTPUT "${shader_output}"
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders"
+                COMMAND "${ECHO_GLSLANG}" -V --target-env vulkan1.1 "${shader_source}" -o "${shader_output}"
+                COMMAND "${ECHO_SPIRV_VAL}" --target-env vulkan1.1 "${shader_output}"
+                DEPENDS "${shader_source}" VERBATIM)
+            list(APPEND echo_game_shaders "${shader_output}")
+        endforeach()
+        add_custom_target(echo_game_vulkan_shaders
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:project_echo_vulkan>/assets/shaders"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${echo_game_shaders}
+                "$<TARGET_FILE_DIR:project_echo_vulkan>/assets/shaders"
+            DEPENDS ${echo_game_shaders} VERBATIM)
+        add_dependencies(project_echo_vulkan echo_game_vulkan_shaders)
+        add_dependencies(project_echo_vulkan echo_runtime_assets)
+        if(MSVC)
+            target_compile_options(project_echo_vulkan PRIVATE /W4 /permissive-)
+        else()
+            target_compile_options(project_echo_vulkan PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        set_target_properties(project_echo_vulkan PROPERTIES OUTPUT_NAME "project_echo_vulkan")
+    endif()
+
 enable_testing()
+option(ECHO_VULKAN_GPU_TESTS "Run Vulkan tests that require a Windows GPU and display" OFF)
+if(WIN32 AND ECHO_VULKAN_GPU_TESTS AND ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan")
+    add_test(NAME echo_vulkan_game_smoke COMMAND project_echo_vulkan --vulkan-smoke-test)
+    set_tests_properties(echo_vulkan_game_smoke PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles"
+        TIMEOUT 120 RUN_SERIAL TRUE)
+endif()
 add_executable(echo_tests tests/game_tests.cpp)
 target_link_libraries(echo_tests PRIVATE echo_game)
+target_include_directories(echo_tests PRIVATE framework/rendering/include)
 target_compile_features(echo_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_tests PRIVATE ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 add_test(NAME echo_gameplay COMMAND echo_tests)

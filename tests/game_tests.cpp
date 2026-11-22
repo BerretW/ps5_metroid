@@ -1,4 +1,5 @@
 #include "game/game.hpp"
+#include "platform/presentation/bitmap_text.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -20,6 +22,35 @@ void check(bool condition, std::string_view message) {
         ++failures;
         std::cerr << "FAIL: " << message << '\n';
     }
+}
+
+void testBitmapTextPresentation() {
+    using echo::rendering::Rect2D;
+    std::vector<Rect2D> plain;
+    std::vector<Rect2D> accented;
+    echo::platform::drawBitmapText(10, 20, "C", 2,
+                                   [&](Rect2D pixel) { plain.push_back(pixel); });
+    echo::platform::drawBitmapText(10, 20, "\xC4\x8C", 2,
+                                   [&](Rect2D pixel) { accented.push_back(pixel); });
+    bool sameGlyph = accented.size() == plain.size() + 3;
+    for (std::size_t i = 0; sameGlyph && i < plain.size(); ++i) {
+        const Rect2D& expected = plain[i];
+        const Rect2D& actual = accented[i + 3];
+        sameGlyph = actual.x == expected.x && actual.y == expected.y + 4 &&
+                    actual.w == expected.w && actual.h == expected.h;
+    }
+    check(sameGlyph && accented[0].x == 12 && accented[0].y == 20 &&
+              accented[1].x == 16 && accented[1].y == 20 &&
+              accented[2].x == 14 && accented[2].y == 22,
+          "SDL-free bitmap text preserves Czech caron and glyph placement");
+
+    std::vector<Rect2D> afterInvalid;
+    echo::platform::drawBitmapText(10, 20, "\xFF" "C", 2,
+                                   [&](Rect2D pixel) { afterInvalid.push_back(pixel); });
+    check(afterInvalid.size() == plain.size() &&
+              !afterInvalid.empty() && afterInvalid.front().x == plain.front().x &&
+              afterInvalid.front().y == plain.front().y,
+          "SDL-free bitmap text skips an invalid UTF-8 byte without shifting text");
 }
 
 class DialogueFixture {
@@ -1130,6 +1161,7 @@ void testAbilityGateAndBacktracking() {
 } // namespace
 
 int main() {
+    testBitmapTextPresentation();
     testMovementJumpAndFloorCollision();
     testAttributeModifiersAffectGameplay();
     testCheckpointRoundTrip();

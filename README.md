@@ -1,10 +1,20 @@
 # PROJECT ECHO
 
+## Graphics backend policy
+
+Vulkan is the default and actively maintained graphics backend on Windows and PS5.
+The SDL application remains available only as an explicit legacy/diagnostic target:
+`.\scripts\build-windows.ps1 -LegacySDL` and `.\scripts\build-ps5.ps1 -Target Game -LegacySDL`.
+SDL is retained for platform services (window/events, controller input and audio) and
+the legacy renderer. The shared canvas and Vulkan backend are SDL-independent, but
+the game presentation code still resides in the SDL renderer and uses SDL types
+and timing; extracting it fully remains unfinished. New graphics work targets Vulkan.
+
 PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the reference integration game for **Echo Framework 0.2**, a modular C++20 foundation. Gameplay is shared code; the SDL2 application uses original procedurally generated PNG sprites and WAV sound effects (see [assets](docs/ASSETS.md)) rather than third-party game assets.
 
 ## What this repository is ready for
 
-- **Play and develop on Windows 11 x64:** build and run the SDL2 game, run headless gameplay tests, and extend the shared simulation or SDL front end.
+- **Play and develop on Windows 11 x64:** build and run the Vulkan game, run headless gameplay tests, and extend the shared simulation.
 - **Build a PS5 application on Windows:** the native PowerShell pipeline cross-compiles, links and statically validates the application package. The `playable` milestone controller build has been reported playable on PS5 with firmware 13.60 and Kraken Mount 0.3.1; console upload is manual. The subsequent controller-symbol UI and map/back bindings need another hardware check.
 - **Use the tests as a gameplay safety net:** simulation tests run without SDL or a window and cover movement, combat, room progression, ability unlocks, damage and respawn.
 - **Build on a reusable framework core:** headless modules, entities/components, events, actions, typed state, conditions, bounded JSON/content validation and versioned state serialization are available independently of SDL. Dialogue, inventory, combat and other genre systems remain future modules.
@@ -38,25 +48,50 @@ The batch file only selects a platform and calls the existing PowerShell scripts
 ```powershell
 .\scripts\doctor.ps1 -Target Windows
 .\scripts\build-windows.ps1 -Configuration Debug -RunTests
-.\build\windows\project_echo.exe
+.\build\windows\project_echo_vulkan.exe
 ```
+
+`project_echo.exe` remains the explicit legacy SDL build. Use
+`.\scripts\build-windows.ps1 -Configuration Debug -LegacySDL -RunTests`
+only for SDL/diagnostic compatibility work.
+
+The Windows Vulkan build requires the Vulkan SDK, including `glslangValidator`
+and `spirv-val`. It compiles and validates both shaders into the executable's
+`assets/shaders` directory; shader loading does not depend on the working directory.
+To run the optional production-game GPU smoke test, use
+`.\scripts\build-windows.ps1 -RunTests -VulkanGpuTests`.
+The test opens a window, presents a menu frame, resizes and presents again,
+checks mouse mapping, and does not read or write saves.
 
 In VS Code, use **Build PROJECT ECHO (Debug)**, **Test PROJECT ECHO**, or the **PROJECT ECHO (Windows)** launch configuration. The first CMake configure fetches the pinned SDL source from GitHub.
 
 ## Build for PS5 on native Windows
 
-The package tests use the original keyboard-enabled build as a static fixture. The last command builds the separate controller variant reported playable on hardware; do not install the keyboard-enabled fixture on the reported setup.
+The default game build selects Vulkan and disables PS5 keyboard/IME. Build the
+legacy controller package explicitly when needed:
 
 ```powershell
 .\scripts\build-ps5.ps1 -Target Hello -RestoreDependencies
 .\scripts\build-ps5.ps1 -Target Game -RestoreDependencies
-.\tests\ps5_package_tests.ps1
-.\scripts\build-ps5.ps1 -Target Game -SkipPs5Keyboard
+.\tests\ps5_package_tests.ps1 -Vulkan
+.\scripts\build-ps5.ps1 -Target Game -LegacySDL -SkipPs5Keyboard
+.\tests\ps5_package_tests.ps1 -Controller
 ```
 
 Dependencies are pinned in [dependencies.ps5.json](dependencies.ps5.json). LLVM is extracted locally; no machine-wide LLVM installation or POSIX host is used. The game command validates Hello before compiling SDL or the game.
 
-Upload [dist/ps5-controller/PPSA91007](dist/ps5-controller/PPSA91007) manually as a complete native application directory for Kraken Mount. Its launcher is `eboot.bin`, with `sce_sys` and `sce_module/libc.prx`. This variant disables PS5 physical keyboard and IME, not Windows input. [scripts/deploy-ps5.ps1](scripts/deploy-ps5.ps1) defaults to validating this package and prints manual-upload instructions only; it never connects to the console. The original [dist/ps5/PPSA91007](dist/ps5/PPSA91007) remains separate.
+The PS5 game command now defaults to Vulkan. Add `-LegacySDL` explicitly only
+to build the frozen SDL diagnostic target. Both targets retain the
+`PPSA91007` application identity and require manual upload.
+
+Manually upload one complete application directory for Kraken Mount: Vulkan
+`dist\ps5-vulkan\PPSA91007` or legacy SDL `dist\ps5-controller\PPSA91007`.
+The launcher is `eboot.bin`, with `sce_sys` and `sce_module/libc.prx`. Both
+controller variants disable PS5 physical keyboard and IME, not Windows input.
+[scripts/deploy-ps5.ps1](scripts/deploy-ps5.ps1) defaults to validating the
+legacy controller package and prints manual-upload instructions only. Validate
+the Vulkan package with `.\tests\ps5_package_tests.ps1 -Vulkan`; never install
+both under the same title.
 
 ## Prototype path
 

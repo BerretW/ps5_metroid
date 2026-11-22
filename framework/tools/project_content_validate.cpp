@@ -8,7 +8,7 @@
 #include "echo/framework/world.hpp"
 #include "game/game.hpp"
 #include "game/project_components.hpp"
-#include "platform/sdl/bitmap_font.hpp"
+#include "platform/presentation/bitmap_font.hpp"
 #include "json_input.hpp"
 
 #include <array>

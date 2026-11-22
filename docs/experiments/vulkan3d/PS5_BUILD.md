@@ -32,7 +32,7 @@ Vulkan SDK available (the manual host-tool prerequisites below still apply):
 The game build validates standalone Hello first, checks the RADV source pins
 and link inputs, compiles/validates Vulkan 1.0 SPIR-V, and stages the complete
 native application at `dist\ps5-vulkan\PPSA91007`. This is a separate build
-from the default SDL controller package at `dist\ps5-controller\PPSA91007`.
+from the explicit legacy SDL controller package at `dist\ps5-controller\PPSA91007`.
 Both intentionally use the same stable identity: **never leave both copies in
 the loader scan root**. Keep the existing package and saves backed up before
 manually replacing the project's own installed title. No upload is automated.
@@ -42,7 +42,7 @@ manual checklist and log location.
 The candidate uses RADV through `VK_KHR_display`, with SDL controller and
 audio but no SDL video or PS5 keyboard/IME initialization. It records the
 existing game and screens as a 640x360 ordered 2D canvas; the existing SDL
-renderer remains the default in the other build. The separate Windows 3D/VFX
+renderer is available in the legacy build. The separate Windows 3D/VFX
 experiment is separate from the production game. Production shot particles
 use the bounded CPU system and are recorded as canvas fills in both SDL and
 Vulkan builds. The current revision also adds enemy impact sparks and clears
@@ -50,17 +50,17 @@ particles on room transition, respawn, New Game and Continue.
 The menu additionally loads the bounded GLB/glTF glyph and WebP textures
 described in [MATERIALS.md](MATERIALS.md); the SDL package uses the PNG fallback.
 
-The latest local candidate FSELF is 28,189,549 bytes, SHA-256
-`c1ea71e19c18a08e597a9bef10e614c4b4ab58794f6d898352b5b14c32a21b3c`.
+The rebuilt local candidate FSELF is 28,190,509 bytes, SHA-256
+`ee8b379f0a590ba383301d4af98d54f23c0c6e1d92f9ebde3006f0dcb8225b76`.
 It includes projection-aware world-space point attenuation and spotlight cones,
 runtime prop transforms that update prop draws and attached lights, bounded GPU
 shadowing against solid-tile boundaries, props, the player, and living enemies,
 and the data-driven Landing Bay lamp, circuit switch and backup emissive
 indicator. Native Windows static validation and
-`tests\ps5_package_tests.ps1 -Vulkan` pass. This candidate has NOT been tested
-on PS5. Earlier operator reports of full
-functionality refer to prior packages; the installed digest and console setup
-were not supplied, so those reports do not validate this candidate.
+`tests\ps5_package_tests.ps1 -Vulkan` pass. After this candidate was presented,
+the operator reported that Windows and PS5 both run cleanly. The installed
+digest, console setup and individual checks were not supplied, so the exact
+tested binary and feature coverage are not verified.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and
 `build\ps5\game-vulkan`. The package records source pins, archive and shader

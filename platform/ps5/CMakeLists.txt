@@ -98,9 +98,9 @@ if(ECHO_PS5_GAME)
     target_compile_options(project_echo_ps5 PRIVATE -O2 -Wall -Wextra -ffunction-sections -fdata-sections)
     if(ECHO_PS5_VULKAN)
         target_sources(project_echo_ps5 PRIVATE
-            "${echo_root}/src/platform/sdl/canvas_assets.cpp"
-            "${echo_root}/src/platform/sdl/gpu_canvas.cpp"
-            "${echo_root}/src/platform/sdl/menu_glyph.cpp"
+            "${echo_root}/src/platform/presentation/canvas_assets.cpp"
+            "${echo_root}/src/platform/presentation/gpu_canvas.cpp"
+            "${echo_root}/src/platform/presentation/menu_glyph.cpp"
             "${echo_root}/experiments/vulkan3d/ps5/radv/compat.c")
         target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_VULKAN)
         target_include_directories(project_echo_ps5 PRIVATE "${libwebp_SOURCE_DIR}/src")

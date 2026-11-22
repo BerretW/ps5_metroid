@@ -57,9 +57,9 @@ add_executable(echo_vulkan_menu
     "${ECHO_ROOT}/src/game/world_layout.cpp"
     "${ECHO_ROOT}/src/platform/sdl/framework_integration.cpp"
     "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
-    "${ECHO_ROOT}/src/platform/sdl/canvas_assets.cpp"
-    "${ECHO_ROOT}/src/platform/sdl/gpu_canvas.cpp"
-    "${ECHO_ROOT}/src/platform/sdl/menu_glyph.cpp"
+    "${ECHO_ROOT}/src/platform/presentation/canvas_assets.cpp"
+    "${ECHO_ROOT}/src/platform/presentation/gpu_canvas.cpp"
+    "${ECHO_ROOT}/src/platform/presentation/menu_glyph.cpp"
     "${ECHO_ROOT}/src/platform/sdl/assets.cpp"
     "${ECHO_ROOT}/src/platform/sdl/stb_image_impl.c"
     "${ECHO_ROOT}/src/input/dualsense_diagnostics.cpp")

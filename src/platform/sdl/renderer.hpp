@@ -5,6 +5,7 @@
 #include "echo/framework/power.hpp"
 #include "echo/framework/vfx.hpp"
 #include "input/dualsense_diagnostics.hpp"
+#include "platform/presentation.hpp"
 #include "platform/sdl/inventory_menu.hpp"
 #include "platform/sdl/settings_persistence.hpp"
 
@@ -19,14 +20,6 @@
 namespace echo::platform {
 
 enum class ControlScheme { Keyboard, PlayStation };
-
-enum class Sprite { Player, Enemy, Tiles, Projectile, Pickup, Door, Count };
-
-struct CanvasSprite {
-    rendering::TextureHandle texture{};
-    std::uint32_t width{}, height{};
-};
-using CanvasSprites = std::array<CanvasSprite, static_cast<int>(Sprite::Count)>;
 
 struct RenderDebugInfo {
     bool vulkan{};
@@ -52,20 +45,6 @@ public:
 
 private:
     unsigned remaining_{};
-};
-
-struct CanvasWorldSprite {
-    std::array<char, 96> path{};
-    CanvasSprite image{};
-    CanvasSprite normal{};
-    CanvasSprite emissive{};
-    framework::WorldMaterialSpec material{};
-};
-
-struct CanvasWorldSprites {
-    static constexpr std::size_t Capacity = 48;
-    std::array<CanvasWorldSprite, Capacity> sheets{};
-    std::size_t count{};
 };
 
 class Renderer {

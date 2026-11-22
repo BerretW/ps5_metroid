@@ -5,7 +5,7 @@ if errorlevel 1 exit /b 1
 
 echo PROJECT ECHO
 echo.
-echo W or 1 - Windows: Release, keyboard prompts, tests
+echo W or 1 - Windows: Vulkan Release, legacy SDL available, tests
 echo P or 2 - PS5: controller prompts, keyboard/IME disabled
 echo Q or 0 - Cancel
 echo.
@@ -25,8 +25,8 @@ goto finished
 :ps5
 echo.
 echo Select PS5 renderer
-echo S - SDL renderer
-echo V - Vulkan renderer
+echo V - Vulkan renderer (recommended)
+echo S - Legacy SDL renderer
 echo Q - Cancel
 echo.
 choice /C SVQ /N /M "Select renderer [S/V/Q]: "
@@ -37,7 +37,7 @@ if errorlevel 1 goto ps5_sdl
 goto cancelled
 
 :ps5_sdl
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-ps5.ps1" -Target Game -SkipPs5Keyboard -RestoreDependencies
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-ps5.ps1" -Target Game -SkipPs5Keyboard -LegacySDL -RestoreDependencies
 set "build_exit=%errorlevel%"
 goto finished
 

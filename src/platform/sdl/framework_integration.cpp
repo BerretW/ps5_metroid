@@ -3,7 +3,7 @@
 #include "echo/framework/data.hpp"
 #include "echo/framework/schema.hpp"
 #include "game/game.hpp"
-#include "platform/sdl/bitmap_font.hpp"
+#include "platform/presentation/bitmap_font.hpp"
 
 #include <SDL.h>
 

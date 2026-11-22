@@ -1,4 +1,5 @@
 #include "echo/framework/vulkan_backend.hpp"
+#include "echo/framework/canvas2d.hpp"
 #include "platform_surface.hpp"
 #include <algorithm>
 #include <atomic>
@@ -1101,13 +1102,15 @@ Status VulkanBackend::beginFrameTo(const FrameState& frame, TargetHandle target)
     vkCmdBeginRenderPass(s.command, &pass, VK_SUBPASS_CONTENTS_INLINE);
     VkRect2D scissor{{0, 0}, renderExtent};
     if (s.logicalWidth && s.logicalHeight) {
-        float scale = std::min(static_cast<float>(renderExtent.width) / s.logicalWidth,
-                               static_cast<float>(renderExtent.height) / s.logicalHeight);
-        if (scale >= 1.0F) scale = std::floor(scale);
-        scissor.extent.width = static_cast<std::uint32_t>(s.logicalWidth * scale);
-        scissor.extent.height = static_cast<std::uint32_t>(s.logicalHeight * scale);
-        scissor.offset.x = static_cast<std::int32_t>((renderExtent.width - scissor.extent.width) / 2);
-        scissor.offset.y = static_cast<std::int32_t>((renderExtent.height - scissor.extent.height) / 2);
+        Rect2D viewport{};
+        if (!logicalViewport(static_cast<int>(renderExtent.width), static_cast<int>(renderExtent.height),
+                             static_cast<int>(s.logicalWidth), static_cast<int>(s.logicalHeight),
+                             viewport)) {
+            s.lost = true;
+            return error(ErrorCode::InvalidValue, "logical viewport dimensions");
+        }
+        scissor.extent = {static_cast<std::uint32_t>(viewport.w), static_cast<std::uint32_t>(viewport.h)};
+        scissor.offset = {viewport.x, viewport.y};
     }
     VkViewport viewport{static_cast<float>(scissor.offset.x), static_cast<float>(scissor.offset.y),
                         static_cast<float>(scissor.extent.width), static_cast<float>(scissor.extent.height), 0, 1};

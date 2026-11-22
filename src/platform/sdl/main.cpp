@@ -7,13 +7,23 @@
 #include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
 
+#if defined(ECHO_VULKAN_RENDERER) && !defined(ECHO_PS5_VULKAN)
+#define ECHO_PS5_VULKAN
+#endif
+
 #ifdef ECHO_PS5_VULKAN
 #include "echo/framework/vulkan_backend.hpp"
-#include "platform/sdl/gpu_canvas.hpp"
-#include "platform/sdl/menu_glyph.hpp"
+#include "platform/presentation/gpu_canvas.hpp"
+#include "platform/presentation/menu_glyph.hpp"
 #endif
 
 #include <SDL.h>
+#if !defined(__PROSPERO__)
+#include <SDL_syswm.h>
+#endif
+#ifdef ECHO_VULKAN_RENDERER
+#include "platform/sdl/vulkan_window.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -642,7 +652,15 @@ extern "C" void echo_ps5_video_status(const char* label, int result) {
 }
 #endif
 
-int main(int, char**) {
+int main(int argc, char** argv) {
+#ifdef ECHO_VULKAN_RENDERER
+    const bool vulkanSmokeTest = argc == 2 && std::strcmp(argv[1], "--vulkan-smoke-test") == 0;
+    bool vulkanSmokeFramePresented = false;
+    unsigned vulkanSmokeFrames = 0;
+#else
+    (void)argc;
+    (void)argv;
+#endif
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 01: main reached");
 #endif
@@ -662,7 +680,7 @@ int main(int, char**) {
     }
     diagnosticCheckpoint("ECHO DIAG 05: controller ready; before normal logger");
 #else
-#ifdef ECHO_PS5_VULKAN
+#if defined(ECHO_PS5_VULKAN) && defined(__PROSPERO__)
     if (SDL_Init(SDL_INIT_GAMECONTROLLER) != 0) {
 #else
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -675,7 +693,7 @@ int main(int, char**) {
         return 1;
     }
 #endif
-#ifdef ECHO_PS5_VULKAN
+#if defined(ECHO_PS5_VULKAN) && defined(__PROSPERO__)
     logMessage("SDL game-controller initialized without SDL video");
 #else
     logMessage("SDL video and game-controller subsystems initialized");
@@ -765,6 +783,9 @@ int main(int, char**) {
 #endif
     echo::framework::SaveStorage saveStorage{};
     bool saveStorageReady = false;
+#ifdef ECHO_VULKAN_RENDERER
+    if (!vulkanSmokeTest) {
+#endif
     const echo::framework::Status saveStorageStatus = saveProvider.initialize();
     if (!saveStorageStatus) {
         logMessage("Save storage initialization failed; continuing without persistence");
@@ -774,12 +795,18 @@ int main(int, char**) {
         saveStorageReady = true;
         logMessage("Save storage initialized");
     }
+#ifdef ECHO_VULKAN_RENDERER
+    }
+#endif
 #if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
     runPs5SaveStorageDiagnostic();
 #endif
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");
+#endif
+#ifdef ECHO_VULKAN_RENDERER
+    SDL_Window* vulkanWindow = nullptr;
 #endif
     echo::platform::Renderer renderer{kControlScheme};
     renderer.setPowerModule(framework.powerModule());
@@ -788,9 +815,44 @@ int main(int, char**) {
     echo::rendering::VulkanBackend gpuBackend{};
     echo::platform::GpuCanvas gpuCanvas{gpuBackend};
     echo::platform::MenuGlyph menuGlyph{gpuBackend};
-    logMessage("PS5 Vulkan renderer initialization starting");
+    logMessage("Vulkan renderer initialization starting");
+#ifndef __PROSPERO__
+    std::array<char, 512> shaderDirectory{};
+    const int shaderPathLength = std::snprintf(
+        shaderDirectory.data(), shaderDirectory.size(), "%sshaders", assetsRoot.data());
+    if (shaderPathLength <= 0 ||
+        static_cast<std::size_t>(shaderPathLength) >= shaderDirectory.size()) {
+        logMessage("Vulkan shader directory path is too long");
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+#endif
+    void* vulkanNativeWindow = nullptr;
+#ifndef __PROSPERO__
+    vulkanWindow = SDL_CreateWindow("PROJECT ECHO - Vulkan",
+                                                SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                                1280, 720, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    if (vulkanWindow == nullptr) {
+        logMessage("Vulkan window creation failed");
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+    SDL_SysWMinfo windowInfo{};
+    SDL_VERSION(&windowInfo.version);
+    if (SDL_GetWindowWMInfo(vulkanWindow, &windowInfo) && windowInfo.subsystem == SDL_SYSWM_WINDOWS) {
+        vulkanNativeWindow = windowInfo.info.win.window;
+    }
+#endif
     const auto gpuStatus = gpuBackend.initialize(
-        {nullptr, 1280, 720, "/app0/assets/shaders", false, 640, 360, logVulkanStage, nullptr});
+        {vulkanNativeWindow, 1280, 720,
+#ifdef __PROSPERO__
+         "/app0/assets/shaders",
+#else
+         shaderDirectory.data(),
+#endif
+         false, 640, 360, logVulkanStage, nullptr});
     if (!logRenderStatus(gpuStatus)) {
         gpuBackend.shutdown();
         framework.shutdown();
@@ -804,7 +866,7 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
-    logMessage("PS5 Vulkan canvas initialized");
+    logMessage("Vulkan canvas initialized");
 #else
     if (!renderer.create()) {
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -922,6 +984,9 @@ int main(int, char**) {
     bool running = true;
 #ifdef ECHO_PS5_VULKAN
     bool renderFailed = false;
+#endif
+#ifdef ECHO_VULKAN_RENDERER
+    bool vulkanWindowMinimized = false;
 #endif
     bool paused = false;
     bool showMap = false;
@@ -1490,6 +1555,20 @@ int main(int, char**) {
         return true;
     };
 
+    const auto applyDisplayMode = [&](echo::platform::DisplayMode mode) {
+#ifdef ECHO_VULKAN_RENDERER
+        return echo::platform::applyVulkanDisplayMode(vulkanWindow, mode);
+#else
+        return renderer.applyDisplayMode(mode);
+#endif
+    };
+    const auto windowToLogical = [&](int windowX, int windowY, float& x, float& y) {
+#ifdef ECHO_VULKAN_RENDERER
+        return echo::platform::vulkanWindowToLogical(vulkanWindow, windowX, windowY, x, y);
+#else
+        return renderer.windowToLogical(windowX, windowY, x, y);
+#endif
+    };
     const auto loadSavedSettings = [&]() {
         if (!saveStorageReady || !settingsAvailable) {
             return false;
@@ -1529,7 +1608,7 @@ int main(int, char**) {
         dialogueLanguage = restoredLanguage;
         displayMode = restoredDisplay;
         renderDebug = restoredRenderDebug;
-        if (!renderer.applyDisplayMode(displayMode)) {
+        if (!applyDisplayMode(displayMode)) {
             logMessage("Display mode could not be applied");
         }
         logMessage("Settings loaded");
@@ -1561,7 +1640,7 @@ int main(int, char**) {
         constexpr int kModes = static_cast<int>(echo::platform::DisplayMode::Count);
         const auto candidate = static_cast<echo::platform::DisplayMode>(
             (static_cast<int>(displayMode) + kModes + direction) % kModes);
-        if (!renderer.applyDisplayMode(candidate)) {
+        if (!applyDisplayMode(candidate)) {
             logMessage("Display mode change failed");
             logMessage(SDL_GetError());
             return;
@@ -1730,6 +1809,28 @@ int main(int, char**) {
                 } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
                     windowFocused = true;
                 }
+#ifdef ECHO_VULKAN_RENDERER
+                if (event.window.windowID == SDL_GetWindowID(vulkanWindow)) {
+                    if (event.window.event == SDL_WINDOWEVENT_MINIMIZED) {
+                        vulkanWindowMinimized = true;
+                    } else if (event.window.event == SDL_WINDOWEVENT_RESTORED ||
+                               event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                        vulkanWindowMinimized =
+                            (SDL_GetWindowFlags(vulkanWindow) & SDL_WINDOW_MINIMIZED) != 0;
+                        if (!vulkanWindowMinimized) {
+                            int width{}, height{};
+                            SDL_Vulkan_GetDrawableSize(vulkanWindow, &width, &height);
+                            if (width > 0 && height > 0 &&
+                                !logRenderStatus(gpuBackend.resize(
+                                    static_cast<std::uint32_t>(width),
+                                    static_cast<std::uint32_t>(height)))) {
+                                renderFailed = true;
+                                running = false;
+                            }
+                        }
+                    }
+                }
+#endif
             }
             if (event.type == SDL_MOUSEMOTION) {
                 mouseAimActive = true;
@@ -2025,6 +2126,9 @@ int main(int, char**) {
             }
         }
 
+#ifdef ECHO_VULKAN_RENDERER
+        if (renderFailed) break;
+#endif
         const std::uint64_t now = SDL_GetPerformanceCounter();
         const double elapsed = std::min(static_cast<double>(now - previousCounter) / frequency, 0.25);
         previousCounter = now;
@@ -2077,7 +2181,7 @@ int main(int, char**) {
             if (isometricRoom && mouseAimActive) {
                 float logicalX = 0.0F;
                 float logicalY = 0.0F;
-                if (renderer.windowToLogical(mouseWindowX, mouseWindowY, logicalX, logicalY)) {
+                if (windowToLogical(mouseWindowX, mouseWindowY, logicalX, logicalY)) {
                     aimX = logicalX - echo::platform::Renderer::kIsometricAimOriginX;
                     aimY = logicalY - echo::platform::Renderer::kIsometricAimOriginY;
                 }
@@ -2226,8 +2330,11 @@ int main(int, char**) {
             float cursorX = 0.0F;
             float cursorY = 0.0F;
             if (captureMouse) {
-                (void)renderer.windowToLogical(mouseWindowX, mouseWindowY, cursorX, cursorY);
+                (void)windowToLogical(mouseWindowX, mouseWindowY, cursorX, cursorY);
             }
+#ifdef ECHO_VULKAN_RENDERER
+            SDL_SetWindowGrab(vulkanWindow, captureMouse ? SDL_TRUE : SDL_FALSE);
+#endif
             renderer.setMouseAim(captureMouse, cursorX, cursorY);
         }
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -2242,6 +2349,12 @@ int main(int, char**) {
         }
 #endif
 #ifdef ECHO_PS5_VULKAN
+#ifdef ECHO_VULKAN_RENDERER
+        if (vulkanWindowMinimized) {
+            SDL_Delay(16);
+            continue;
+        }
+#endif
         bool recorded = false;
         auto& canvas = gpuCanvas.batch();
         if (screen == Screen::MainMenu) {
@@ -2294,6 +2407,31 @@ int main(int, char**) {
             renderInfo.drawCalls = stats.drawCalls;
             renderInfo.triangles = stats.triangles;
         }
+#ifdef ECHO_VULKAN_RENDERER
+        if (vulkanSmokeTest) {
+            if (++vulkanSmokeFrames == 1) {
+                SDL_SetWindowSize(vulkanWindow, 960, 720);
+                int width{}, height{}, drawableWidth{}, drawableHeight{};
+                SDL_GetWindowSize(vulkanWindow, &width, &height);
+                SDL_Vulkan_GetDrawableSize(vulkanWindow, &drawableWidth, &drawableHeight);
+                float x{}, y{};
+                if (width != 960 || height != 720 || drawableWidth <= 0 || drawableHeight <= 0 ||
+                    !windowToLogical(width / 2, height / 2, x, y) ||
+                    std::abs(x - 320.0F) > 1.0F || std::abs(y - 180.0F) > 1.0F ||
+                    !logRenderStatus(gpuBackend.resize(
+                        static_cast<std::uint32_t>(drawableWidth),
+                        static_cast<std::uint32_t>(drawableHeight)))) {
+                    logMessage("Vulkan smoke test: window resize or mouse mapping failed");
+                    renderFailed = true;
+                    break;
+                }
+            } else {
+                vulkanSmokeFramePresented = true;
+                logMessage("Vulkan smoke test: resized frame presented");
+                running = false;
+            }
+        }
+#endif
 #else
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection, continueAvailable);
@@ -2346,6 +2484,9 @@ int main(int, char**) {
         SDL_Delay(1);
     }
 
+#ifdef ECHO_VULKAN_RENDERER
+    if (!vulkanSmokeTest)
+#endif
     (void)saveSettings();
     if (gameSessionActive) {
         (void)saveCurrentGame();
@@ -2364,12 +2505,21 @@ int main(int, char**) {
         logMessage("Vulkan GPU allocation cleanup was incomplete");
         renderFailed = true;
     }
+#ifdef ECHO_VULKAN_RENDERER
+    if (vulkanWindow != nullptr) {
+        SDL_DestroyWindow(vulkanWindow);
+        vulkanWindow = nullptr;
+    }
+#endif
 #endif
     renderer.destroy();
     framework.shutdown();
     SDL_Quit();
     logMessage("Application shutdown");
 #ifdef ECHO_PS5_VULKAN
+#ifdef ECHO_VULKAN_RENDERER
+    if (vulkanSmokeTest && !vulkanSmokeFramePresented) renderFailed = true;
+#endif
     return renderFailed ? 1 : 0;
 #else
     return 0;

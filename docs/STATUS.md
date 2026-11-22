@@ -2,6 +2,42 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**Vulkan-first migration checkpoint (2026-11-22):** the native Windows Vulkan
+production target and PS5 Vulkan game path build successfully. The Vulkan GPU
+experiment passes 35/35 tests, Windows Debug/Release pass 20/20 CTest cases, and
+the PS5 Vulkan game package passes native static validation. On 2026-11-22,
+the operator reported the PS5 Vulkan game fully functional. The installed binary
+digest and individual checks were not provided, so this is not a detailed
+hardware acceptance report. SDL remains available explicitly
+as a legacy/diagnostic renderer; SDL controller, audio and event services remain
+active.
+
+**Windows Vulkan startup fix (2026-11-22):** the operator reported missing
+`scene.vert.spv` at startup. The Windows build now compiles and validates both
+game shaders, and the shader directory is resolved from the executable's asset
+root. The production-game smoke test starts from a different working directory,
+presents one menu frame on the NVIDIA GPU and shuts down without accessing saves.
+The operator subsequently confirmed that the Windows build works; individual
+gameplay checks were not specified.
+
+**Window and build-selection follow-up:** Windows Vulkan Debug and Release pass 21/21
+tests including a production menu-frame, resize and mouse-mapping GPU smoke test;
+the separate Vulkan GPU suite passes 35/35 including readbacks. Windows legacy
+Debug passes 20/20. PS5 Hello, the default Vulkan game and explicit legacy
+controller game build and pass static package validation; package rejection tests
+pass for both game variants. Earlier packages were backed up before rebuilding.
+These automated results do not exercise every gameplay screen interactively.
+The game presentation implementation still depends on SDL; the requested
+complete SDL-independent split remains outstanding.
+
+**Bitmap text extraction:** the glyph rasterizer and sprite-sheet definitions
+are now SDL-independent and shared by the existing renderer. Window-free tests
+cover Czech diacritics and invalid UTF-8; Windows Vulkan Debug passes 21/21,
+and the Vulkan GPU suite passes 35/35. The rebuilt PS5 Vulkan package passes
+static and package-rejection checks. After it was presented, the operator
+reported that Windows and PS5 both run cleanly. The installed digest and
+individual checks were not supplied.
+
 **Milestone: PLAYABLE prototype.** The native Windows application builds and launches, the shared gameplay simulation passes its headless tests, and the PS5 controller build is reported playable by the operator. This is a development baseline, not a claim that every feature or platform behavior is complete.
 
 **Menu glyph update:** Windows Vulkan tests pass with a GPU-rendered supplied
@@ -11,8 +47,8 @@ link and pass static package tests. On 2026-11-22, after these packages were
 presented, the operator reported full functionality; the report did not
 identify the tested variant(s), installed digest, setup, or individual checks.
 Current local FSELF SHA-256 (not verified as installed):
-SDL `268cc3c38bf81ce7f45e246c0a1671e6845b48a539a9e7e13f99054b65846372`;
-Vulkan `e01f4d5aecd1c1ca4e3de00be0c11c7573a83e0a060b56fe56b73341323b003e`.
+SDL `8f276bd749620dd8396d081e3bf4ab79fda89feb7e395ed88f309c47ccc87a2c`;
+Vulkan `ee8b379f0a590ba383301d4af98d54f23c0c6e1d92f9ebde3006f0dcb8225b76`.
 The same `PPSA91007` identity is used by both: upload one complete variant
 manually, not both at once.
 
