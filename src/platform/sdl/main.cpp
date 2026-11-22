@@ -2,10 +2,10 @@
 #include "platform/sdl/assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
+#include "platform/sdl/gameplay_vfx.hpp"
 #include "platform/sdl/renderer.hpp"
 #include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
-#include "echo/framework/vfx.hpp"
 
 #ifdef ECHO_PS5_VULKAN
 #include "echo/framework/vulkan_backend.hpp"
@@ -737,29 +737,16 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
-    std::unique_ptr<echo::vfx::ParticleSystem> particleSystem{
-        new (std::nothrow) echo::vfx::ParticleSystem{}};
-    if (!particleSystem) {
+    std::unique_ptr<echo::platform::GameplayVfx> gameplayVfx{
+        new (std::nothrow) echo::platform::GameplayVfx{}};
+    if (!gameplayVfx) {
         logMessage("Gameplay VFX allocation failed");
         framework.shutdown();
         SDL_Quit();
         return 1;
     }
-    echo::vfx::EmitterConfig shotParticles{};
-    shotParticles.maximumParticles = 128;
-    shotParticles.minimumLifetime = 0.12F;
-    shotParticles.maximumLifetime = 0.32F;
-    shotParticles.velocitySpread = {78.0F, 78.0F, 0.0F};
-    shotParticles.gravity = {0.0F, 20.0F, 0.0F};
-    shotParticles.startColor = {0.2F, 0.9F, 1.0F, 1.0F};
-    shotParticles.endColor = {1.0F, 0.35F, 0.08F, 0.0F};
-    shotParticles.startScale = 1.0F;
-    shotParticles.endScale = 0.15F;
-    shotParticles.randomSeed = 0x4543484FU;
-    echo::vfx::EmitterHandle shotEmitter{};
     echo::platform::DamageFlash damageFlash{};
-    const echo::framework::Status particleSetup =
-        particleSystem->createEmitter(shotParticles, shotEmitter);
+    const echo::framework::Status particleSetup = gameplayVfx->reset();
     if (!particleSetup) {
         logMessage("Gameplay VFX initialization failed");
         logMessage(particleSetup.detail);
@@ -1432,6 +1419,13 @@ int main(int, char**) {
         }
         game = resumed;
         damageFlash.clear();
+        status = gameplayVfx->reset();
+        if (!status) {
+            logMessage("Gameplay VFX reset failed");
+            logMessage(status.detail);
+            running = false;
+            return false;
+        }
         gameSessionActive = true;
         secondsSinceAutosave = 0.0;
         screen = Screen::Playing;
@@ -1563,6 +1557,13 @@ int main(int, char**) {
             ECHO_DIAG("ECHO DIAG M1: framework reset; before game start");
             game.start();
             damageFlash.clear();
+            const auto vfxStatus = gameplayVfx->reset();
+            if (!vfxStatus) {
+                logMessage("Gameplay VFX reset failed");
+                logMessage(vfxStatus.detail);
+                running = false;
+                return;
+            }
             gameSessionActive = true;
             screen = Screen::Playing;
             paused = false;
@@ -2088,6 +2089,7 @@ int main(int, char**) {
                 .aimY = aimY,
             };
             const SoundState before = captureSoundState(game);
+            const auto vfxBefore = echo::platform::GameplayVfx::capture(game);
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
             const int roomBeforeUpdate = static_cast<int>(game.roomId());
 #endif
@@ -2112,25 +2114,22 @@ int main(int, char**) {
             if ((stepEvents & (1U << static_cast<unsigned>(SoundId::Hurt))) != 0U) {
                 damageFlash.trigger();
             }
-            if ((stepEvents & (1U << static_cast<unsigned>(SoundId::Shot))) != 0U) {
-                const auto& player = game.player();
-                const float shotAimX = player.aim.x == 0.0F
-                    ? static_cast<float>(player.facing) : player.aim.x;
-                const float direction = shotAimX < 0.0F ? -1.0F : 1.0F;
-                const echo::framework::Status positionStatus = particleSystem->setPosition(
-                    shotEmitter, {player.position.x + 10.0F + direction * 8.0F,
-                                  player.position.y + 14.0F, 0.0F});
-                const echo::framework::Status burstStatus =
-                    positionStatus ? particleSystem->emitBurst(shotEmitter, 8) : positionStatus;
-                if (!burstStatus) {
-                    logMessage("Gameplay shot VFX emission failed");
-                    logMessage(burstStatus.detail);
-                }
-            }
-            const echo::framework::Status particleUpdate = particleSystem->update(echo::kFixedStep);
+            const auto particleUpdate = gameplayVfx->step(
+                vfxBefore, echo::platform::GameplayVfx::capture(game));
             if (!particleUpdate) {
                 logMessage("Gameplay VFX fixed-step update failed");
                 logMessage(particleUpdate.detail);
+            }
+            if (after.room == before.room && after.deaths == before.deaths) {
+                const unsigned newProjectiles = after.activeProjectiles & ~before.activeProjectiles;
+                for (std::size_t index = 0; index < game.projectiles().size(); ++index) {
+                    if ((newProjectiles & (1U << index)) == 0U) continue;
+                    const auto status = gameplayVfx->shot(game.projectiles()[index]);
+                    if (!status) {
+                        logMessage("Gameplay shot VFX emission failed");
+                        logMessage(status.detail);
+                    }
+                }
             }
             if (!before.abilityCollected && after.abilityCollected) {
                 const echo::framework::Status status = framework.notifyEchoStepUnlocked();
@@ -2215,9 +2214,9 @@ int main(int, char**) {
                 recorded = renderer.recordGame(canvas, game, showMap, paused, jump.data(),
                                                shoot.data(), interact.data(), &gpuCanvas.sprites(),
                                                &gpuCanvas.worldSprites(),
-                                               particleSystem->particles(shotEmitter),
+                                               gameplayVfx->shots(),
                                                renderDebug ? &renderInfo : nullptr,
-                                               damageFlash.opacity());
+                                               damageFlash.opacity(), gameplayVfx->impacts());
             }
         }
         if (!recorded) {
@@ -2259,9 +2258,9 @@ int main(int, char**) {
                                      renderDebug);
             } else {
                 renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data(),
-                                  particleSystem->particles(shotEmitter),
+                                  gameplayVfx->shots(),
                                   renderDebug ? &renderInfo : nullptr,
-                                  damageFlash.opacity());
+                                  damageFlash.opacity(), gameplayVfx->impacts());
             }
         }
 #endif

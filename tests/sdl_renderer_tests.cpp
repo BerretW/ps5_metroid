@@ -2,6 +2,7 @@
 #include "platform/sdl/bitmap_font.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/game_persistence.hpp"
+#include "platform/sdl/gameplay_vfx.hpp"
 #include "platform/sdl/renderer.hpp"
 #include "platform/sdl/settings_persistence.hpp"
 
@@ -87,6 +88,122 @@ void testDamageFlash() {
     flash.trigger();
     flash.clear();
     check(flash.opacity() == 0, "reset clears the damage flash");
+}
+
+void testGameplayVfx() {
+    using echo::platform::GameplayVfx;
+    auto effects = std::make_unique<GameplayVfx>();
+    auto duplicate = std::make_unique<GameplayVfx>();
+    check(static_cast<bool>(effects->reset()) && static_cast<bool>(duplicate->reset()),
+          "gameplay particle emitters initialize");
+    GameplayVfx::Snapshot before{};
+    before.room = echo::RoomId::MaintenanceTunnel;
+    before.enemies[0].room = before.room;
+    before.enemies[0].health = 2;
+    before.enemies[0].bounds = {100.0F, 80.0F, 20.0F, 30.0F};
+    before.roamerCount = 1;
+    before.roamers[0].room = before.room;
+    before.roamers[0].health = 3;
+    before.roamers[0].bounds = {150.0F, 90.0F, 20.0F, 20.0F};
+    auto after = before;
+    after.enemies[0].health = 0;
+    after.enemies[0].alive = false;
+    after.roamers[0].health = 2;
+    check(static_cast<bool>(effects->step(before, after)) &&
+              static_cast<bool>(duplicate->step(before, after)) &&
+              effects->impacts().size() == 24 && duplicate->impacts().size() == 24,
+          "enemy defeat and roamer damage each emit an impact burst");
+    if (effects->impacts().size() == 24 && duplicate->impacts().size() == 24) {
+        check(effects->impacts()[0].position.x == 110.0F &&
+                  effects->impacts()[0].position.y == 95.0F &&
+                  effects->impacts()[12].position.x == 160.0F &&
+                  effects->impacts()[12].position.y == 100.0F &&
+                  effects->impacts()[0].velocity.x == duplicate->impacts()[0].velocity.x,
+              "impact bursts use enemy centers and deterministic velocities");
+    }
+    echo::Projectile projectile{};
+    projectile.bounds = {30.0F, 40.0F, 8.0F, 8.0F};
+    check(static_cast<bool>(effects->shot(projectile)) && effects->shots().size() == 8 &&
+              effects->shots()[0].position.x == 34.0F &&
+              effects->shots()[0].position.y == 44.0F,
+          "shot burst starts at the projectile center");
+    check(static_cast<bool>(effects->step(after, after)) &&
+              effects->impacts().size() == 24 &&
+              effects->impacts()[0].age == echo::kFixedStep,
+          "particles advance once without repeating unchanged damage");
+    auto transition = after;
+    transition.room = echo::RoomId::ResearchLab;
+    transition.roamers[0].health = 0;
+    check(static_cast<bool>(effects->step(after, transition)) &&
+              effects->shots().empty() && effects->impacts().empty(),
+          "room transition clears effects without a false roamer hit");
+    check(static_cast<bool>(effects->shot(projectile)) &&
+              static_cast<bool>(effects->reset()) && effects->shots().empty() &&
+              static_cast<bool>(effects->shot(projectile)) && effects->shots().size() == 8,
+          "new or loaded game resets and recreates usable emitters");
+    auto respawn = before;
+    ++respawn.deaths;
+    respawn.enemies[0].health = 0;
+    check(static_cast<bool>(effects->step(before, respawn)) &&
+              effects->shots().empty() && effects->impacts().empty(),
+          "death and respawn clear effects without false hits");
+
+    echo::Game hunter;
+    auto hunt = hunter.checkpoint();
+    hunt.room = echo::RoomId::CargoHold;
+    hunt.playerPosition = {470.0F, 118.0F};
+    check(hunter.restore(hunt), "isometric impact fixture restores");
+    check(static_cast<bool>(effects->reset()), "isometric impact fixture resets effects");
+    bool realRoamerHit = false;
+    bool updatesOk = true;
+    for (int tick = 0; tick < 181; ++tick) {
+        const auto snapshot = GameplayVfx::capture(hunter);
+        echo::Input input{};
+        if (tick == 30) {
+            input.moveX = -1;
+            input.moveY = -1;
+        } else if (tick > 30) {
+            input.shootHeld = true;
+        }
+        updatesOk = static_cast<bool>(hunter.update(input)) && updatesOk;
+        const auto next = GameplayVfx::capture(hunter);
+        updatesOk = static_cast<bool>(effects->step(snapshot, next)) && updatesOk;
+        if (snapshot.room == next.room && snapshot.deaths == next.deaths &&
+            snapshot.roamerCount > 0 && next.roamerCount > 0 &&
+            next.roamers[0].health < snapshot.roamers[0].health &&
+            !effects->impacts().empty()) {
+            realRoamerHit = true;
+        }
+    }
+    check(updatesOk && realRoamerHit,
+          "real isometric combat produces a roamer impact through captured game states");
+
+    echo::Game fighter;
+    for (int tick = 0; tick < 1800 && fighter.roomId() != echo::RoomId::MaintenanceTunnel; ++tick) {
+        updatesOk = static_cast<bool>(fighter.update(
+            {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true})) && updatesOk;
+    }
+    for (int tick = 0; tick < 140; ++tick) {
+        updatesOk = static_cast<bool>(fighter.update({.moveX = 1})) && updatesOk;
+    }
+    check(static_cast<bool>(effects->reset()), "side-view impact fixture resets effects");
+    bool realEnemyHit = false;
+    for (int tick = 0; tick < 120; ++tick) {
+        const auto snapshot = GameplayVfx::capture(fighter);
+        updatesOk = static_cast<bool>(fighter.update({.shootHeld = true})) && updatesOk;
+        const auto next = GameplayVfx::capture(fighter);
+        updatesOk = static_cast<bool>(effects->step(snapshot, next)) && updatesOk;
+        for (std::size_t index = 0; index < snapshot.enemies.size(); ++index) {
+            if (snapshot.room == next.room && snapshot.deaths == next.deaths &&
+                snapshot.enemies[index].room == snapshot.room &&
+                next.enemies[index].health < snapshot.enemies[index].health &&
+                !effects->impacts().empty()) {
+                realEnemyHit = true;
+            }
+        }
+    }
+    check(updatesOk && realEnemyHit,
+          "real side-view combat produces an enemy impact through captured game states");
 }
 
 void testSettingsPersistence() {
@@ -688,6 +805,7 @@ int main() {
         testSettingsPersistence();
         testFixedStepParticles();
         testDamageFlash();
+        testGameplayVfx();
         testBitmapFontUtf8();
         testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
@@ -1099,6 +1217,20 @@ int main() {
                                        menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
                   particleScreen == recordedMenu,
               "SDL and abstract canvas render gameplay particles identically");
+        spark.position.x += 20.0F;
+        spark.color = {1.0F, 0.6F, 0.1F, 1.0F};
+        const std::array<echo::vfx::Particle, 1> impacts{spark};
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E",
+                          recordedParticles, nullptr, 0, impacts);
+        const auto impactScreen = capture(keyboardWindow, {0, 0, 640, 360});
+        check(impactScreen != particleScreen &&
+                  keyboard.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E",
+                                      nullptr, nullptr, recordedParticles, nullptr, 0, impacts) &&
+                  SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                       recordedMenu.data(),
+                                       menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                  impactScreen == recordedMenu,
+              "SDL and abstract canvas render impact and shot particles identically");
         FailingMenuSink failingGame{};
         check(!keyboard.recordGame(failingGame, recordedGame, false, false, "SPACE", "J", "E") &&
                   failingGame.calls == 1,
@@ -1281,6 +1413,25 @@ int main() {
                                       &canvasSprites, &canvasWorldSprites) &&
                       spriteProbe.calls > 1,
                   "isometric JSON tiles and directional object atlases record through canvas");
+            echo::vfx::Particle isoImpact{};
+            isoImpact.position = {cargoGame.player().position.x + 30.0F,
+                                  cargoGame.player().position.y + 10.0F, 0.0F};
+            isoImpact.color = {1.0F, 0.6F, 0.1F, 1.0F};
+            isoImpact.scale = 1.0F;
+            const std::array<echo::vfx::Particle, 1> isoImpacts{isoImpact};
+            keyboard.drawGame(cargoGame, false, false, "SPACE", "J", "E");
+            const auto isoWithoutImpact = capture(keyboardWindow, {0, 0, 640, 360});
+            keyboard.drawGame(cargoGame, false, false, "SPACE", "J", "E",
+                              {}, nullptr, 0, isoImpacts);
+            const auto isoWithImpact = capture(keyboardWindow, {0, 0, 640, 360});
+            check(isoWithImpact != isoWithoutImpact &&
+                      keyboard.recordGame(menuSink, cargoGame, false, false, "SPACE", "J", "E",
+                                          nullptr, nullptr, {}, nullptr, 0, isoImpacts) &&
+                      SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                           recordedMenu.data(),
+                                           menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                      isoWithImpact == recordedMenu,
+                  "isometric impacts render consistently in SDL and abstract canvas");
             const SDL_Rect centre{260, 120, 120, 120};
             pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
             const auto sideCentre = capture(padWindow, centre);

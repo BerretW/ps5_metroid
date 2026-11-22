@@ -37,16 +37,24 @@ position, velocity spread, gravity, color/scale transitions, and a deterministic
 seed.
 
 This is CPU simulation only. It does not expose a compute shader or GPU
-particle buffer. PROJECT ECHO's production game translates shot-emitter
+particle buffer. PROJECT ECHO's production game translates shot and impact
 particles into small alpha-blended rectangles through its existing 2D canvas;
-the SDL and Vulkan game paths therefore share the same simulation and effect.
+the SDL and Vulkan game paths therefore share the same simulation and effects.
 The current Vulkan backend reports compute, postprocessing, render to texture,
 instancing, and shadow maps as unavailable.
 
 The game also renders a brief red damage flash before its HUD through the same
 canvas path. Player health loss or death starts it; it fades over 12 fixed
 steps, pauses with simulation, restarts on another hit, and resets on a new or
-loaded game. It is presentation-only and does not change game state. Camera
+loaded game. Projectile births produce sparks at the projectile center; because
+births are inferred from active-slot changes, a slot reused within the same
+step cannot be detected. Per-enemy health changes produce impact bursts for
+regular enemies and room-local isometric stalkers, including lethal hits.
+Both effects advance only on gameplay fixed steps, and room changes, death,
+new games and Continue clear their particles and recreate their emitters.
+Transitions suppress damage comparisons to avoid treating respawns as hits.
+Each emitter is bounded; failed bursts are logged instead of growing storage.
+These effects are presentation-only and do not change game state. Camera
 shake and light-event coupling remain deferred; the VFX module itself owns only
 particles and emitter simulation.
 
@@ -55,4 +63,4 @@ additively blended Vulkan quads using per-draw tint/scale. Interactive updates
 use a 60 Hz accumulator with a 0.25-second catch-up limit; bounded `--frames`
 runs deliberately advance one fixed step per frame for reproducible captures.
 This is **CPU simulation with GPU rasterization**, not compute particles. The
-production shot sparks use the fixed gameplay step and canvas alpha blending.
+production sparks use the fixed gameplay step and canvas alpha blending.

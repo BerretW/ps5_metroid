@@ -122,7 +122,8 @@ public:
                   std::string_view interactKey,
                   std::span<const vfx::Particle> particles = {},
                   const RenderDebugInfo* debug = nullptr,
-                  std::uint8_t damageFlashOpacity = 0) noexcept;
+                  std::uint8_t damageFlashOpacity = 0,
+                  std::span<const vfx::Particle> impacts = {}) noexcept;
     [[nodiscard]] bool recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                                   std::string_view jumpKey, std::string_view shootKey,
                                   std::string_view interactKey,
@@ -130,7 +131,8 @@ public:
                                   const CanvasWorldSprites* worldSprites = nullptr,
                                   std::span<const vfx::Particle> particles = {},
                                   const RenderDebugInfo* debug = nullptr,
-                                  std::uint8_t damageFlashOpacity = 0) noexcept;
+                                  std::uint8_t damageFlashOpacity = 0,
+                                  std::span<const vfx::Particle> impacts = {}) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
     [[nodiscard]] bool recordInventory(rendering::ICanvas2D& sink, const Game& game,
@@ -165,7 +167,8 @@ private:
                          std::string_view interactKey,
                          std::span<const vfx::Particle> particles,
                          const RenderDebugInfo* debug,
-                         std::uint8_t damageFlashOpacity) noexcept;
+                         std::uint8_t damageFlashOpacity,
+                         std::span<const vfx::Particle> impacts) noexcept;
     void drawParticles(const Game& game, std::span<const vfx::Particle> particles) noexcept;
     void drawInventoryContent(const Game& game, const InventoryMenu& menu,
                               std::string_view message) noexcept;

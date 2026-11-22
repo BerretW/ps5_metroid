@@ -1,8 +1,9 @@
 # Native Windows PS5 feasibility
 
 The experimental Vulkan game compiles, links, signs and passes static
-package validation on native Windows. The operator reports both the Vulkan and
-SDL damage-flash packages fully functional on PS5 (2026-11-22).
+package validation on native Windows. The operator reports both the current
+Vulkan and SDL impact-sparks packages fully functional on PS5 (2026-11-22).
+Individual effect appearance and lifecycle were not separately described.
 A separate RADV first-frame diagnostic also passes static validation.
 Runtime hold checks and RADV instance/device/queue creation were reported
 successful on hardware. A first-frame log reports successful submit, fence
@@ -41,14 +42,16 @@ existing game and screens as a 640x360 ordered 2D canvas; the existing SDL
 renderer remains the default in the other build. The separate Windows 3D/VFX
 experiment is separate from the production game. Production shot particles
 use the bounded CPU system and are recorded as canvas fills in both SDL and
-Vulkan builds.
+Vulkan builds. The current revision also adds enemy impact sparks and clears
+particles on room transition, respawn, New Game and Continue.
 
-The current candidate FSELF is 27,935,869 bytes, SHA-256
-`9eb2bcca66ebd4048049fa1cee9cdec3f37a843d4ff74ccb165b448fc347c13d`.
+The current candidate FSELF is 27,939,005 bytes, SHA-256
+`973358631d120d2b43f1e5445f37e4040c17b28680515a48e23bcac389336c09`.
 The updated artifact passes native Windows static validation and
-`tests\ps5_package_tests.ps1 -Vulkan`. The operator reports both latest packages
-fully functional on PS5; the installed digests and console setup were not
-provided. The prior 60 FPS observation predates the damage-flash change.
+`tests\ps5_package_tests.ps1 -Vulkan`. The operator reports both current
+packages fully functional on PS5; the installed digests and console setup were
+not provided. The prior 60 FPS
+observation predates the damage-flash change.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and
 `build\ps5\game-vulkan`. The package records source pins, archive and shader

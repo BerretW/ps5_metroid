@@ -2,7 +2,8 @@
 
 The operator reported a visible turquoise first frame and a moving interactive
 cube on PS5, with successful RADV graphics and pad stages in the supplied logs.
-The Vulkan game remains **NOT TESTED** on PS5.
+The operator reports both current impact-sparks game packages fully functional
+on PS5; individual effect appearance and lifecycle were not separately described.
 Upstream tests and PROJECT ECHO's software isometric room are not substitutes.
 Deployment is manual only.
 
@@ -262,9 +263,16 @@ The newer damage-flash candidate has local Vulkan FSELF hash
 `9eb2bcca66ebd4048049fa1cee9cdec3f37a843d4ff74ccb165b448fc347c13d`
 and local SDL FSELF hash
 `bf697af4b244b3f67148743d8d43546cd631ce6902ae7be366d89aa885bbdb12`.
-On 2026-11-22 the operator reported both latest packages fully functional on
+On 2026-11-22 the operator reported both damage-flash packages fully functional on
 PS5. The installed digests, firmware, loader, and individual damage-flash
 observation were not supplied.
+The newer impact-sparks candidates have local Vulkan FSELF SHA-256
+`973358631d120d2b43f1e5445f37e4040c17b28680515a48e23bcac389336c09`
+and local SDL FSELF SHA-256
+`0455d773845eba3093ff590268f210ca31fe37c0f98dc36a23ea3e895977b642`.
+Both passed static validation, and on 2026-11-22 the operator reported both
+fully functional on PS5. Installed digests, console setup, and individual
+effect observations were not provided.
 The title uses the existing 2D Vulkan canvas, not the separate 3D/VFX demonstration.
 
 1. Back up the existing project title outside all loader scan roots and back up
