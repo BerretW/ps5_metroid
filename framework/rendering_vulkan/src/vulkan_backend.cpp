@@ -13,7 +13,12 @@ namespace {
 constexpr std::uint32_t kResources = 64, kImages = 16, kDraws = 512;
 struct Buffer { VkBuffer buffer{}; VkDeviceMemory memory{}; VkDeviceSize bytes{}; void* mapped{}; };
 struct Image { VkImage image{}; VkDeviceMemory memory{}; VkImageView view{}; VkSampler sampler{}; VkDeviceSize bytes{}; };
-struct MeshSlot { Buffer vertices{}, indices{}; std::uint32_t count{}, generation{1}; bool active{}; };
+struct MeshSlot {
+    Buffer vertices{}, indices{};
+    std::uint32_t count{}, generation{1};
+    std::size_t vertexCapacity{}, indexCapacity{};
+    bool active{}, dynamic{};
+};
 struct TextureSlot { Image image{}; std::uint32_t generation{1}, references{}; bool active{}; };
 struct MaterialSlot { Material material{}; VkDescriptorSet descriptor{}; std::uint32_t generation{1}; bool active{}; };
 struct alignas(16) Uniforms {
@@ -21,8 +26,8 @@ struct alignas(16) Uniforms {
     Vec4 camera, directionAmbient, lightColor;
     std::array<PointLight, 4> points;
 };
-struct Push { Mat4 model; Vec4 color; Vec4 emissionMetallic; Vec4 parameters; };
-static_assert(sizeof(Push) == 112 && sizeof(Uniforms) == 240 && sizeof(Vertex) == 48);
+struct Push { Mat4 model; Vec4 color; Vec4 emissionMetallic; Vec4 parameters; Vec4 uvTransform; };
+static_assert(sizeof(Push) == 128 && sizeof(Uniforms) == 240 && sizeof(Vertex) == 48);
 Status error(ErrorCode code, std::string_view detail) noexcept {
     return {code, "echo.rendering.vulkan", detail};
 }
@@ -516,10 +521,52 @@ Status VulkanBackend::createMesh(MeshView mesh, MeshHandle& handle) noexcept {
         status = s.upload(mesh.vertices.data(), mesh.vertices.size_bytes(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, slot.vertices);
         if (status) status = s.upload(mesh.indices.data(), mesh.indices.size_bytes(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, slot.indices);
         if (!status) { s.freeBuffer(slot.vertices); s.freeBuffer(slot.indices); return status; }
-        slot.active = true; slot.count = static_cast<std::uint32_t>(mesh.indices.size());
+        slot.active = true; slot.dynamic = false;
+        slot.vertexCapacity = slot.indexCapacity = 0;
+        slot.count = static_cast<std::uint32_t>(mesh.indices.size());
         handle = {i, slot.generation}; s.log("mesh.ready"); return status;
     }
     return error(ErrorCode::CapacityExceeded, "mesh capacity");
+}
+Status VulkanBackend::createDynamicMesh(std::size_t vertexCapacity, std::size_t indexCapacity,
+                                        MeshHandle& handle) noexcept {
+    handle = {};
+    if (!vertexCapacity || !indexCapacity || vertexCapacity > kMaxMeshVertices ||
+        indexCapacity > kMaxMeshIndices)
+        return error(ErrorCode::InvalidArgument, "dynamic mesh capacity");
+    if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
+    auto& s = *state_;
+    auto status = s.idle(); if (!status) return status;
+    for (std::uint32_t i = 0; i < kResources; ++i) if (!s.meshes[i].active) {
+        auto& slot = s.meshes[i];
+        constexpr auto properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        status = s.buffer(vertexCapacity * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, properties, slot.vertices);
+        if (status) status = s.buffer(indexCapacity * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, properties, slot.indices);
+        if (!status) { s.freeBuffer(slot.vertices); s.freeBuffer(slot.indices); return status; }
+        slot.count = 0; slot.vertexCapacity = vertexCapacity; slot.indexCapacity = indexCapacity;
+        slot.dynamic = true; slot.active = true; handle = {i, slot.generation};
+        return Status::success();
+    }
+    return error(ErrorCode::CapacityExceeded, "mesh capacity");
+}
+Status VulkanBackend::updateDynamicMesh(MeshHandle handle, MeshView mesh) noexcept {
+    if (!state_ || !state_->initialized || state_->recording || state_->lost)
+        return error(ErrorCode::InvalidState, "dynamic mesh update outside idle frame boundary");
+    auto& s = *state_;
+    if (handle.index >= kResources || !s.meshes[handle.index].active ||
+        s.meshes[handle.index].generation != handle.generation)
+        return error(ErrorCode::NotFound, "stale mesh handle");
+    auto& slot = s.meshes[handle.index];
+    if (!slot.dynamic) return error(ErrorCode::InvalidArgument, "mesh is not dynamic");
+    auto status = validateMesh(mesh); if (!status) return status;
+    if (mesh.vertices.size() > slot.vertexCapacity || mesh.indices.size() > slot.indexCapacity)
+        return error(ErrorCode::CapacityExceeded, "dynamic mesh capacity");
+    status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, UINT64_MAX), "dynamic.mesh.wait");
+    if (!status) return status;
+    std::memcpy(slot.vertices.mapped, mesh.vertices.data(), mesh.vertices.size_bytes());
+    std::memcpy(slot.indices.mapped, mesh.indices.data(), mesh.indices.size_bytes());
+    slot.count = static_cast<std::uint32_t>(mesh.indices.size());
+    return Status::success();
 }
 Status VulkanBackend::createTexture(std::uint32_t width, std::uint32_t height,
                                    std::span<const std::byte> rgba, TextureHandle& handle) noexcept {
@@ -589,7 +636,9 @@ Status VulkanBackend::destroyMesh(MeshHandle h) noexcept {
         return error(ErrorCode::NotFound, "stale mesh handle");
     auto status = s.idle(); if (!status) return status;
     auto& mesh = s.meshes[h.index]; s.freeBuffer(mesh.vertices); s.freeBuffer(mesh.indices);
-    mesh.active = false; if (++mesh.generation == 0) ++mesh.generation; return status;
+    mesh.active = false; mesh.dynamic = false; mesh.count = 0;
+    mesh.vertexCapacity = 0; mesh.indexCapacity = 0;
+    if (++mesh.generation == 0) ++mesh.generation; return status;
 }
 Status VulkanBackend::destroyTexture(TextureHandle h) noexcept {
     if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
@@ -663,6 +712,9 @@ Status VulkanBackend::submit(const Draw& draw) noexcept {
     for (float component : {draw.tint.x, draw.tint.y, draw.tint.z, draw.tint.w})
         if (!std::isfinite(component) || component < 0 || component > 1)
             return error(ErrorCode::InvalidValue, "draw tint");
+    for (float component : {draw.uvTransform.x, draw.uvTransform.y,
+                            draw.uvTransform.z, draw.uvTransform.w})
+        if (!std::isfinite(component)) return error(ErrorCode::InvalidValue, "draw UV transform");
     if (draw.mesh.index >= kResources || !s.meshes[draw.mesh.index].active || s.meshes[draw.mesh.index].generation != draw.mesh.generation ||
         draw.material.index >= kResources || !s.materials[draw.material.index].active || s.materials[draw.material.index].generation != draw.material.generation)
         return error(ErrorCode::NotFound, "stale draw resource");
@@ -703,7 +755,8 @@ Status VulkanBackend::endFrame() noexcept {
         Vec4 color{m.baseColor.x * draw.tint.x, m.baseColor.y * draw.tint.y,
                    m.baseColor.z * draw.tint.z, m.baseColor.w * draw.tint.w};
         Push push{draw.model, color, {m.emission.x, m.emission.y, m.emission.z, m.metallic},
-                  {m.roughness, static_cast<float>(m.model), draw.overlay ? 1.0F : 0.0F, 0}};
+                  {m.roughness, static_cast<float>(m.model), draw.overlay ? 1.0F : 0.0F, 0},
+                  draw.uvTransform};
         vkCmdPushConstants(s.command, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(s.command, count, 1, draw.firstIndex, 0, 0); s.stats.triangles += count / 3;
     }

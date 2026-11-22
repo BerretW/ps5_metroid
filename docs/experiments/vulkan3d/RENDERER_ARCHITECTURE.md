@@ -52,6 +52,31 @@ presentation semaphores. Resize waits for idle and recreates dependent targets.
 Shutdown drains the device and destroys children before their device/instance;
 validation errors during cleanup also fail the integration run.
 
+Per-draw UV offset and scale select a sprite-sheet region without allocating
+a separate mesh for each frame. `spriteUvTransform` validates pixel bounds and
+supports horizontal and vertical mirroring; invalid regions leave the output
+unchanged. The shader and backend share a 128-byte push-constant layout. The
+Windows experiment uses this path for its original player sprite and verifies
+cropped and mirrored synthetic atlas pixels via GPU readback.
+
+The Windows Vulkan backend also supports a bounded dynamic mesh for batched
+2D geometry. Its persistently mapped coherent vertex/index buffers may be
+updated only between frames, after waiting for the previous submission fence.
+Updates validate the entire mesh and capacity before changing either buffer;
+handles retain the existing generation and lifecycle checks. This is an
+explicit Vulkan-backend API, not yet a portable `IRenderBackend` capability.
+The GPU probe updates a mesh over 60 frames, checks separate index ranges
+and verifies the last frame by readback. This is not a performance benchmark.
+
+The standalone Windows diagnostic records the actual game's menu and fallback
+gameplay geometry through `DrawSink`, batches colored rectangles into a dynamic
+mesh and draws them with Vulkan. The production SDL path remains the default.
+SDL tests compare recorded menus and fallback gameplay pixel-for-pixel with
+their SDL output, check failure propagation, and reject recording with loaded
+SDL textures. A fixed-step diagnostic runs the built-in game simulation;
+Windows GPU readback checks that its player moves. Vulkan blending is not
+claimed to be pixel-identical to SDL, especially for translucent panels.
+
 Opaque draws write/test depth, alpha draws test without writes, additive
 particle draws test without writes, and overlay draws bypass depth. The shader
 uses bounded frame lighting and per-draw transform/material/tint parameters.
@@ -65,6 +90,11 @@ one material for its complete index buffer; imported CPU submesh material
 indices do not imply GPU multi-material submission. Device loss is an explicit
 failure, not automatic recovery or a software fallback. The hierarchy's handles
 are renderer-scene references, not a replacement gameplay entity registry.
+The diagnostic uses built-in fallback art and world data, and supports only
+limited keyboard controls. Other screens, original sprites, game content,
+audio, controller input, saves, the production game loop and the PS5 adapter
+have not yet been connected to Vulkan. It is not a complete game renderer or
+a PS5 hardware result.
 
 The opt-in host manifest exporter uses the existing unified manifest/schema
 machinery and the actual `VfxModule::info()` descriptor. Rendering is currently

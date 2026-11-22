@@ -59,6 +59,8 @@ if ($prefix -match '["&<>|]') { throw "Unexpected compiler include-prefix charac
 $configure = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE={3} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DECHO_MSVC_INCLUDE_PREFIX={4}"' -f $dev,$source,$build,$Configuration,$prefix
 $yyjson = Join-Path $root "build\windows\_deps\yyjson-src"
 if (Test-Path -LiteralPath $yyjson) { $configure += ' "-DFETCHCONTENT_SOURCE_DIR_YYJSON={0}"' -f $yyjson }
+$sdl = Join-Path $root "build\windows\_deps\sdl2-src"
+if (Test-Path -LiteralPath $sdl) { $configure += ' "-DFETCHCONTENT_SOURCE_DIR_SDL2={0}"' -f $sdl }
 Invoke-Stage "configure" $configure
 if ($Clean) {
     Invoke-Stage "clean" ('call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake --build "{1}" --target clean' -f $dev,$build)
@@ -69,7 +71,7 @@ if ($RunTests) {
 }
 $package = Join-Path $root "dist\vulkan-experiment\windows"
 New-Item -ItemType Directory -Path (Join-Path $package "assets\shaders"),(Join-Path $package "licenses") -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $build "echo_vulkan3d.exe"),(Join-Path $build "rendering-manifest.json") -Destination $package -Force
+Copy-Item -LiteralPath (Join-Path $build "echo_vulkan3d.exe"),(Join-Path $build "echo_vulkan_menu.exe"),(Join-Path $build "rendering-manifest.json") -Destination $package -Force
 foreach ($asset in @("scene.json","reactor_sparks.json","player.png")) {
     Copy-Item -LiteralPath (Join-Path $build "assets\$asset") -Destination (Join-Path $package "assets\$asset") -Force
 }
@@ -77,6 +79,6 @@ foreach ($shader in @("scene.vert.spv","scene.frag.spv")) {
     Copy-Item -LiteralPath (Join-Path $build "assets\shaders\$shader") -Destination (Join-Path $package "assets\shaders\$shader") -Force
 }
 Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $package "licenses\Echo-MIT.txt") -Force
-Copy-Item -LiteralPath (Join-Path $root "licenses\stb.txt"),(Join-Path $root "licenses\yyjson.txt") -Destination (Join-Path $package "licenses") -Force
+Copy-Item -LiteralPath (Join-Path $root "licenses\stb.txt"),(Join-Path $root "licenses\yyjson.txt"),(Join-Path $root "licenses\SDL2.txt") -Destination (Join-Path $package "licenses") -Force
 Write-Output "Vulkan experiment built: $build\echo_vulkan3d.exe (no PS5 hardware claim)"
 Write-Output "Independent Windows output: $package"

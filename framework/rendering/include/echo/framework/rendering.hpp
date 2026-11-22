@@ -38,6 +38,8 @@ struct Vertex {
     Vec2 uv{};
     Vec4 color{1, 1, 1, 1};
 };
+inline constexpr std::size_t kMaxMeshVertices = 65536;
+inline constexpr std::size_t kMaxMeshIndices = 196608;
 struct Submesh { std::uint32_t firstIndex{}, indexCount{}; };
 struct MeshView {
     std::span<const Vertex> vertices;
@@ -92,7 +94,14 @@ struct Draw {
     float cameraDistance{};
     bool overlay{};
     Vec4 tint{1, 1, 1, 1};
+    Vec4 uvTransform{0, 0, 1, 1};
 };
+struct SpriteRegion {
+    std::uint32_t x{}, y{}, width{}, height{};
+    bool flipX{}, flipY{};
+};
+Status spriteUvTransform(std::uint32_t textureWidth, std::uint32_t textureHeight,
+                         SpriteRegion region, Vec4& output) noexcept;
 bool drawBefore(const Draw& a, AlphaMode alphaA, const Draw& b, AlphaMode alphaB) noexcept;
 struct BackendInit {
     void* nativeWindow{};

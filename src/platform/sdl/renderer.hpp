@@ -16,6 +16,13 @@ enum class ControlScheme { Keyboard, PlayStation };
 
 enum class Sprite { Player, Enemy, Tiles, Projectile, Pickup, Door, Count };
 
+class DrawSink {
+public:
+    virtual ~DrawSink() = default;
+    virtual bool clear(SDL_Color color) noexcept = 0;
+    virtual bool fill(SDL_Rect bounds, SDL_Color color) noexcept = 0;
+};
+
 class Renderer {
 public:
     explicit Renderer(ControlScheme controls) noexcept : controls_(controls) {}
@@ -50,6 +57,8 @@ public:
     int loadWorldSprites(const char* assetDirectory, const WorldLayout& world) noexcept;
     [[nodiscard]] int worldSheetCount() const noexcept { return worldSheetCount_; }
     void drawMenu(int selection, bool continueAvailable = true) noexcept;
+    [[nodiscard]] bool recordMenu(DrawSink& sink, int selection,
+                                  bool continueAvailable = true) noexcept;
     void drawOptions(int selection, int volume, framework::DialogueLanguage language,
                      bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
@@ -58,6 +67,9 @@ public:
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey) noexcept;
+    [[nodiscard]] bool recordGame(DrawSink& sink, const Game& game, bool showMap, bool paused,
+                                  std::string_view jumpKey, std::string_view shootKey,
+                                  std::string_view interactKey) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
     void drawDualSenseLab(const input::ControllerSnapshot& controller,
@@ -74,6 +86,13 @@ private:
 
     void text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept;
     void panel(SDL_Rect bounds, SDL_Color color) noexcept;
+    void fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept;
+    bool beginRecording(DrawSink& sink, SDL_Color background) noexcept;
+    bool endRecording() noexcept;
+    void drawMenuContent(int selection, bool continueAvailable) noexcept;
+    void drawGameContent(const Game& game, bool showMap, bool paused,
+                         std::string_view jumpKey, std::string_view shootKey,
+                         std::string_view interactKey) noexcept;
     bool sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip = false) noexcept;
     void releaseSprites() noexcept;
     void releaseWorldSprites() noexcept;
@@ -93,6 +112,8 @@ private:
     int worldSheetCount_{};
     bool mouseAim_{};
     SDL_FPoint mouseAimPoint_{};
+    DrawSink* drawSink_{};
+    bool drawSinkFailed_{};
 };
 
 } // namespace echo::platform

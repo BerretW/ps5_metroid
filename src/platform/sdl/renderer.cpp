@@ -428,12 +428,20 @@ bool Renderer::sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip)
 }
 
 void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
-    setColor(renderer_, color);
-    SDL_RenderFillRect(renderer_, &bounds);
+    if (drawSink_ == nullptr) setColor(renderer_, color);
+    fillRecordedOrSdl(bounds, color);
+}
+
+void Renderer::fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept {
+    if (drawSink_ != nullptr) {
+        if (!drawSinkFailed_ && !drawSink_->fill(bounds, color)) drawSinkFailed_ = true;
+    } else {
+        SDL_RenderFillRect(renderer_, &bounds);
+    }
 }
 
 void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept {
-    setColor(renderer_, color);
+    if (drawSink_ == nullptr) setColor(renderer_, color);
     std::size_t offset{};
     while (offset < value.size()) {
         std::uint32_t codePoint{};
@@ -479,22 +487,22 @@ void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color c
             if (accent == Accent::Acute) {
                 SDL_Rect first{x + 3 * scale, y, scale, scale};
                 SDL_Rect second{x + 2 * scale, y + scale, scale, scale};
-                SDL_RenderFillRect(renderer_, &first);
-                SDL_RenderFillRect(renderer_, &second);
+                fillRecordedOrSdl(first, color);
+                fillRecordedOrSdl(second, color);
             } else if (accent == Accent::Caron) {
                 SDL_Rect left{x + scale, y, scale, scale};
                 SDL_Rect right{x + 3 * scale, y, scale, scale};
                 SDL_Rect middle{x + 2 * scale, y + scale, scale, scale};
-                SDL_RenderFillRect(renderer_, &left);
-                SDL_RenderFillRect(renderer_, &right);
-                SDL_RenderFillRect(renderer_, &middle);
+                fillRecordedOrSdl(left, color);
+                fillRecordedOrSdl(right, color);
+                fillRecordedOrSdl(middle, color);
             } else if (accent == Accent::Ring) {
                 SDL_Rect top{x + 2 * scale, y, scale, scale};
                 SDL_Rect left{x + scale, y + scale, scale, scale};
                 SDL_Rect right{x + 3 * scale, y + scale, scale, scale};
-                SDL_RenderFillRect(renderer_, &top);
-                SDL_RenderFillRect(renderer_, &left);
-                SDL_RenderFillRect(renderer_, &right);
+                fillRecordedOrSdl(top, color);
+                fillRecordedOrSdl(left, color);
+                fillRecordedOrSdl(right, color);
             }
             const int glyphOffset = accent == Accent::None ? 0 : 2;
             for (int row = 0; row < 7; ++row) {
@@ -504,7 +512,7 @@ void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color c
                     }
                     SDL_Rect pixel{x + column * scale, y + (row + glyphOffset) * scale,
                                    scale, scale};
-                    SDL_RenderFillRect(renderer_, &pixel);
+                    fillRecordedOrSdl(pixel, color);
                 }
             }
         }
@@ -515,6 +523,29 @@ void Renderer::text(int x, int y, std::string_view value, int scale, SDL_Color c
 void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
+    drawMenuContent(selection, continueAvailable);
+    SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::beginRecording(DrawSink& sink, SDL_Color background) noexcept {
+    if (drawSink_ != nullptr) return false;
+    drawSink_ = &sink;
+    drawSinkFailed_ = !sink.clear(background);
+    return true;
+}
+
+bool Renderer::endRecording() noexcept {
+    drawSink_ = nullptr;
+    return !drawSinkFailed_;
+}
+
+bool Renderer::recordMenu(DrawSink& sink, int selection, bool continueAvailable) noexcept {
+    if (!beginRecording(sink, kBackground)) return false;
+    if (!drawSinkFailed_) drawMenuContent(selection, continueAvailable);
+    return endRecording();
+}
+
+void Renderer::drawMenuContent(int selection, bool continueAvailable) noexcept {
     for (int y = 34; y < 360; y += 32) {
         panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
     }
@@ -542,7 +573,6 @@ void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     } else {
         text(86, 326, "ARROWS SELECT  ENTER CONFIRM", 1, kMuted);
     }
-    SDL_RenderPresent(renderer_);
 }
 
 void Renderer::drawOptions(int selection, int volume,
@@ -1026,7 +1056,26 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                         std::string_view interactKey) noexcept {
     SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
     SDL_RenderClear(renderer_);
+    drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey);
+    SDL_RenderPresent(renderer_);
+}
 
+bool Renderer::recordGame(DrawSink& sink, const Game& game, bool showMap, bool paused,
+                          std::string_view jumpKey, std::string_view shootKey,
+                          std::string_view interactKey) noexcept {
+    if (worldSheetCount_ != 0 ||
+        std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; })) {
+        SDL_Log("Recording game with loaded SDL textures is not supported");
+        return false;
+    }
+    if (!beginRecording(sink, SDL_Color{8, 15, 26, 255})) return false;
+    if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey);
+    return endRecording();
+}
+
+void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
+                               std::string_view jumpKey, std::string_view shootKey,
+                               std::string_view interactKey) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
     panel({0, 0, 640, 360},
@@ -1197,7 +1246,6 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(82, 298, controls_ == ControlScheme::PlayStation
                           ? "\x03 CONTINUE" : interactKey, 1, kMuted);
     }
-    SDL_RenderPresent(renderer_);
 }
 
 void Renderer::drawInventory(const Game& game, const InventoryMenu& menu,

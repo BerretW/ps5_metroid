@@ -13,6 +13,7 @@ layout(push_constant) uniform Draw {
     vec4 baseColor;
     vec4 emissionMetallic;
     vec4 parameters;
+    vec4 uvTransform;
 } draw;
 layout(location=0) in vec3 worldPosition;
 layout(location=1) in vec3 worldNormal;

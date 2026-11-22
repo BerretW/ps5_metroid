@@ -13,6 +13,7 @@ configuration, and no PS5 toolchain is selected.
 .\build\vulkan-windows\echo_vulkan3d.exe --frames 120 --validation --resize-test --probe --capture build\vulkan-windows\frame.ppm
 .\build\vulkan-windows\echo_vulkan3d.exe --frames 60 --validation --isometric --capture build\vulkan-windows\isometric.ppm
 .\dist\vulkan-experiment\windows\echo_vulkan3d.exe --1080p --validation
+.\dist\vulkan-experiment\windows\echo_vulkan_menu.exe --validation
 ```
 
 The standalone CMake entry is `experiments/vulkan3d`, not the production root.
@@ -20,6 +21,7 @@ Shader modules compile and validate during the build with native
 `glslangValidator` and `spirv-val`. Existing pinned yyjson sources may be reused
 without touching the original build. Logs and compiler commands are retained
 in `build/vulkan-windows/logs` and `compile_commands.json`.
+The separate menu test also uses the same pinned SDL sources as the game.
 
 This host's MSVC installation has only Czech compiler messages. The observed
 CMake/Ninja include-prefix encoding mismatch caused stale header-dependent
@@ -37,6 +39,16 @@ and GPU transfers; CPU/virtual Vulkan devices are explicitly rejected.
 capability rejection. `--resize-test` changes the client area to 960x540.
 PPM capture is GPU readback **before** presentation, not a CPU scene renderer.
 
+`echo_vulkan_menu.exe` records the real game's main menu and fallback gameplay
+rectangles and draws them on Vulkan in one batch at 1280x720. Up/down changes
+menu selection; Enter on NEW GAME starts the built-in simulation. Arrows move,
+Space jumps, J shoots, and Escape returns to the menu or closes the diagnostic.
+`--game` starts directly in the fallback scene. This is not the production
+game: original sprites, data-driven content, dialogue, sound, controller input,
+saves, other menu actions and additional screens are not integrated. CTest
+compares GPU captures before and after 60 fixed movement updates; SDL tests
+compare recorded fallback screens with the original SDL output.
+
 Missing Vulkan runtime/layers/shaders or failed allocation returns an explicit
 error. No software fallback is allowed. The debug run requires
 `VK_LAYER_KHRONOS_validation`; driver/overlay warnings are retained separately
@@ -52,7 +64,7 @@ the package without validation, but an installed hardware Vulkan driver and
 the Microsoft Visual C++ x64 redistributable are. Release imports were inspected:
 Vulkan loader, Windows/UCRT, MSVCP140 and VCRUNTIME140/140_1. Debug binaries use
 the development-only Visual Studio debug CRT; do not redistribute those DLLs.
-The final staged output was rebuilt and tested in Release configuration.
+The staging directory reflects whichever configuration was built most recently.
 
 CTest also checks a 960x540 GPU readback with a dependency fixture. Broad image
 regions must retain at least 100 warm cube pixels, 100 blue cube pixels, 200

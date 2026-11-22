@@ -16,6 +16,15 @@ add_subdirectory("${ECHO_ROOT}/framework" framework)
 add_subdirectory("${ECHO_ROOT}/framework/rendering" rendering)
 add_subdirectory("${ECHO_ROOT}/framework/vfx" vfx)
 add_subdirectory("${ECHO_ROOT}/framework/rendering_vulkan" rendering_vulkan)
+include(FetchContent)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(SDL2
+    GIT_REPOSITORY https://github.com/ps5-payload-dev/SDL.git
+    GIT_TAG ee4c47dc0d617b3bc8f35108f9956baf228a1322
+    GIT_SHALLOW FALSE)
+FetchContent_MakeAvailable(SDL2)
 find_program(ECHO_GLSLANG glslangValidator HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
 find_program(ECHO_SPIRV_VAL spirv-val HINTS "$ENV{VULKAN_SDK}/Bin" REQUIRED)
 set(shader_outputs)
@@ -40,6 +49,21 @@ add_custom_target(echo_vulkan_assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/reactor_sparks.json" "${CMAKE_CURRENT_BINARY_DIR}/assets/reactor_sparks.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ECHO_ROOT}/assets/sprites/player.png" "${CMAKE_CURRENT_BINARY_DIR}/assets/player.png")
 add_dependencies(echo_vulkan3d echo_vulkan_assets)
+add_executable(echo_vulkan_menu
+    src/menu.cpp
+    "${ECHO_ROOT}/src/game/game.cpp"
+    "${ECHO_ROOT}/src/game/world_layout.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/assets.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/stb_image_impl.c"
+    "${ECHO_ROOT}/src/input/dualsense_diagnostics.cpp")
+target_include_directories(echo_vulkan_menu PRIVATE "${ECHO_ROOT}/src" "${ECHO_ROOT}/third_party")
+target_compile_definitions(echo_vulkan_menu PRIVATE SDL_MAIN_HANDLED)
+target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan SDL2-static
+    EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
+    EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
+    EchoFramework::Cutscenes EchoFramework::World user32)
+add_dependencies(echo_vulkan_menu echo_vulkan_shaders)
 add_executable(echo_rendering_manifest src/export_manifest.cpp)
 target_link_libraries(echo_rendering_manifest PRIVATE EchoFramework::Rendering EchoFramework::VFX)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rendering-manifest.json"
@@ -66,4 +90,25 @@ if(BUILD_TESTING)
         -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_frame.ps1"
         -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/gpu-frame.ppm")
     set_tests_properties(echo_vulkan_frame PROPERTIES FIXTURES_REQUIRED echo_gpu_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_menu_gpu COMMAND echo_vulkan_menu --frames 2 --validation
+        --capture "${CMAKE_CURRENT_BINARY_DIR}/menu-frame.ppm")
+    set_tests_properties(echo_vulkan_menu_gpu PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
+        FIXTURES_SETUP echo_menu_capture)
+    add_test(NAME echo_vulkan_menu_frame
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_menu.ps1"
+        -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/menu-frame.ppm")
+    set_tests_properties(echo_vulkan_menu_frame PROPERTIES FIXTURES_REQUIRED echo_menu_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_game_start COMMAND echo_vulkan_menu --game --frames 1 --validation
+        --capture "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm")
+    add_test(NAME echo_vulkan_game_motion COMMAND echo_vulkan_menu --game --motion-test --frames 60 --validation
+        --capture "${CMAKE_CURRENT_BINARY_DIR}/game-motion.ppm")
+    set_tests_properties(echo_vulkan_game_start echo_vulkan_game_motion PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_game_capture)
+    add_test(NAME echo_vulkan_game_frame
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_game.ps1"
+        -StartPath "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm"
+        -MotionPath "${CMAKE_CURRENT_BINARY_DIR}/game-motion.ppm")
+    set_tests_properties(echo_vulkan_game_frame PROPERTIES FIXTURES_REQUIRED echo_game_capture TIMEOUT 30)
 endif()

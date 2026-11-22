@@ -16,6 +16,7 @@ layout(push_constant) uniform Draw {
     vec4 baseColor;
     vec4 emissionMetallic;
     vec4 parameters;
+    vec4 uvTransform;
 } draw;
 layout(location=0) out vec3 worldPosition;
 layout(location=1) out vec3 worldNormal;
@@ -27,6 +28,6 @@ void main() {
     gl_Position = overlay ? world : frame.viewProjection * world;
     worldPosition = world.xyz;
     worldNormal = overlay ? normal : transpose(inverse(mat3(draw.model))) * normal;
-    texcoord = uv;
+    texcoord = draw.uvTransform.xy + uv * draw.uvTransform.zw;
     vertexColor = color;
 }

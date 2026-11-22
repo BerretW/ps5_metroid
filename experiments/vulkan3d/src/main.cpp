@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <limits>
 
 using namespace echo::rendering;
 namespace {
@@ -143,7 +144,7 @@ int main(int argc, char** argv) {
     auto run = [&]() -> bool {
         auto cube=cubeGeometry(); auto quad=quadGeometry();
         constexpr std::array<std::uint32_t,6> quadIndices{0,1,2,2,3,0};
-        MeshHandle cubeMesh{},quadMesh{},spriteMesh{};
+        MeshHandle cubeMesh{},quadMesh{};
         if (!require(backend.createMesh({cube.vertices,cube.indices},cubeMesh)) ||
             !require(backend.createMesh({quad,quadIndices},quadMesh))) return false;
         std::array<std::byte,16*16*4> checker{};
@@ -159,8 +160,9 @@ int main(int argc, char** argv) {
             !require(backend.createTexture(1,1,white,whiteTexture))) return false;
         int spriteWidth{},spriteHeight{};
         if (!loadSprite(backend,spriteTexture,spriteWidth,spriteHeight)) return false;
-        auto sprite=quadGeometry(16.0F/spriteWidth,24.0F/spriteHeight);
-        if (!require(backend.createMesh({sprite,quadIndices},spriteMesh))) return false;
+        Vec4 spriteUv{};
+        if (!require(spriteUvTransform(static_cast<unsigned>(spriteWidth),static_cast<unsigned>(spriteHeight),
+                                       {0,0,16,24},spriteUv))) return false;
         echo::framework::ContentRegistry content{};
         const echo::framework::ResourceSpec resources[]{
             {"echo:mesh/reactor_core",echo::framework::ResourceType::Generic,false,{}},
@@ -210,7 +212,30 @@ int main(int argc, char** argv) {
         if (!require(backend.createMaterial(particleMaterial,particleMat)) ||
             !require(backend.createMaterial(spriteMaterial,spriteMat)) || !require(backend.createMaterial(uiMaterial,uiMat)) ||
             !require(backend.createMaterial(glassMaterial,glassMat))) return false;
+        TextureHandle atlasTexture{};
+        MaterialHandle atlasMat{};
+        MaterialHandle dynamicMat{};
+        MeshHandle dynamicMesh{};
         if (probe) {
+            constexpr std::array<std::byte,16> atlas{
+                std::byte{255},std::byte{0},std::byte{0},std::byte{255},
+                std::byte{0},std::byte{255},std::byte{0},std::byte{255},
+                std::byte{0},std::byte{0},std::byte{255},std::byte{255},
+                std::byte{255},std::byte{255},std::byte{0},std::byte{255}};
+            Material atlasMaterial{}; atlasMaterial.model=MaterialModel::Unlit;
+            if (!require(backend.createTexture(2,2,atlas,atlasTexture))) return false;
+            atlasMaterial.texture=atlasTexture;
+            if (!require(backend.createMaterial(atlasMaterial,atlasMat))) return false;
+            Material dynamicMaterial{}; dynamicMaterial.model=MaterialModel::VertexColor;
+            dynamicMaterial.texture=whiteTexture;
+            if (!require(backend.createMaterial(dynamicMaterial,dynamicMat)) ||
+                !require(backend.createDynamicMesh(8,12,dynamicMesh))) return false;
+            MeshHandle invalidCapacity{};
+            if (backend.createDynamicMesh(kMaxMeshVertices+1,6,invalidCapacity).code != ErrorCode::InvalidArgument ||
+                invalidCapacity.valid() ||
+                backend.updateDynamicMesh(quadMesh,{quad,quadIndices}).code != ErrorCode::InvalidArgument) {
+                std::fprintf(stderr,"Dynamic mesh capacity or type validation failed\n"); return false;
+            }
             auto status=backend.destroyTexture(checkerTexture);
             if (status.code != ErrorCode::InvalidState) { std::fprintf(stderr,"Referenced texture was not rejected\n"); return false; }
             MeshHandle temporary{};
@@ -262,6 +287,24 @@ int main(int argc, char** argv) {
                 if (!require(vfx.system().update(1.0F/60.0F))) return false;
                 simulationAccumulator-=1.0F/60.0F;
             }
+            if (probe) {
+                std::array<Vertex,8> vertices{};
+                for (unsigned i=0;i<8;++i) {
+                    vertices[i]=quad[i%4];
+                    vertices[i].position.x=vertices[i].position.x*0.12F+(i<4 ? -0.75F : -0.45F);
+                    vertices[i].position.y=vertices[i].position.y*0.08F+0.9F;
+                    vertices[i].color=(i<4 ? ((frames%2) ? Vec4{0,0,1,1} : Vec4{1,0,0,1})
+                                            : Vec4{1,1,0,1});
+                }
+                constexpr std::array<std::uint32_t,12> indices{0,1,2,2,3,0,4,5,6,6,7,4};
+                if (!require(backend.updateDynamicMesh(dynamicMesh,{vertices,indices}))) return false;
+                if (frames==0 || frames+1==frameLimit) {
+                    constexpr std::array<std::uint32_t,15> tooMany{0,1,2,2,3,0,4,5,6,6,7,4,0,1,2};
+                    if (backend.updateDynamicMesh(dynamicMesh,{vertices,tooMany}).code != ErrorCode::CapacityExceeded) {
+                        std::fprintf(stderr,"Dynamic mesh overflow accepted\n"); return false;
+                    }
+                }
+            }
             auto status=backend.beginFrame(frame);
             if (!status && status.code==ErrorCode::InvalidState && status.detail=="swapchain out of date; retry frame") continue;
             if (!require(status)) return false;
@@ -297,9 +340,38 @@ int main(int argc, char** argv) {
             Draw transparent{quadMesh,glassMat,translation({-2,0,0})*scaling({1.5F,2,1})};
             transparent.cameraDistance=9;
             if (!require(backend.submit(transparent))) return false;
-            Draw spriteDraw{spriteMesh,spriteMat,translation({0.8F,-0.74F,0})*scaling({0.13F,0.32F,1})};
-            spriteDraw.overlay=true;
+            Draw spriteDraw{quadMesh,spriteMat,translation({0.8F,-0.74F,0})*scaling({0.13F,0.32F,1})};
+            spriteDraw.overlay=true; spriteDraw.uvTransform=spriteUv;
             if (!require(backend.submit(spriteDraw)) || !digits(backend,quadMesh,uiMat,std::min(fps,999U))) return false;
+            if (probe) {
+                if (backend.updateDynamicMesh(dynamicMesh,{quad,quadIndices}).code != ErrorCode::InvalidState) {
+                    std::fprintf(stderr,"Dynamic mesh update accepted during frame\n"); return false;
+                }
+                if (backend.destroyMesh(dynamicMesh).code != ErrorCode::InvalidState) {
+                    std::fprintf(stderr,"Dynamic mesh destruction accepted during frame\n"); return false;
+                }
+                Draw invalid{quadMesh,atlasMat};
+                invalid.uvTransform.x=std::numeric_limits<float>::quiet_NaN();
+                if (backend.submit(invalid).code != ErrorCode::InvalidValue)
+                    { std::fprintf(stderr,"Invalid UV transform accepted\n"); return false; }
+                for (unsigned i=0;i<4;++i) {
+                    Draw atlasDraw{quadMesh,atlasMat,translation({-0.75F+0.5F*i,0.58F,0})*
+                                   scaling({0.36F,0.12F,1})};
+                    atlasDraw.overlay=true;
+                    if (!require(spriteUvTransform(2,2,{0,i/2,2,1,(i%2)!=0,false},
+                                                   atlasDraw.uvTransform)) ||
+                        !require(backend.submit(atlasDraw))) return false;
+                }
+                Draw verticalFlip{quadMesh,atlasMat,translation({0,0.9F,0})*scaling({0.12F,0.08F,1})};
+                verticalFlip.overlay=true;
+                if (!require(spriteUvTransform(2,2,{0,0,2,2,false,true},verticalFlip.uvTransform)) ||
+                    !require(backend.submit(verticalFlip))) return false;
+                Draw dynamicDraw{dynamicMesh,dynamicMat};
+                dynamicDraw.overlay=true; dynamicDraw.indexCount=6;
+                if (!require(backend.submit(dynamicDraw))) return false;
+                dynamicDraw.firstIndex=6;
+                if (!require(backend.submit(dynamicDraw))) return false;
+            }
             if (capture && frames+1==frameLimit && !require(backend.captureNextFrame(capture))) return false;
             if (!require(backend.endFrame())) return false;
             ++frames; ++periodFrames;
@@ -324,9 +396,16 @@ int main(int argc, char** argv) {
         if (!require(backend.destroyMaterial(particleMat)) ||
             !require(backend.destroyMaterial(spriteMat)) || !require(backend.destroyMaterial(uiMat)) ||
             !require(backend.destroyMaterial(glassMat))) return false;
+        if (probe && (!require(backend.destroyMaterial(atlasMat)) ||
+                      !require(backend.destroyTexture(atlasTexture)) ||
+                      !require(backend.destroyMaterial(dynamicMat)) ||
+                      !require(backend.destroyMesh(dynamicMesh)))) return false;
+        if (probe && backend.updateDynamicMesh(dynamicMesh,{quad,quadIndices}).code != ErrorCode::NotFound) {
+            std::fprintf(stderr,"Stale dynamic mesh handle accepted\n"); return false;
+        }
         if (!require(backend.destroyTexture(checkerTexture)) || !require(backend.destroyTexture(whiteTexture)) ||
             !require(backend.destroyTexture(spriteTexture)) || !require(backend.destroyMesh(cubeMesh)) ||
-            !require(backend.destroyMesh(quadMesh)) || !require(backend.destroyMesh(spriteMesh))) return false;
+            !require(backend.destroyMesh(quadMesh))) return false;
         return true;
     };
     bool success=run(); backend.shutdown();

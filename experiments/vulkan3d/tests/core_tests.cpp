@@ -59,6 +59,23 @@ void testMathAndProjection() {
 
 void testMeshMaterialAndCapabilities() {
     using namespace echo::rendering;
+    Vec4 uv{};
+    check(static_cast<bool>(spriteUvTransform(256, 128, {32, 16, 64, 32}, uv)) &&
+          near(uv.x, 0.125F) && near(uv.y, 0.125F) &&
+          near(uv.z, 0.25F) && near(uv.w, 0.25F),
+          "sprite source rectangle maps to normalized texture coordinates");
+    check(static_cast<bool>(spriteUvTransform(256, 128, {32, 16, 64, 32, true, true}, uv)) &&
+          near(uv.x, 0.375F) && near(uv.y, 0.375F) &&
+          near(uv.z, -0.25F) && near(uv.w, -0.25F),
+          "sprite source rectangle can be mirrored on both axes");
+    const Vec4 previous = uv;
+    check(!spriteUvTransform(256, 128, {250, 0, 7, 1}, uv) &&
+          !spriteUvTransform(256, 128, {UINT32_MAX, 0, 2, 1}, uv) &&
+          !spriteUvTransform(0, 128, {0, 0, 1, 1}, uv) &&
+          !spriteUvTransform(256, 128, {0, 0, 0, 1}, uv) &&
+          uv.x == previous.x && uv.y == previous.y &&
+          uv.z == previous.z && uv.w == previous.w,
+          "invalid or overflowed sprite regions are rejected without changing output");
     const std::array<Vertex, 3> vertices{{
         {{0, 0, 0}}, {{1, 0, 0}}, {{0, 1, 0}}
     }};

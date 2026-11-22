@@ -449,6 +449,28 @@ std::vector<Uint32> capture(SDL_Window* window, SDL_Rect logicalRegion) {
     return pixels;
 }
 
+class SdlMenuSink final : public echo::platform::DrawSink {
+public:
+    explicit SdlMenuSink(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
+    bool clear(SDL_Color color) noexcept override {
+        return SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a) == 0 &&
+               SDL_RenderClear(renderer_) == 0;
+    }
+    bool fill(SDL_Rect bounds, SDL_Color color) noexcept override {
+        return SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a) == 0 &&
+               SDL_RenderFillRect(renderer_, &bounds) == 0;
+    }
+private:
+    SDL_Renderer* renderer_;
+};
+
+class FailingMenuSink final : public echo::platform::DrawSink {
+public:
+    bool clear(SDL_Color) noexcept override { return true; }
+    bool fill(SDL_Rect, SDL_Color) noexcept override { ++calls; return false; }
+    int calls{};
+};
+
 } // namespace
 
 int main() {
@@ -708,6 +730,53 @@ int main() {
         pad.drawMenu(0);
         check(capture(keyboardWindow, {86, 326, 492, 16}) != capture(padWindow, {86, 326, 492, 16}),
               "main menu uses platform-specific navigation prompts");
+        int menuWidth{}, menuHeight{};
+        if (SDL_GetRendererOutputSize(SDL_GetRenderer(keyboardWindow), &menuWidth, &menuHeight) != 0)
+            throw std::runtime_error(SDL_GetError());
+        std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> menuSurface{
+            SDL_CreateRGBSurfaceWithFormat(0, menuWidth, menuHeight, 32, SDL_PIXELFORMAT_ARGB8888),
+            SDL_FreeSurface};
+        if (!menuSurface) throw std::runtime_error(SDL_GetError());
+        std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)> menuRenderer{
+            SDL_CreateSoftwareRenderer(menuSurface.get()), SDL_DestroyRenderer};
+        if (!menuRenderer || SDL_RenderSetLogicalSize(menuRenderer.get(), 640, 360) != 0 ||
+            SDL_RenderSetIntegerScale(menuRenderer.get(), SDL_TRUE) != 0 ||
+            SDL_SetRenderDrawBlendMode(menuRenderer.get(), SDL_BLENDMODE_BLEND) != 0)
+            throw std::runtime_error(SDL_GetError());
+        SdlMenuSink menuSink{menuRenderer.get()};
+        std::vector<Uint32> recordedMenu(static_cast<std::size_t>(menuWidth) * menuHeight);
+        const auto checkRecordedMenu = [&](echo::platform::Renderer& renderer, SDL_Window* window,
+                                           int selection, bool canContinue) {
+            renderer.drawMenu(selection, canContinue);
+            const auto original = capture(window, {0, 0, 640, 360});
+            if (!renderer.recordMenu(menuSink, selection, canContinue) ||
+                SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                     recordedMenu.data(), menuWidth * static_cast<int>(sizeof(Uint32))) != 0)
+                throw std::runtime_error("Menu recording or readback failed");
+            check(original == recordedMenu, "recorded menu exactly matches existing SDL rendering");
+        };
+        checkRecordedMenu(keyboard, keyboardWindow, 0, false);
+        checkRecordedMenu(pad, padWindow, 3, true);
+        FailingMenuSink failingMenu{};
+        check(!keyboard.recordMenu(failingMenu, 0) && failingMenu.calls == 1,
+              "menu recording propagates the first sink failure");
+        checkRecordedMenu(keyboard, keyboardWindow, 2, true);
+        echo::Game recordedGame;
+        const auto checkRecordedGame = [&](bool showMap) {
+            keyboard.drawGame(recordedGame, showMap, false, "SPACE", "J", "E");
+            const auto original = capture(keyboardWindow, {0, 0, 640, 360});
+            if (!keyboard.recordGame(menuSink, recordedGame, showMap, false, "SPACE", "J", "E") ||
+                SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                     recordedMenu.data(), menuWidth * static_cast<int>(sizeof(Uint32))) != 0)
+                throw std::runtime_error("Game recording or readback failed");
+            check(original == recordedMenu, "recorded fallback gameplay exactly matches SDL");
+        };
+        checkRecordedGame(false);
+        checkRecordedGame(true);
+        FailingMenuSink failingGame{};
+        check(!keyboard.recordGame(failingGame, recordedGame, false, false, "SPACE", "J", "E") &&
+                  failingGame.calls == 1,
+              "game recording propagates sink failures");
         keyboard.drawMenu(3);
         const auto labMenuEntry = capture(keyboardWindow, {120, 246, 230, 24});
         keyboard.drawMenu(2);
@@ -757,6 +826,8 @@ int main() {
         check(fallbackPlayer == capture(padWindow, playerRegion), "fallback art renders without sprites");
         check(pad.loadSprites(ECHO_SOURCE_ASSETS) == static_cast<int>(echo::platform::Sprite::Count),
               "all packaged PNG sprite sheets decode with expected dimensions");
+        check(!pad.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E"),
+              "game recording explicitly rejects loaded SDL textures");
         pad.drawGame(game, false, false, "SPACE", "J", "E");
         check(fallbackPlayer != capture(padWindow, playerRegion), "player is drawn from the PNG sprite sheet");
 

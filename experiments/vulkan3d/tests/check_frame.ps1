@@ -34,4 +34,29 @@ $sprite = Count-Region 0.87 0.03 0.96 0.24 "sprite"
 if ($cubeWarm -lt 100 -or $cubeBlue -lt 100 -or $floorBlue -lt 200 -or $hud -lt 50 -or $sprite -lt 100) {
     throw "GPU scene reference regions failed: cubeWarm=$cubeWarm cubeBlue=$cubeBlue floor=$floorBlue hud=$hud sprite=$sprite"
 }
-Write-Output "GPU reference regions PASS: textured cube, floor, HUD and original sprite at 960x540."
+function Check-AtlasPixel([double]$X, [double]$Y, [string]$Expected) {
+    $xPixel = [int]($X * $width)
+    $yPixel = [int]($Y * $height)
+    $index = $header.Length + ($yPixel * $width + $xPixel) * 3
+    $r = [int]$bytes[$index]; $g = [int]$bytes[$index+1]; $b = [int]$bytes[$index+2]
+    $ok = switch ($Expected) {
+        "red" { $r -gt 220 -and $g -lt 30 -and $b -lt 30 }
+        "green" { $r -lt 30 -and $g -gt 220 -and $b -lt 30 }
+        "blue" { $r -lt 30 -and $g -lt 30 -and $b -gt 220 }
+        "yellow" { $r -gt 220 -and $g -gt 220 -and $b -lt 30 }
+    }
+    if (-not $ok) { throw "Atlas $Expected pixel failed at $xPixel,$yPixel`: $r,$g,$b" }
+}
+Check-AtlasPixel 0.085 0.79 "red"
+Check-AtlasPixel 0.165 0.79 "green"
+Check-AtlasPixel 0.335 0.79 "green"
+Check-AtlasPixel 0.415 0.79 "red"
+Check-AtlasPixel 0.585 0.79 "blue"
+Check-AtlasPixel 0.665 0.79 "yellow"
+Check-AtlasPixel 0.835 0.79 "yellow"
+Check-AtlasPixel 0.915 0.79 "blue"
+Check-AtlasPixel 0.48 0.94 "red"
+Check-AtlasPixel 0.48 0.96 "blue"
+Check-AtlasPixel 0.125 0.95 "blue"
+Check-AtlasPixel 0.275 0.95 "yellow"
+Write-Output "GPU reference regions PASS: scene and cropped/mirrored sprite atlas at 960x540."
