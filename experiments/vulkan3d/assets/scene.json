@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:scene/vulkan3d_demo",
+  "camera": {
+    "position": { "x": 5.0, "y": 3.6, "z": 6.0 },
+    "target": { "x": 0.0, "y": 0.5, "z": 0.0 },
+    "up": { "x": 0.0, "y": 1.0, "z": 0.0 },
+    "fovRadians": 0.85,
+    "nearPlane": 0.1,
+    "farPlane": 100.0
+  },
+  "lights": {
+    "ambient": 0.18,
+    "directional": {
+      "direction": { "x": -0.4, "y": -1.0, "z": -0.3 },
+      "color": { "x": 1.0, "y": 1.0, "z": 1.0 },
+      "intensity": 1.0
+    },
+    "points": [{
+      "position": { "x": 2.0, "y": 2.0, "z": 1.0 },
+      "color": { "x": 0.1, "y": 0.45, "z": 1.0 },
+      "intensity": 3.0,
+      "radius": 7.0,
+      "enabled": true
+    }]
+  },
+  "materials": [
+    {
+      "id": "echo:material/oxidized_metal",
+      "model": "simplePbr",
+      "alpha": "opaque",
+      "textureId": "echo:texture/checker",
+      "baseColor": [1.0, 1.0, 1.0, 1.0],
+      "emission": { "x": 0.0, "y": 0.015, "z": 0.018 },
+      "metallic": 0.25,
+      "roughness": 0.42
+    },
+    {
+      "id": "echo:material/reactor_glow",
+      "model": "unlit",
+      "alpha": "additive",
+      "baseColor": [0.12, 0.78, 0.92, 0.82],
+      "emission": { "x": 0.05, "y": 0.42, "z": 0.62 },
+      "metallic": 0.0,
+      "roughness": 1.0
+    },
+    {
+      "id": "echo:material/floor",
+      "textureId": "echo:texture/checker",
+      "model": "textured",
+      "alpha": "opaque",
+      "baseColor": [0.18, 0.3, 0.44, 1.0],
+      "emission": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "metallic": 0.0,
+      "roughness": 1.0
+    }
+  ],
+  "entities": [
+    {
+      "id": "echo:entity/reactor_core",
+      "spinRadiansPerSecond": 0.6,
+      "mesh": "echo:mesh/reactor_core",
+      "material": "echo:material/oxidized_metal",
+      "position": { "x": 0.0, "y": 0.1, "z": 0.0 },
+      "rotation": { "x": 0.25, "y": 0.0, "z": 0.0 },
+      "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+    },
+    {
+      "id": "echo:entity/reactor_housing",
+      "mesh": "echo:mesh/cargo_pod",
+      "material": "echo:material/reactor_glow",
+      "parent": "echo:entity/reactor_core",
+      "position": { "x": 2.0, "y": 0.0, "z": 0.0 },
+      "rotation": { "x": 0.0, "y": 0.12, "z": 0.0 },
+      "scale": { "x": 0.25, "y": 0.25, "z": 0.25 }
+    },
+    {
+      "id": "echo:entity/floor",
+      "mesh": "echo:mesh/floor",
+      "material": "echo:material/floor",
+      "position": { "x": 0.0, "y": -1.1, "z": 0.0 },
+      "rotation": { "x": -1.5707963, "y": 0.0, "z": 0.0 },
+      "scale": { "x": 12.0, "y": 12.0, "z": 1.0 }
+    }
+  ]
+}

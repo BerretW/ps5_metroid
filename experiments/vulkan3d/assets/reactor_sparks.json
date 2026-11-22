@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:vfx/reactor_sparks",
+  "maximumParticles": 96,
+  "minimumLifetime": 0.35,
+  "maximumLifetime": 0.85,
+  "emissionRate": 22.0,
+  "position": { "x": 0.0, "y": 1.15, "z": 0.0 },
+  "initialVelocity": { "x": 0.0, "y": 1.4, "z": 0.0 },
+  "velocitySpread": { "x": 0.8, "y": 0.45, "z": 0.8 },
+  "gravity": { "x": 0.0, "y": -1.2, "z": 0.0 },
+  "startColor": [0.35, 0.9, 1.0, 0.95],
+  "endColor": [0.08, 0.35, 0.9, 0.0],
+  "startScale": 0.12,
+  "endScale": 0.025,
+  "randomSeed": 47211,
+  "continuous": true
+}

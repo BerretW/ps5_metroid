@@ -1,0 +1,35 @@
+{
+  "vulkanSdk": {
+    "version": "1.4.363.1",
+    "url": "https://vulkan.lunarg.com/sdk/home",
+    "glslangVersion": "16.6.0",
+    "glslangSha256": "7ae115bb31f7e4ffb2862d40af05637dde9db2a770aebeb8366063c174c18430",
+    "provenance": "Installed official Windows SDK; hash measured locally, not an independently verified installer digest."
+  },
+  "ps5Vulkan": {
+    "url": "https://github.com/mihawk-99/PS5_Vulkan",
+    "commit": "7f492b4c6f67a4e8c8c67a4272cfeef22abea9cc",
+    "usage": "Research only; no code or archive imported"
+  },
+  "ps5Mesa": {
+    "url": "https://github.com/mihawk-99/PS5_Mesa",
+    "commit": "1ba9874f478657ccf6da72ce55f0260164cc0bd0",
+    "usage": "RADV build script pin, not README revision; no compatible artifact acquired"
+  },
+  "ps5Platform": {
+    "url": "https://github.com/mihawk-99/PS5_PayloadSDK",
+    "commit": "b83202be73e930050e00de0f1b4d9ec46c0391bf",
+    "usage": "PS5_Vulkan bootstrap pin; not interchangeable with production SDK"
+  },
+  "template": {
+    "url": "https://github.com/mihawk-99/PS5_VulkanTemplate",
+    "commit": "91179df760df1e6c6f2d4d172bc435319d79ff3c",
+    "platformCommit": "611893fc25ef3e138f5bc2c90d829d8b58174cd2",
+    "usage": "Research only; templates, UI and artwork not copied"
+  },
+  "existingLibraries": {
+    "yyjson": "6447536015f3d600f3d65323b10976103b337ca7",
+    "stb": "6b5799bae8a1fe3792691ef4b72ae26434c3e799",
+    "usage": "Reuse repository pins and notices"
+  }
+}

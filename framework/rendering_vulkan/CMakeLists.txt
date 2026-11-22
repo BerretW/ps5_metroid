@@ -1,0 +1,13 @@
+find_package(Vulkan 1.1 REQUIRED)
+if(NOT WIN32 OR CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR "Only the verified native Win32 presentation adapter is implemented. PS5 RADV is blocked; see the experiment compatibility audit.")
+endif()
+add_library(echo_framework_rendering_vulkan STATIC
+    src/vulkan_backend.cpp src/windows_surface.cpp)
+add_library(EchoFramework::RenderingVulkan ALIAS echo_framework_rendering_vulkan)
+target_include_directories(echo_framework_rendering_vulkan PUBLIC include)
+target_compile_features(echo_framework_rendering_vulkan PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_rendering_vulkan PUBLIC EchoFramework::Rendering PRIVATE Vulkan::Vulkan)
+if(MSVC)
+    target_compile_options(echo_framework_rendering_vulkan PRIVATE /W4 /permissive-)
+endif()
