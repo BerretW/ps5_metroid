@@ -66,7 +66,7 @@ constexpr std::array<std::string_view, 6> kTilesetFields{
     "id", "sheet", "tileWidth", "tileHeight", "margin", "spacing"};
 constexpr std::array<std::string_view, 7> kTileFields{
     "tileset", "x", "y", "rotation", "flipX", "flipY", "collision"};
-constexpr std::array<std::string_view, 2> kLayerFields{"name", "rows"};
+constexpr std::array<std::string_view, 3> kLayerFields{"name", "rows", "scrollFactorX"};
 constexpr std::array<std::string_view, 2> kExitSides{"left", "right"};
 constexpr std::array<std::string_view, 3> kExitFields{"room", "requiresAbility", "completesGame"};
 constexpr std::array<std::string_view, 5> kPlacementFields{
@@ -644,11 +644,17 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
             TileLayer& layer = output.layers_[index];
             std::string_view layerName;
             const JsonValue rows = entry.find("rows");
+            const JsonValue scrollFactorX = entry.find("scrollFactorX");
             if (!allowedFields(entry, kLayerFields) || !entry.find("name").string(layerName) ||
                 !validKey(layerName, layer.name.size()) || !copyText(layerName, layer.name) ||
                 !rows.isArray() || rows.size() == 0 ||
                 rows.size() > static_cast<std::size_t>(kMaxRoomRows)) {
                 return invalid("world.room.layer", "Layers need a name and 1-16 rows.");
+            }
+            if (scrollFactorX.valid() &&
+                !readFloat(scrollFactorX, 0.0, 1.0, layer.scrollFactorX)) {
+                return invalid("world.room.layer.scrollFactorX",
+                               "scrollFactorX must be a finite number from 0 to 1.");
             }
             layer.rows = static_cast<std::int32_t>(rows.size());
             for (std::size_t row = 0; row < rows.size(); ++row) {
@@ -813,6 +819,10 @@ Status WorldParser::validateRoom(RoomDefinition& room) noexcept {
     }
     for (std::size_t index = 0; index < room.layerCount_; ++index) {
         const TileLayer& layer = room.layers_[index];
+        if (room.projection_ == RoomProjection::Isometric && layer.scrollFactorX != 1.0F) {
+            return invalid("world.room.layer.scrollFactorX",
+                           "Parallax scrolling is supported only in side-view rooms.");
+        }
         if (layer.columns != room.columns_ || layer.rows != room.rows_) {
             return {ErrorCode::InvalidValue, room.id(), "Every layer must match the room size exactly."};
         }

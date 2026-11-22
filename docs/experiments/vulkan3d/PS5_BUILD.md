@@ -50,13 +50,13 @@ particles on room transition, respawn, New Game and Continue.
 The menu additionally loads the bounded GLB/glTF glyph and WebP textures
 described in [MATERIALS.md](MATERIALS.md); the SDL package uses the PNG fallback.
 
-The current candidate FSELF is 28,107,069 bytes, SHA-256
-`e01f4d5aecd1c1ca4e3de00be0c11c7573a83e0a060b56fe56b73341323b003e`.
+The current candidate FSELF is 28,114,973 bytes, SHA-256
+`16e0b58d262f51bae1286ba8fae077dabaf57fa76383d6fe077f5bac879c5a4a`.
 The updated artifact passes native Windows static validation and
 `tests\ps5_package_tests.ps1 -Vulkan`. The subsequent user report of full
-functionality did not specify the variant(s), installed digest, or console
-setup, so the local hash is not proof of what ran. The prior 60 FPS
-observation predates the damage-flash change.
+functionality followed this build. The installed digest and console setup were
+not supplied, so the local hash is not proof of which binary ran. The prior
+60 FPS observation predates the damage-flash change.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and
 `build\ps5\game-vulkan`. The package records source pins, archive and shader

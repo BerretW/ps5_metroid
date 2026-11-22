@@ -58,7 +58,37 @@ public:
         impact.startScale = 0.9F;
         impact.endScale = 0.1F;
         impact.randomSeed = 0x494D5041U;
-        return system_.createEmitter(impact, impactEmitter_);
+        status = system_.createEmitter(impact, impactEmitter_);
+        if (!status) return status;
+
+        vfx::EmitterConfig explosion{};
+        explosion.maximumParticles = 256;
+        explosion.minimumLifetime = 0.28F;
+        explosion.maximumLifetime = 0.55F;
+        explosion.velocitySpread = {170.0F, 170.0F, 0.0F};
+        explosion.gravity = {0.0F, 24.0F, 0.0F};
+        explosion.startColor = {1.0F, 0.94F, 0.48F, 1.0F};
+        explosion.endColor = {1.0F, 0.12F, 0.02F, 0.0F};
+        explosion.startScale = 1.8F;
+        explosion.endScale = 0.1F;
+        explosion.randomSeed = 0x4558504CU;
+        status = system_.createEmitter(explosion, explosionEmitter_);
+        if (!status) return status;
+
+        fogConfig_ = {};
+        fogConfig_.maximumParticles = 256;
+        fogConfig_.minimumLifetime = 4.0F;
+        fogConfig_.maximumLifetime = 6.0F;
+        fogConfig_.emissionRate = 18.0F;
+        fogConfig_.velocitySpread = {5.0F, 2.0F, 0.0F};
+        fogConfig_.startColor = {0.66F, 0.78F, 0.84F, 0.18F};
+        fogConfig_.endColor = {0.66F, 0.78F, 0.84F, 0.0F};
+        fogConfig_.startScale = 2.5F;
+        fogConfig_.endScale = 3.2F;
+        fogConfig_.randomSeed = 0x464F4721U;
+        fogActive_ = false;
+        fogSpawnIndex_ = 0;
+        return system_.createEmitter(fogConfig_, fogEmitter_);
     }
 
     [[nodiscard]] framework::Status shot(const Projectile& projectile) noexcept {
@@ -73,7 +103,19 @@ public:
                     "Gameplay VFX snapshot exceeds roamer capacity."};
         }
         if (before.room != after.room || before.deaths != after.deaths) {
-            return reset();
+            auto status = reset();
+            if (!status) return status;
+            if (after.room == RoomId::CargoHold) return primeFog();
+            return framework::Status::success();
+        }
+        if (after.room == RoomId::CargoHold) {
+            if (!fogActive_) {
+                const auto status = primeFog();
+                if (!status) return status;
+            }
+            const auto status = system_.setPosition(fogEmitter_, fogPoint(fogSpawnIndex_));
+            if (!status) return status;
+            fogSpawnIndex_ = (fogSpawnIndex_ + 1U) % kFogPointCount;
         }
         auto status = system_.update(kFixedStep);
         if (!status) return status;
@@ -89,8 +131,40 @@ public:
     [[nodiscard]] std::span<const vfx::Particle> impacts() const noexcept {
         return system_.particles(impactEmitter_);
     }
+    [[nodiscard]] std::span<const vfx::Particle> explosions() const noexcept {
+        return system_.particles(explosionEmitter_);
+    }
+    [[nodiscard]] std::span<const vfx::Particle> fog() const noexcept {
+        return system_.particles(fogEmitter_);
+    }
 
 private:
+    static constexpr std::size_t kFogGridWidth = 4;
+    static constexpr std::size_t kFogPointCount = kFogGridWidth * kFogGridWidth;
+    static constexpr std::size_t kFogParticlesPerPoint = 8;
+
+    [[nodiscard]] static rendering::Vec3 fogPoint(std::size_t index) noexcept {
+        const std::size_t column = index % kFogGridWidth;
+        const std::size_t row = index / kFogGridWidth;
+        return {96.0F + static_cast<float>(column) * 192.0F,
+                48.0F + static_cast<float>(row) * 96.0F, 0.0F};
+    }
+
+    [[nodiscard]] framework::Status primeFog() noexcept {
+        fogConfig_.continuous = true;
+        auto status = system_.configureEmitter(fogEmitter_, fogConfig_);
+        if (!status) return status;
+        for (std::size_t index = 0; index < kFogPointCount; ++index) {
+            status = system_.setPosition(fogEmitter_, fogPoint(index));
+            if (!status) return status;
+            status = system_.emitBurst(fogEmitter_, kFogParticlesPerPoint);
+            if (!status) return status;
+        }
+        fogSpawnIndex_ = 0;
+        fogActive_ = true;
+        return framework::Status::success();
+    }
+
     [[nodiscard]] framework::Status emit(vfx::EmitterHandle handle, Rect bounds,
                                           std::size_t count) noexcept {
         const auto status = system_.setPosition(
@@ -109,6 +183,11 @@ private:
                 after[index].room == room && after[index].health < before[index].health) {
                 const auto status = emit(impactEmitter_, after[index].bounds, 12);
                 if (!status) return status;
+                if (!after[index].alive) {
+                    const auto explosionStatus =
+                        emit(explosionEmitter_, after[index].bounds, 32);
+                    if (!explosionStatus) return explosionStatus;
+                }
             }
         }
         return framework::Status::success();
@@ -117,6 +196,11 @@ private:
     vfx::ParticleSystem system_{};
     vfx::EmitterHandle shotEmitter_{};
     vfx::EmitterHandle impactEmitter_{};
+    vfx::EmitterHandle explosionEmitter_{};
+    vfx::EmitterHandle fogEmitter_{};
+    vfx::EmitterConfig fogConfig_{};
+    std::size_t fogSpawnIndex_{};
+    bool fogActive_{};
 };
 
 } // namespace echo::platform

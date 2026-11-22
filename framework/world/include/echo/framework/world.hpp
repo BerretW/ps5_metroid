@@ -157,6 +157,7 @@ struct TileLayer {
     std::array<char, 24> name{};
     std::int32_t columns{};
     std::int32_t rows{};
+    float scrollFactorX{1.0F};
     // Row-major symbols with a kMaxRoomColumns stride; '.' and ' ' are empty.
     std::array<char, kMaxRoomColumns * kMaxRoomRows> cells{};
 };

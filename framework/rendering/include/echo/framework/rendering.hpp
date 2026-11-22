@@ -72,13 +72,14 @@ struct Material {
     TextureHandle normalTexture{};
     TextureHandle metallicRoughnessTexture{};
     float normalScale{1.0F};
+    TargetHandle targetTexture{};
 };
 Status validateMaterial(const Material& material) noexcept;
 
 struct Capabilities {
     bool sprites{}, meshes{}, depth{}, shaders{}, renderToTexture{}, instancing{};
-    bool dynamicLights{}, shadowMaps{}, postprocessing{}, compute{};
-    std::uint32_t maxMeshes{}, maxTextures{}, maxMaterials{}, maxDraws{}, maxPointLights{};
+    bool dynamicLights{}, shadowMaps{}, postprocessing{}, compute{}, targetSampling{};
+    std::uint32_t maxMeshes{}, maxTextures{}, maxMaterials{}, maxDraws{}, maxPointLights{}, maxTargets{};
 };
 Status exportCapabilities(const Capabilities&, char*, std::size_t, std::size_t&) noexcept;
 
@@ -154,6 +155,15 @@ public:
     virtual Status destroyTexture(TextureHandle) noexcept = 0;
     virtual Status destroyMaterial(MaterialHandle) noexcept = 0;
     virtual Status createTarget(std::uint32_t, std::uint32_t, TargetHandle&) noexcept = 0;
+    virtual Status beginTargetFrame(TargetHandle, const FrameState&) noexcept {
+        return {ErrorCode::MissingCapability, "render target", "Offscreen rendering is unavailable."};
+    }
+    virtual Status resizeTarget(TargetHandle, std::uint32_t, std::uint32_t) noexcept {
+        return {ErrorCode::MissingCapability, "render target", "Offscreen rendering is unavailable."};
+    }
+    virtual Status destroyTarget(TargetHandle) noexcept {
+        return {ErrorCode::MissingCapability, "render target", "Offscreen rendering is unavailable."};
+    }
     virtual Status beginFrame(const FrameState&) noexcept = 0;
     virtual Status submit(const Draw&) noexcept = 0;
     virtual Status endFrame() noexcept = 0;

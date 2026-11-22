@@ -288,9 +288,15 @@ Status validateMaterial(const Material& material) noexcept {
         return {ErrorCode::InvalidValue, "material",
                 "Material enums and finite color/PBR values are outside supported bounds."};
     }
-    if (material.model == MaterialModel::Textured && !material.texture.valid()) {
+    if (material.targetTexture.valid() &&
+        (material.texture.valid() || material.model == MaterialModel::VertexColor)) {
+        return {ErrorCode::InvalidValue, "material.targetTexture",
+                "A render-target source must be the material's only base texture and be sampled by its model."};
+    }
+    if (material.model == MaterialModel::Textured &&
+        !material.texture.valid() && !material.targetTexture.valid()) {
         return {ErrorCode::InvalidValue, "material.texture",
-                "Textured materials require a valid texture handle."};
+                "Textured materials require a valid texture or render-target handle."};
     }
     return Status::success();
 }
@@ -305,15 +311,16 @@ Status exportCapabilities(const Capabilities& capabilities, char* output,
     const int count = std::snprintf(
         output, capacity,
         "{\"sprites\":%s,\"meshes\":%s,\"depth\":%s,\"shaders\":%s,"
-        "\"renderToTexture\":%s,\"instancing\":%s,\"dynamicLights\":%s,"
+        "\"renderToTexture\":%s,\"targetSampling\":%s,\"instancing\":%s,\"dynamicLights\":%s,"
         "\"shadowMaps\":%s,\"postprocessing\":%s,\"compute\":%s,"
         "\"maxMeshes\":%u,\"maxTextures\":%u,\"maxMaterials\":%u,"
-        "\"maxDraws\":%u,\"maxPointLights\":%u}",
+        "\"maxDraws\":%u,\"maxPointLights\":%u,\"maxTargets\":%u}",
         capabilities.sprites ? "true" : "false",
         capabilities.meshes ? "true" : "false",
         capabilities.depth ? "true" : "false",
         capabilities.shaders ? "true" : "false",
         capabilities.renderToTexture ? "true" : "false",
+        capabilities.targetSampling ? "true" : "false",
         capabilities.instancing ? "true" : "false",
         capabilities.dynamicLights ? "true" : "false",
         capabilities.shadowMaps ? "true" : "false",
@@ -321,7 +328,7 @@ Status exportCapabilities(const Capabilities& capabilities, char* output,
         capabilities.compute ? "true" : "false",
         capabilities.maxMeshes, capabilities.maxTextures,
         capabilities.maxMaterials, capabilities.maxDraws,
-        capabilities.maxPointLights);
+        capabilities.maxPointLights, capabilities.maxTargets);
     if (count < 0) {
         output[0] = '\0';
         return {ErrorCode::InvalidState, "capabilities",

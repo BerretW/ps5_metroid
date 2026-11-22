@@ -282,6 +282,11 @@ and local SDL FSELF SHA-256
 Both passed static validation, and on 2026-11-22 the operator reported both
 fully functional on PS5. Installed digests, console setup, and individual
 effect observations were not provided.
+After the latest Vulkan package was built on 2026-11-22, the operator reported
+it fully functional on PS5. The local FSELF SHA-256 is
+`16e0b58d262f51bae1286ba8fae077dabaf57fa76383d6fe077f5bac879c5a4a`; the
+installed digest, setup and individual checks were not supplied, so this report
+cannot be tied to that exact local binary.
 The title uses the existing 2D Vulkan canvas, not the separate 3D/VFX demonstration.
 
 1. Back up the existing project title outside all loader scan roots and back up

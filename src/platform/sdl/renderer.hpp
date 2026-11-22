@@ -124,7 +124,9 @@ public:
                   std::span<const vfx::Particle> particles = {},
                   const RenderDebugInfo* debug = nullptr,
                   std::uint8_t damageFlashOpacity = 0,
-                  std::span<const vfx::Particle> impacts = {}) noexcept;
+                  std::span<const vfx::Particle> impacts = {},
+                  std::span<const vfx::Particle> explosions = {},
+                  std::span<const vfx::Particle> fog = {}) noexcept;
     [[nodiscard]] bool recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                                   std::string_view jumpKey, std::string_view shootKey,
                                   std::string_view interactKey,
@@ -133,7 +135,9 @@ public:
                                   std::span<const vfx::Particle> particles = {},
                                   const RenderDebugInfo* debug = nullptr,
                                   std::uint8_t damageFlashOpacity = 0,
-                                  std::span<const vfx::Particle> impacts = {}) noexcept;
+                                  std::span<const vfx::Particle> impacts = {},
+                                  std::span<const vfx::Particle> explosions = {},
+                                  std::span<const vfx::Particle> fog = {}) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
     [[nodiscard]] bool recordInventory(rendering::ICanvas2D& sink, const Game& game,
@@ -169,7 +173,9 @@ private:
                          std::span<const vfx::Particle> particles,
                          const RenderDebugInfo* debug,
                          std::uint8_t damageFlashOpacity,
-                         std::span<const vfx::Particle> impacts) noexcept;
+                         std::span<const vfx::Particle> impacts,
+                         std::span<const vfx::Particle> explosions,
+                         std::span<const vfx::Particle> fog) noexcept;
     void drawParticles(const Game& game, std::span<const vfx::Particle> particles) noexcept;
     void drawInventoryContent(const Game& game, const InventoryMenu& menu,
                               std::string_view message) noexcept;
@@ -201,6 +207,9 @@ private:
     const CanvasSprites* canvasSprites_{};
     const CanvasWorldSprites* canvasWorldSprites_{};
     bool drawSinkFailed_{};
+    bool drawingWorld_{};
+    int worldOffsetX_{};
+    int worldOffsetY_{};
 };
 
 } // namespace echo::platform

@@ -2230,7 +2230,8 @@ int main(int, char**) {
                                                &gpuCanvas.worldSprites(),
                                                gameplayVfx->shots(),
                                                renderDebug ? &renderInfo : nullptr,
-                                               damageFlash.opacity(), gameplayVfx->impacts());
+                                               damageFlash.opacity(), gameplayVfx->impacts(),
+                                               gameplayVfx->explosions(), gameplayVfx->fog());
             }
         }
         if (!recorded) {
@@ -2278,7 +2279,8 @@ int main(int, char**) {
                 renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data(),
                                   gameplayVfx->shots(),
                                   renderDebug ? &renderInfo : nullptr,
-                                  damageFlash.opacity(), gameplayVfx->impacts());
+                                  damageFlash.opacity(), gameplayVfx->impacts(),
+                                  gameplayVfx->explosions(), gameplayVfx->fog());
             }
         }
 #endif

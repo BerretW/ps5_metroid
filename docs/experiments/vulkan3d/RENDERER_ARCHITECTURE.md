@@ -21,8 +21,23 @@ The CPU mesh boundary caps buffers at 65,536 vertices, 196,608 indices, and
 256 submeshes. Meshes are triangles, indices must resolve to vertices, and
 vertex fields must be finite and bounded. Materials validate finite normalized
 color, emission and PBR ranges, enum values, and require a valid texture handle
-for `Textured`. Resource lifetime and actual GPU allocations belong to the
-selected backend.
+or render-target handle for `Textured`. Resource lifetime and actual GPU
+allocations belong to the selected backend.
+
+`FramePassScheduler` provides a fixed-capacity, SDL-free ordering of callbacks
+across begin-frame, shadow, opaque, transparent, world-sprite, particle,
+postprocessing, UI, and presentation stages. Explicit dependencies refine ordering within a stage;
+declared resource reads and writes add read-after-write, write-after-read, and
+write-after-write ordering. Resources may be marked initialized on entry for
+external inputs; a pass cannot read and write the same resource, and a read of
+an uninitialized resource fails before its callback. Disabled writers do not
+initialize outputs. Optional disabled passes are skipped, and cycles or
+callback errors are returned as `Status`. The scheduler still does not own
+backend frame lifecycle or issue GPU barriers; backend callbacks remain
+responsible for those operations. The Windows GPU diagnostic declares its
+source-target write and sampling-target read/write, alongside its separate
+feedback rejection check. The regular demo presentation loop now uses scheduled
+begin-frame, opaque, transparent, particle, UI, and presentation callbacks.
 
 `EntityStore` is a fixed-capacity 128-entity hierarchy. Handles include slot
 generation; destroying a parent detaches its direct children while preserving
@@ -32,8 +47,9 @@ propagation checks the chain again before composing each local
 
 Capability JSON is written into a caller-provided buffer. Core math,
 validation, scene records, and VFX use bounded arrays/spans and do not allocate
-in their update paths. The current Vulkan experiment reports render-to-texture,
-instancing, shadow maps, postprocessing, and compute as unsupported.
+in their update paths. The Vulkan experiment reports offscreen color/depth
+render targets and target sampling as supported capabilities. Instancing, shadow maps,
+postprocessing, and compute remain unsupported.
 
 ## Windows GPU implementation
 
@@ -44,11 +60,23 @@ Its platform surface adapter is separate; gameplay never owns Vulkan handles.
 The Windows diagnostic and opt-in PS5 Vulkan game link these targets explicitly.
 The original SDL renderer remains the default for the other builds.
 
-Backend limits are 64 meshes, 64 materials, 64 textures and 512 queued draws.
+Backend limits are 64 meshes, 64 materials, 64 textures, 8 render targets and
+512 queued draws; capability JSON includes the render-target limit.
 Resource handles have generations; destroying a texture referenced by a live
 material fails explicitly. Recording forbids resource mutation. One frame is
 in flight, with fence-serialized depth/uniform reuse and per-swapchain-image
-presentation semaphores. Resize waits for idle and recreates dependent targets.
+presentation semaphores. Surface resize waits for idle and recreates dependent
+framebuffers; offscreen targets have independent dimensions and transactional
+resize, device-local color/depth attachments, sampled color usage, and GPU
+memory accounting. `beginTargetFrame` records a regular scene into a target;
+`endFrame` submits it without acquiring or presenting the swapchain and makes
+the color image shader-readable. Target handles are generation-checked and
+may be explicitly destroyed; backend shutdown also releases them.
+`Material::targetTexture` samples a completed target as its base texture in a
+later pass. Live materials retain that target, resize refreshes their
+descriptors after the GPU is idle, uninitialized sources and same-target
+feedback are rejected, and a referenced target cannot be destroyed.
+Diagnostic readback verifies source color/depth and sampled output on Windows.
 Shutdown drains the device and destroys children before their device/instance;
 validation errors during cleanup also fail the integration run.
 
@@ -63,7 +91,7 @@ The Windows Vulkan backend also supports a bounded dynamic mesh for batched
 2D geometry. Its persistently mapped coherent vertex/index buffers may be
 updated only between frames, after waiting for the previous submission fence.
 Updates validate the entire mesh and capacity before changing either buffer;
-handles retain the existing generation and lifecycle checks. This is an
+handles retain the existing generation and lifecycle checks. This is a
 portable `IRenderBackend` operation; other backends must implement it or return
 an explicit unsupported error.
 The GPU probe updates a mesh over 60 frames, checks separate index ranges
@@ -110,14 +138,19 @@ uses bounded frame lighting and per-draw transform/material/tint parameters.
 The demo uses perspective or isometric projection, a parented emissive cube,
 a floor, translucent geometry, the original Echo sprite and numeric UI.
 
-The PS5 candidate has an ICD dispatch and `VK_KHR_display` surface adapter. It
+The PS5 candidate has an ICD dispatch and `VK_KHR_display` surface adapter. Its
+offscreen target path uses the same Vulkan 1.0 graphics render pass and relies
+on the PS5 driver supporting the requested image usages; target creation
+reports unsupported formats or extents instead of claiming support for that
+specific configuration. Console validation is still required. It
 has not been exercised on PS5 as part of the full game. There is no general SDL
-compatibility adapter, offscreen render-target/viewport binding API, instanced draw path, GPU timer,
-shadow/postprocessing path or compute dispatch. A GPU mesh draw currently uses
-one material for its complete index buffer; imported CPU submesh material
-indices do not imply GPU multi-material submission. Device loss is an explicit
-failure, not automatic recovery or a software fallback. The hierarchy's handles
-are renderer-scene references, not a replacement gameplay entity registry.
+compatibility adapter, instanced draw path, GPU timer, built-in shadow or
+postprocessing effect, or compute dispatch. A GPU mesh draw
+currently uses one material for its complete index buffer; imported CPU submesh
+material indices do not imply GPU multi-material submission. Device loss is an
+explicit failure, not automatic recovery or a software fallback. The
+hierarchy's handles are renderer-scene references, not a replacement gameplay
+entity registry.
 The Windows diagnostic remains separate from the game. The PS5 build connects
 the production fixed-step loop, screen recording, controller, audio and saves to
 the GPU canvas, but their behavior in this combination is not yet hardware

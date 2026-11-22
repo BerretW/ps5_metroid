@@ -1,5 +1,6 @@
 add_library(echo_framework_rendering STATIC
     src/canvas_batch.cpp
+    src/frame_composition.cpp
     src/hierarchy.cpp
     src/rendering.cpp
     src/rendering_data.cpp

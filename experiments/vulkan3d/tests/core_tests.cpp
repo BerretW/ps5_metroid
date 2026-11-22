@@ -1,4 +1,5 @@
 #include "echo/framework/hierarchy.hpp"
+#include "echo/framework/frame_composition.hpp"
 #include "echo/framework/rendering_data.hpp"
 #include "echo/framework/vfx.hpp"
 
@@ -23,6 +24,165 @@ void check(bool condition, const char* message) {
 
 bool near(float a, float b, float tolerance = 0.001F) {
     return std::abs(a - b) <= tolerance;
+}
+
+struct PassTrace {
+    std::array<std::uint8_t, 16> order{};
+    std::size_t count{};
+};
+
+struct PassAction {
+    PassTrace* trace{};
+    std::uint8_t id{};
+    bool fail{};
+};
+
+echo::framework::Status recordPass(void* context) noexcept {
+    auto& action = *static_cast<PassAction*>(context);
+    if (action.trace->count == action.trace->order.size())
+        return {echo::framework::ErrorCode::CapacityExceeded, "test pass", "Trace capacity is full."};
+    action.trace->order[action.trace->count++] = action.id;
+    if (action.fail)
+        return {echo::framework::ErrorCode::InvalidValue, "test pass", "Requested callback failure."};
+    return echo::framework::Status::success();
+}
+
+void testFramePassScheduler() {
+    using namespace echo::rendering;
+    FramePassScheduler scheduler{};
+    PassTrace trace{};
+    PassAction begin{&trace, 0}, ui{&trace, 3}, opaque{&trace, 1}, particles{&trace, 2};
+    RenderPassHandle beginPass{}, uiPass{}, opaquePass{}, particlePass{};
+    check(static_cast<bool>(scheduler.add(RenderPassStage::BeginFrame, recordPass,
+                                          &begin, beginPass)),
+          "scheduler accepts the frame-begin stage");
+    check(static_cast<bool>(scheduler.add(RenderPassStage::Ui, recordPass, &ui, uiPass)) &&
+          static_cast<bool>(scheduler.add(RenderPassStage::Opaque, recordPass, &opaque, opaquePass)) &&
+          static_cast<bool>(scheduler.add(RenderPassStage::Particles, recordPass, &particles, particlePass)),
+          "scheduler accepts bounded stage callbacks");
+    check(static_cast<bool>(scheduler.dependsOn(uiPass, opaquePass)),
+          "scheduler records explicit pass dependencies");
+    check(static_cast<bool>(scheduler.execute()) && trace.count == 4 &&
+          trace.order[0] == 0 && trace.order[1] == 1 &&
+          trace.order[2] == 2 && trace.order[3] == 3,
+          "scheduler executes enabled callbacks in stage order");
+
+    trace = {};
+    check(static_cast<bool>(scheduler.setEnabled(particlePass, false)) &&
+          static_cast<bool>(scheduler.execute()) && trace.count == 3 &&
+          trace.order[0] == 0 && trace.order[1] == 1 && trace.order[2] == 3,
+          "disabled optional stages are bypassed");
+
+    PassTrace failedTrace{};
+    PassAction failing{&failedTrace, 4, true}, afterFailure{&failedTrace, 5};
+    FramePassScheduler failingScheduler{};
+    RenderPassHandle failingPass{}, afterFailurePass{};
+    check(static_cast<bool>(failingScheduler.add(RenderPassStage::Opaque, recordPass,
+                                                 &failing, failingPass)) &&
+          static_cast<bool>(failingScheduler.add(RenderPassStage::Opaque, recordPass,
+                                                 &afterFailure, afterFailurePass)) &&
+          static_cast<bool>(failingScheduler.dependsOn(afterFailurePass, failingPass)),
+          "scheduler accepts ordered passes within one stage");
+    check(failingScheduler.execute().code == ErrorCode::InvalidValue &&
+          failedTrace.count == 1 && failedTrace.order[0] == 4,
+          "scheduler propagates callback failure and stops dependent work");
+
+    FramePassScheduler cyclicScheduler{};
+    PassAction first{&failedTrace, 6}, second{&failedTrace, 7};
+    RenderPassHandle firstPass{}, secondPass{};
+    check(static_cast<bool>(cyclicScheduler.add(RenderPassStage::Postprocessing,
+                                                recordPass, &first, firstPass)) &&
+          static_cast<bool>(cyclicScheduler.add(RenderPassStage::Postprocessing,
+                                                recordPass, &second, secondPass)) &&
+          static_cast<bool>(cyclicScheduler.dependsOn(firstPass, secondPass)) &&
+          static_cast<bool>(cyclicScheduler.dependsOn(secondPass, firstPass)),
+          "scheduler records dependencies for cycle validation");
+    check(cyclicScheduler.execute().code == ErrorCode::DependencyCycle,
+          "scheduler rejects cyclic dependencies");
+    check(static_cast<bool>(cyclicScheduler.clear()) &&
+          cyclicScheduler.setEnabled(firstPass, false).code == ErrorCode::NotFound,
+          "clear invalidates old pass handles");
+
+    FramePassScheduler resourceScheduler{};
+    FrameResourceHandle targetResource{};
+    PassTrace resourceTrace{};
+    PassAction targetWriter{&resourceTrace, 8}, targetReader{&resourceTrace, 9};
+    RenderPassHandle writerPass{}, readerPass{};
+    check(static_cast<bool>(resourceScheduler.createResource(false, targetResource)) &&
+          static_cast<bool>(resourceScheduler.add(RenderPassStage::Opaque, recordPass,
+                                                  &targetWriter, writerPass)) &&
+          static_cast<bool>(resourceScheduler.add(RenderPassStage::Postprocessing,
+                                                  recordPass, &targetReader, readerPass)) &&
+          static_cast<bool>(resourceScheduler.useResource(writerPass, targetResource,
+                                                          FrameResourceAccess::Write)) &&
+          static_cast<bool>(resourceScheduler.useResource(readerPass, targetResource,
+                                                          FrameResourceAccess::Read)),
+          "resource graph records bounded producer and consumer access");
+    check(static_cast<bool>(resourceScheduler.execute()) && resourceTrace.count == 2 &&
+          resourceTrace.order[0] == 8 && resourceTrace.order[1] == 9,
+          "resource hazards order writes before dependent reads");
+    check(resourceScheduler.useResource(readerPass, targetResource,
+                                        FrameResourceAccess::Write).code ==
+              ErrorCode::InvalidArgument,
+          "resource graph rejects same-pass read/write feedback");
+
+    check(static_cast<bool>(resourceScheduler.setEnabled(writerPass, false)) &&
+          resourceScheduler.execute().code == ErrorCode::InvalidState,
+          "resource graph rejects reads when a disabled pass skipped initialization");
+    check(static_cast<bool>(resourceScheduler.clear()) &&
+          resourceScheduler.useResource(writerPass, targetResource,
+                                        FrameResourceAccess::Write).code ==
+              ErrorCode::NotFound,
+          "clearing the resource graph invalidates pass and resource handles");
+
+    FramePassScheduler conflictingScheduler{};
+    FrameResourceHandle conflictingResource{};
+    PassTrace conflictingTrace{};
+    PassAction conflictingWriter{&conflictingTrace, 12};
+    PassAction conflictingReader{&conflictingTrace, 13};
+    RenderPassHandle conflictingWriterPass{}, conflictingReaderPass{};
+    check(static_cast<bool>(conflictingScheduler.createResource(false,
+                                                                conflictingResource)) &&
+          static_cast<bool>(conflictingScheduler.add(RenderPassStage::Opaque,
+              recordPass, &conflictingWriter, conflictingWriterPass)) &&
+          static_cast<bool>(conflictingScheduler.add(RenderPassStage::Opaque,
+              recordPass, &conflictingReader, conflictingReaderPass)) &&
+          static_cast<bool>(conflictingScheduler.useResource(
+              conflictingWriterPass, conflictingResource, FrameResourceAccess::Write)) &&
+          static_cast<bool>(conflictingScheduler.useResource(
+              conflictingReaderPass, conflictingResource, FrameResourceAccess::Read)) &&
+          static_cast<bool>(conflictingScheduler.dependsOn(
+              conflictingWriterPass, conflictingReaderPass)) &&
+          conflictingScheduler.execute().code == ErrorCode::DependencyCycle &&
+          conflictingTrace.count == 0,
+          "resource hazards reject explicit dependencies that reverse producer order");
+
+    FramePassScheduler uninitializedScheduler{};
+    FrameResourceHandle uninitialized{};
+    PassTrace uninitializedTrace{};
+    PassAction invalidReader{&uninitializedTrace, 10};
+    RenderPassHandle invalidReaderPass{};
+    check(static_cast<bool>(uninitializedScheduler.createResource(false, uninitialized)) &&
+          static_cast<bool>(uninitializedScheduler.add(RenderPassStage::Opaque, recordPass,
+                                                       &invalidReader, invalidReaderPass)) &&
+          static_cast<bool>(uninitializedScheduler.useResource(
+              invalidReaderPass, uninitialized, FrameResourceAccess::Read)) &&
+          uninitializedScheduler.execute().code == ErrorCode::InvalidState &&
+          uninitializedTrace.count == 0,
+          "resource graph rejects uninitialized reads before invoking callbacks");
+
+    FramePassScheduler inputScheduler{};
+    FrameResourceHandle importedResource{};
+    PassTrace inputTrace{};
+    PassAction inputReader{&inputTrace, 11};
+    RenderPassHandle inputPass{};
+    check(static_cast<bool>(inputScheduler.createResource(true, importedResource)) &&
+          static_cast<bool>(inputScheduler.add(RenderPassStage::Opaque, recordPass,
+                                               &inputReader, inputPass)) &&
+          static_cast<bool>(inputScheduler.useResource(inputPass, importedResource,
+                                                       FrameResourceAccess::Read)) &&
+          static_cast<bool>(inputScheduler.execute()) && inputTrace.count == 1,
+          "resource graph permits reads from initialized external inputs");
 }
 
 void testMathAndProjection() {
@@ -95,6 +255,17 @@ void testMeshMaterialAndCapabilities() {
 
     Material material{};
     check(!validateMaterial(material), "textured material requires a live texture handle");
+    material.targetTexture = {0, 1};
+    check(static_cast<bool>(validateMaterial(material)),
+          "textured material accepts a render-target source");
+    material.texture = {0, 1};
+    check(!validateMaterial(material),
+          "material rejects simultaneous texture and render-target sources");
+    material.texture = {};
+    material.model = MaterialModel::VertexColor;
+    check(!validateMaterial(material),
+          "vertex-color material rejects an unused render-target source");
+    material.targetTexture = {};
     material.model = MaterialModel::Unlit;
     check(static_cast<bool>(validateMaterial(material)),
           "finite bounded unlit material is valid");
@@ -104,13 +275,19 @@ void testMeshMaterialAndCapabilities() {
     Capabilities caps{};
     caps.meshes = true;
     caps.depth = true;
+    caps.targetSampling = true;
     caps.maxMeshes = 12;
+    caps.maxTargets = 3;
     std::array<char, 1024> json{};
     std::size_t written{};
     check(static_cast<bool>(exportCapabilities(caps, json.data(), json.size(), written)),
           "capability export succeeds in a bounded buffer");
     check(std::string_view(json.data(), written).find("\"maxMeshes\":12") !=
           std::string_view::npos, "capability JSON exports limits");
+    check(std::string_view(json.data(), written).find("\"maxTargets\":3") !=
+          std::string_view::npos, "capability JSON exports render-target limits");
+    check(std::string_view(json.data(), written).find("\"targetSampling\":true") !=
+          std::string_view::npos, "capability JSON exports target-sampling support");
     check(!exportCapabilities(caps, json.data(), 8, written),
           "capability export rejects a short destination");
 }
@@ -380,6 +557,7 @@ void testVfx() {
 } // namespace
 
 int main() {
+    testFramePassScheduler();
     testMathAndProjection();
     testMeshMaterialAndCapabilities();
     testSortingAndHierarchy();

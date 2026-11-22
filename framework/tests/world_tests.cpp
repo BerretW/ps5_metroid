@@ -100,7 +100,7 @@ int main() {
     const std::string roomA = room("echo:room/a",
         R"(,"name":"Alpha","tilesets":[{"id":"extra","sheet":"sprites/tiles/extra.png","tileWidth":16,"tileHeight":16,"margin":1,"spacing":2}],
         "tiles":{"=":{"tileset":"extra","x":3,"y":1,"rotation":90,"flipX":true,"collision":"solid"},"~":{"tileset":"station","x":2,"y":0,"collision":"hazard"}})" +
-            std::string(R"(,"layers":[{"name":"back","rows":[")") + row('.') + "\",\"" + row('~') + "\",\"" + row('.') +
+            std::string(R"(,"layers":[{"name":"back","scrollFactorX":0.35,"rows":[")") + row('.') + "\",\"" + row('~') + "\",\"" + row('.') +
             R"("]},{"name":"main","rows":[")" + row('.') + "\",\"" + row('#') + "\",\"=" + row('#', 19) + R"("]}])" +
             R"(,"exits":{"right":{"room":"echo:room/b","requiresAbility":"echo:ability/step"}},
             "objects":[{"id":"guard","object":"echo:object/advanced","position":[32,32],"facing":"right","properties":{"health":9}},
@@ -169,6 +169,9 @@ int main() {
     check(alpha != nullptr && alpha->tile(1, 0, 2) == rotated && alpha->tile(0, 0, 0) == nullptr &&
               alpha->tile(1, 20, 0) == nullptr && alpha->tile(4, 0, 0) == nullptr,
           "layer lookup handles empty, out-of-range and missing layers");
+    check(alpha != nullptr && alpha->layers()[0].scrollFactorX == 0.35F &&
+              alpha->layers()[1].scrollFactorX == 1.0F,
+          "parallax factors load from JSON while omitted factors preserve full camera tracking");
     check(alpha != nullptr && alpha->collision(5, 1) == TileCollision::Hazard &&
               alpha->collision(5, 2) == TileCollision::Solid && alpha->collision(5, 0) == TileCollision::None,
           "hazards win over solids across layers");
@@ -258,6 +261,15 @@ int main() {
                 "extra rows are rejected");
     rejectsRoom(tileset + R"(,"tiles":{"#":{"tileset":"t","x":0,"y":0}})" + layers("main", {row('X')}),
                 "undefined map symbols are rejected");
+    rejectsRoom(tileset + R"(,"layers":[{"name":"back","scrollFactorX":1.1,"rows":[")" + row('.') +
+                    R"("]}],"tiles":{"#":{"tileset":"t","x":0,"y":0}})",
+                "parallax factors above one are rejected");
+    rejectsRoom(tileset + R"(,"layers":[{"name":"back","scrollFactorX":-0.1,"rows":[")" + row('.') +
+                    R"("]}],"tiles":{"#":{"tileset":"t","x":0,"y":0}})",
+                "negative parallax factors are rejected");
+    rejectsRoom(tileset + R"(,"projection":"isometric","layers":[{"name":"main","scrollFactorX":0.5,"rows":[")" +
+                    row('#') + R"("]}],"tiles":{"#":{"tileset":"t","x":0,"y":0}})",
+                "isometric rooms reject side-view parallax factors");
     rejectsRoom(tileset + R"(,"tiles":{"#":{"tileset":"t","x":0,"y":0}},"exits":{"right":{"room":"echo:room/none"}})" +
                     layers("main", {row('#')}),
                 "exits to unknown rooms are rejected");

@@ -11,7 +11,7 @@ Use the native Windows entry points:
 
 The Windows app and gameplay tests compile the same `echo_game` library. The test executable does not initialize SDL or create a window.
 
-`build.bat` is a thin interactive front end: Windows selects Release plus tests, while PS5 selects the no-keyboard controller build and restores missing pinned dependencies. It never launches a PS5 executable or deploys to the console.
+`build.bat` is a thin interactive front end: Windows selects Release plus tests; PS5 offers the no-keyboard SDL controller build or Vulkan game build. Both delegate to the existing PowerShell scripts and restore missing pinned dependencies. It never launches a PS5 executable or deploys to the console.
 
 The additional `echo_control_prompts` test uses SDL's dummy video driver and software rendering, not a desktop window or physical controller. It checks that Windows prompts follow rebound keys and PlayStation prompts render controller symbols independently of keyboard bindings.
 

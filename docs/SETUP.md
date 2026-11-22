@@ -30,7 +30,7 @@ Install Visual Studio Build Tools from Microsoft's official installer and select
 
 ## Build, test, run
 
-For an interactive platform selector, double-click `build.bat` in the repository root, or run `.\build.bat`. Press **W** (or **1**) for Windows Release plus tests, **P** (or **2**) for the PS5 controller build and **Q** (or **0**) to cancel. On Czech or other layouts where the top row does not type digits, use the letters or the numpad; an unaccepted key only beeps. Both options call the existing PowerShell scripts; all listed prerequisites still apply.
+For an interactive platform selector, double-click `build.bat` in the repository root, or run `.\build.bat`. Press **W** (or **1**) for Windows Release plus tests, **P** (or **2**) for PS5, then choose **S** for SDL or **V** for Vulkan. Press **Q** to cancel either menu. On Czech or other layouts where the top row does not type digits, use the letters or the numpad; an unaccepted key only beeps. The selector calls the existing PowerShell scripts; all listed prerequisites still apply. The Vulkan option uses the prerequisites and native build path documented in [PS5 Vulkan build](experiments/vulkan3d/PS5_BUILD.md#ps5-vulkan-game-candidate).
 
 ```powershell
 .\scripts\build-windows.ps1 -Configuration Debug -RunTests

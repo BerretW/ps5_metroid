@@ -11,14 +11,21 @@
 
 namespace echo::rendering {
 namespace {
-constexpr std::uint32_t kResources = 64, kImages = 16, kDraws = 512;
+constexpr std::uint32_t kResources = 64, kImages = 16, kDraws = 512, kTargets = 8;
 #ifdef ECHO_PS5_VULKAN
 constexpr std::uint64_t kGpuTimeout = 10000000000ULL;
 #else
 constexpr std::uint64_t kGpuTimeout = UINT64_MAX;
 #endif
 struct Buffer { VkBuffer buffer{}; VkDeviceMemory memory{}; VkDeviceSize bytes{}; void* mapped{}; };
-struct Image { VkImage image{}; VkDeviceMemory memory{}; VkImageView view{}; VkSampler sampler{}; VkDeviceSize bytes{}; };
+struct Image {
+    VkImage image{};
+    VkDeviceMemory memory{};
+    VkImageView view{};
+    VkSampler sampler{};
+    VkDeviceSize bytes{};
+    VkFormat format{};
+};
 struct MeshSlot {
     Buffer vertices{}, indices{};
     std::uint32_t count{}, generation{1};
@@ -27,6 +34,12 @@ struct MeshSlot {
 };
 struct TextureSlot { Image image{}; std::uint32_t generation{1}, references{}; bool active{}; TextureColorSpace colorSpace{}; };
 struct MaterialSlot { Material material{}; VkDescriptorSet descriptor{}; std::uint32_t generation{1}; bool active{}; };
+struct TargetSlot {
+    Image color{}, depth{};
+    VkFramebuffer framebuffer{};
+    std::uint32_t width{}, height{}, generation{1}, references{};
+    bool active{}, contentsInitialized{};
+};
 struct alignas(16) Uniforms {
     Mat4 vp;
     Vec4 camera, directionAmbient, lightColor;
@@ -69,11 +82,13 @@ struct VulkanBackend::State {
     std::array<MeshSlot, kResources> meshes{};
     std::array<TextureSlot, kResources> textures{};
     std::array<MaterialSlot, kResources> materials{};
+    std::array<TargetSlot, kTargets> targets{};
     std::array<Draw, kDraws> draws{};
     std::uint32_t drawCount{};
     std::atomic<std::uint32_t> validationErrors{};
     Diagnostics stats{};
-    bool initialized{}, recording{}, recreate{}, lost{}, transferSupported{};
+    bool initialized{}, recording{}, offscreen{}, recreate{}, lost{}, transferSupported{};
+    std::uint32_t activeTarget{};
     RenderLogCallback diagnosticLog{};
     void* diagnosticContext{};
     std::array<char, 512> shaderDirectory{}, failure{}, capturePath{};
@@ -129,6 +144,26 @@ struct VulkanBackend::State {
         if (image.memory) { vkFreeMemory(device, image.memory, nullptr); stats.allocatedGpuBytes -= image.bytes; }
         image = {};
     }
+    void freeTarget(TargetSlot& target) noexcept {
+        if (target.framebuffer) vkDestroyFramebuffer(device, target.framebuffer, nullptr);
+        target.framebuffer = {};
+        freeImage(target.color);
+        freeImage(target.depth);
+        target.width = target.height = 0;
+        target.active = target.contentsInitialized = false;
+    }
+    Status makeTargetFramebuffer(TargetSlot& target) noexcept {
+        std::array<VkImageView, 2> views{target.color.view, target.depth.view};
+        VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        framebuffer.renderPass = renderPass;
+        framebuffer.attachmentCount = static_cast<std::uint32_t>(views.size());
+        framebuffer.pAttachments = views.data();
+        framebuffer.width = target.width;
+        framebuffer.height = target.height;
+        framebuffer.layers = 1;
+        return check(vkCreateFramebuffer(device, &framebuffer, nullptr, &target.framebuffer),
+                     "target.framebuffer");
+    }
     Status image(std::uint32_t w, std::uint32_t h, VkFormat imageFormat, VkImageUsageFlags usage,
                  VkImageAspectFlags aspect, Image& output) noexcept {
         VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -144,7 +179,7 @@ struct VulkanBackend::State {
         alloc.allocationSize = req.size; alloc.memoryTypeIndex = type;
         status = check(vkAllocateMemory(device, &alloc, nullptr, &output.memory), "image.allocate");
         if (!status) { freeImage(output); return status; }
-        output.bytes = req.size; stats.allocatedGpuBytes += req.size;
+        output.bytes = req.size; output.format = imageFormat; stats.allocatedGpuBytes += req.size;
         status = check(vkBindImageMemory(device, output.image, output.memory, 0), "image.bind");
         if (status) {
             VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -154,6 +189,37 @@ struct VulkanBackend::State {
         }
         if (!status) freeImage(output);
         return status;
+    }
+    void updateMaterialDescriptor(const MaterialSlot& slot, const Image* baseOverride = nullptr) noexcept {
+        const auto& material = slot.material;
+        const Image& base = baseOverride ? *baseOverride :
+            (material.targetTexture.valid()
+                ? targets[material.targetTexture.index].color
+                : textures[material.texture.index].image);
+        const Image& normal = material.normalTexture.valid()
+            ? textures[material.normalTexture.index].image : base;
+        const Image& pbr = material.metallicRoughnessTexture.valid()
+            ? textures[material.metallicRoughnessTexture.index].image : base;
+        VkDescriptorBufferInfo bufferInfo{uniform.buffer, 0, sizeof(Uniforms)};
+        VkDescriptorImageInfo baseInfo{base.sampler, base.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo normalInfo{normal.sampler, normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo pbrInfo{pbr.sampler, pbr.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        std::array<VkWriteDescriptorSet, 4> writes{};
+        writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 0, 0, 1,
+                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &bufferInfo, nullptr};
+        writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 1, 0, 1,
+                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &baseInfo, nullptr, nullptr};
+        writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 2, 0, 1,
+                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &normalInfo, nullptr, nullptr};
+        writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 3, 0, 1,
+                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &pbrInfo, nullptr, nullptr};
+        vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+    void updateTargetDescriptors(std::uint32_t targetIndex, const Image& replacement) noexcept {
+        for (const auto& material : materials)
+            if (material.active && material.material.targetTexture.valid() &&
+                material.material.targetTexture.index == targetIndex)
+                updateMaterialDescriptor(material, &replacement);
     }
     Status immediateBegin(VkCommandBuffer& cmd) noexcept {
         VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -290,6 +356,10 @@ struct VulkanBackend::State {
     }
     void freeSwapchain() noexcept {
         for (auto& pipeline : pipelines) { if (pipeline) vkDestroyPipeline(device, pipeline, nullptr); pipeline = {}; }
+        for (auto& target : targets) {
+            if (target.framebuffer) vkDestroyFramebuffer(device, target.framebuffer, nullptr);
+            target.framebuffer = {};
+        }
         for (std::uint32_t i = 0; i < imageCount; ++i) {
             if (framebuffers[i]) vkDestroyFramebuffer(device, framebuffers[i], nullptr);
             if (views[i]) vkDestroyImageView(device, views[i], nullptr);
@@ -426,8 +496,60 @@ struct VulkanBackend::State {
             s = check(vkCreateSemaphore(device, &sem, nullptr, &finished[i]), "present.semaphore");
         }
         if (s) s = makePipelines();
+        for (std::uint32_t targetIndex = 0; targetIndex < targets.size(); ++targetIndex) {
+            auto& target = targets[targetIndex];
+            if (!s || !target.active) continue;
+            if (target.color.format != format || target.depth.format != depthFormat) {
+                TargetSlot replacement{};
+                replacement.generation = target.generation;
+                replacement.references = target.references;
+                s = makeTarget(target.width, target.height, replacement);
+                if (s) {
+                    updateTargetDescriptors(targetIndex, replacement.color);
+                    freeTarget(target);
+                    target = replacement;
+                }
+            } else {
+                s = makeTargetFramebuffer(target);
+            }
+        }
         if (s) { recreate = false; std::printf("{\"stage\":\"swapchain.ready\",\"width\":%u,\"height\":%u,\"images\":%u}\n", extent.width, extent.height, imageCount); }
         return s;
+    }
+    Status makeTarget(std::uint32_t w, std::uint32_t h, TargetSlot& output) noexcept {
+        if (!w || !h || w > 4096 || h > 4096)
+            return error(ErrorCode::InvalidArgument, "render target dimensions");
+        VkImageFormatProperties imageProperties{};
+        const auto usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        auto result = vkGetPhysicalDeviceImageFormatProperties(
+            physical, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &imageProperties);
+        if (result != VK_SUCCESS || w > imageProperties.maxExtent.width || h > imageProperties.maxExtent.height)
+            return error(ErrorCode::MissingCapability, "render target color format or extent");
+        result = vkGetPhysicalDeviceImageFormatProperties(
+            physical, depthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0, &imageProperties);
+        if (result != VK_SUCCESS || w > imageProperties.maxExtent.width || h > imageProperties.maxExtent.height)
+            return error(ErrorCode::MissingCapability, "render target depth format or extent");
+        output.width = w;
+        output.height = h;
+        auto status = image(w, h, format, usage, VK_IMAGE_ASPECT_COLOR_BIT, output.color);
+        if (status) {
+            VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            sampler.magFilter = sampler.minFilter = VK_FILTER_LINEAR;
+            sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            status = check(vkCreateSampler(device, &sampler, nullptr, &output.color.sampler), "target.sampler");
+        }
+        if (status) status = image(w, h, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                                   VK_IMAGE_ASPECT_DEPTH_BIT, output.depth);
+        if (status) status = makeTargetFramebuffer(output);
+        if (!status) {
+            freeTarget(output);
+            return status;
+        }
+        output.active = true;
+        return Status::success();
     }
     Status idle() noexcept {
         if (recording) return error(ErrorCode::InvalidState, "resource change during frame");
@@ -656,8 +778,8 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
 }
 Capabilities VulkanBackend::capabilities() const noexcept {
     if (!state_ || !state_->initialized) return {};
-    return {true, true, true, true, false, false, true, false, false, false,
-            kResources, kResources, kResources, kDraws, 4};
+    return {true, true, true, true, true, false, true, false, false, false, true,
+            kResources, kResources, kResources, kDraws, 4, kTargets};
 }
 Status VulkanBackend::createMesh(MeshView mesh, MeshHandle& handle) noexcept {
     handle = {};
@@ -761,17 +883,31 @@ Status VulkanBackend::createMaterial(const Material& material, MaterialHandle& h
     if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
     auto& s = *state_; auto status = s.idle(); if (!status) return status;
     auto t = material.texture;
-    if (t.index >= kResources || !s.textures[t.index].active || s.textures[t.index].generation != t.generation)
-        return error(ErrorCode::NotFound, "material texture handle");
+    const bool targetSource = material.targetTexture.valid();
+    const Image* baseImage{};
+    if (targetSource) {
+        const auto target = material.targetTexture;
+        if (target.index >= s.targets.size() || !s.targets[target.index].active ||
+            s.targets[target.index].generation != target.generation)
+            return error(ErrorCode::NotFound, "material render-target handle");
+        baseImage = &s.targets[target.index].color;
+    } else {
+        if (t.index >= kResources || !s.textures[t.index].active ||
+            s.textures[t.index].generation != t.generation)
+            return error(ErrorCode::NotFound, "material texture handle");
+        baseImage = &s.textures[t.index].image;
+    }
     const auto normal = material.normalTexture.valid() ? material.normalTexture : t;
-    if (normal.index >= kResources || !s.textures[normal.index].active ||
-        s.textures[normal.index].generation != normal.generation)
+    if (material.normalTexture.valid() &&
+        (normal.index >= kResources || !s.textures[normal.index].active ||
+         s.textures[normal.index].generation != normal.generation))
         return error(ErrorCode::NotFound, "material normal texture handle");
     if (material.normalTexture.valid() && s.textures[normal.index].colorSpace != TextureColorSpace::Linear)
         return error(ErrorCode::InvalidValue, "normal texture must use linear color space");
     const auto pbr = material.metallicRoughnessTexture.valid() ? material.metallicRoughnessTexture : t;
-    if (pbr.index >= kResources || !s.textures[pbr.index].active ||
-        s.textures[pbr.index].generation != pbr.generation)
+    if (material.metallicRoughnessTexture.valid() &&
+        (pbr.index >= kResources || !s.textures[pbr.index].active ||
+         s.textures[pbr.index].generation != pbr.generation))
         return error(ErrorCode::NotFound, "material metallic-roughness texture handle");
     if (material.metallicRoughnessTexture.valid() && s.textures[pbr.index].colorSpace != TextureColorSpace::Linear)
         return error(ErrorCode::InvalidValue, "metallic-roughness texture must use linear color space");
@@ -781,20 +917,11 @@ Status VulkanBackend::createMaterial(const Material& material, MaterialHandle& h
         alloc.descriptorPool = s.descriptorPool; alloc.descriptorSetCount = 1; alloc.pSetLayouts = &s.descriptorLayout;
         status = s.check(vkAllocateDescriptorSets(s.device, &alloc, &slot.descriptor), "material.descriptor");
         if (!status) return status;
-        const auto& image = s.textures[t.index].image;
-        const auto& normalImage = s.textures[normal.index].image;
-        const auto& pbrImage = s.textures[pbr.index].image;
-        VkDescriptorBufferInfo buffer{s.uniform.buffer, 0, sizeof(Uniforms)};
-        VkDescriptorImageInfo texture{image.sampler, image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo normalTexture{normalImage.sampler, normalImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo pbrTexture{pbrImage.sampler, pbrImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        std::array<VkWriteDescriptorSet, 4> writes{};
-        writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffer, nullptr};
-        writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &texture, nullptr, nullptr};
-        writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &normalTexture, nullptr, nullptr};
-        writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 3, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &pbrTexture, nullptr, nullptr};
-        vkUpdateDescriptorSets(s.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
-        slot.material = material; slot.active = true; ++s.textures[t.index].references;
+        slot.material = material;
+        s.updateMaterialDescriptor(slot, baseImage);
+        slot.active = true;
+        if (targetSource) ++s.targets[material.targetTexture.index].references;
+        else ++s.textures[t.index].references;
         if (material.normalTexture.valid()) ++s.textures[normal.index].references;
         if (material.metallicRoughnessTexture.valid()) ++s.textures[pbr.index].references;
         handle = {i, slot.generation}; return status;
@@ -831,16 +958,79 @@ Status VulkanBackend::destroyMaterial(MaterialHandle h) noexcept {
     auto& material = s.materials[h.index];
     status = s.check(vkFreeDescriptorSets(s.device, s.descriptorPool, 1, &material.descriptor), "material.free");
     if (!status) return status;
-    --s.textures[material.material.texture.index].references;
+    if (material.material.targetTexture.valid())
+        --s.targets[material.material.targetTexture.index].references;
+    else
+        --s.textures[material.material.texture.index].references;
     if (material.material.normalTexture.valid()) --s.textures[material.material.normalTexture.index].references;
     if (material.material.metallicRoughnessTexture.valid()) --s.textures[material.material.metallicRoughnessTexture.index].references;
     material.active = false; material.descriptor = {};
     if (++material.generation == 0) ++material.generation; return status;
 }
-Status VulkanBackend::createTarget(std::uint32_t, std::uint32_t, TargetHandle& h) noexcept {
-    h = {}; return error(ErrorCode::MissingCapability, "offscreen render targets not implemented");
+Status VulkanBackend::createTarget(std::uint32_t width, std::uint32_t height, TargetHandle& handle) noexcept {
+    handle = {};
+    if (!width || !height || width > 4096 || height > 4096)
+        return error(ErrorCode::InvalidArgument, "render target dimensions");
+    if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
+    auto& s = *state_;
+    auto status = s.idle();
+    if (!status) return status;
+    for (std::uint32_t i = 0; i < kTargets; ++i) {
+        auto& target = s.targets[i];
+        if (target.active) continue;
+        status = s.makeTarget(width, height, target);
+        if (!status) return status;
+        handle = {i, target.generation};
+        s.log("target.ready");
+        return Status::success();
+    }
+    return error(ErrorCode::CapacityExceeded, "render target capacity");
+}
+Status VulkanBackend::resizeTarget(TargetHandle handle, std::uint32_t width, std::uint32_t height) noexcept {
+    if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
+    auto& s = *state_;
+    if (handle.index >= s.targets.size() || !s.targets[handle.index].active ||
+        s.targets[handle.index].generation != handle.generation)
+        return error(ErrorCode::NotFound, "stale render target handle");
+    if (!width || !height || width > 4096 || height > 4096)
+        return error(ErrorCode::InvalidArgument, "render target dimensions");
+    auto status = s.idle();
+    if (!status) return status;
+    auto& target = s.targets[handle.index];
+    TargetSlot replacement{};
+    replacement.generation = target.generation;
+    replacement.references = target.references;
+    status = s.makeTarget(width, height, replacement);
+    if (!status) return status;
+    s.updateTargetDescriptors(handle.index, replacement.color);
+    s.freeTarget(target);
+    target = replacement;
+    s.log("target.resized");
+    return Status::success();
+}
+Status VulkanBackend::destroyTarget(TargetHandle handle) noexcept {
+    if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
+    auto& s = *state_;
+    if (handle.index >= s.targets.size() || !s.targets[handle.index].active ||
+        s.targets[handle.index].generation != handle.generation)
+        return error(ErrorCode::NotFound, "stale render target handle");
+    if (s.targets[handle.index].references)
+        return error(ErrorCode::InvalidState, "render target referenced by materials");
+    auto status = s.idle();
+    if (!status) return status;
+    auto& target = s.targets[handle.index];
+    s.freeTarget(target);
+    if (++target.generation == 0) ++target.generation;
+    return Status::success();
 }
 Status VulkanBackend::beginFrame(const FrameState& frame) noexcept {
+    return beginFrameTo(frame, {});
+}
+Status VulkanBackend::beginTargetFrame(TargetHandle target, const FrameState& frame) noexcept {
+    if (!target.valid()) return error(ErrorCode::InvalidArgument, "render target handle");
+    return beginFrameTo(frame, target);
+}
+Status VulkanBackend::beginFrameTo(const FrameState& frame, TargetHandle target) noexcept {
     if (!state_ || !state_->initialized || state_->recording || state_->lost)
         return error(ErrorCode::InvalidState, "frame lifecycle or device lost");
     if (!finite(frame.viewProjection)) return error(ErrorCode::InvalidValue, "camera matrix");
@@ -851,16 +1041,25 @@ Status VulkanBackend::beginFrame(const FrameState& frame) noexcept {
     for (auto light : frame.pointLights) if (!validVector(light.positionRadius) || !validVector(light.colorIntensity))
         return error(ErrorCode::InvalidValue, "point light uniforms");
     auto& s = *state_;
+    const bool targetFrame = target.valid();
+    if (targetFrame && (target.index >= s.targets.size() || !s.targets[target.index].active ||
+                        s.targets[target.index].generation != target.generation))
+        return error(ErrorCode::NotFound, "stale render target handle");
     auto status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, kGpuTimeout), "frame.wait");
     if (!status) return status;
-    if (s.recreate) {
+    if (!targetFrame && s.recreate) {
         status = s.idle(); if (!status) return status;
         s.freeSwapchain(); status = s.makeSwapchain(); if (!status) return status;
     }
-    auto acquire = vkAcquireNextImageKHR(s.device, s.swapchain, kGpuTimeout, s.acquired, VK_NULL_HANDLE, &s.currentImage);
-    if (acquire == VK_ERROR_OUT_OF_DATE_KHR) { s.recreate = true; return error(ErrorCode::InvalidState, "swapchain out of date; retry frame"); }
-    if (acquire == VK_SUBOPTIMAL_KHR) s.recreate = true;
-    else { status = s.check(acquire, "frame.acquire"); if (!status) return status; }
+    if (!targetFrame) {
+        auto acquire = vkAcquireNextImageKHR(s.device, s.swapchain, kGpuTimeout, s.acquired, VK_NULL_HANDLE, &s.currentImage);
+        if (acquire == VK_ERROR_OUT_OF_DATE_KHR) { s.recreate = true; return error(ErrorCode::InvalidState, "swapchain out of date; retry frame"); }
+        if (acquire == VK_SUBOPTIMAL_KHR) s.recreate = true;
+        else { status = s.check(acquire, "frame.acquire"); if (!status) return status; }
+    } else {
+        s.activeTarget = target.index;
+    }
+    s.offscreen = targetFrame;
     s.recording = true; s.frameStart = std::chrono::steady_clock::now(); s.drawCount = 0;
     Uniforms uniforms{frame.viewProjection, frame.cameraPosition, frame.lightDirectionAmbient, frame.lightColorIntensity, frame.pointLights};
     std::memcpy(s.uniform.mapped, &uniforms, sizeof(uniforms));
@@ -879,18 +1078,21 @@ Status VulkanBackend::beginFrame(const FrameState& frame) noexcept {
 #endif
     clear[1].depthStencil = {1, 0};
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    pass.renderPass = s.renderPass; pass.framebuffer = s.framebuffers[s.currentImage];
-    pass.renderArea = {{0, 0}, s.extent}; pass.clearValueCount = 2; pass.pClearValues = clear.data();
+    const VkExtent2D renderExtent = targetFrame
+        ? VkExtent2D{s.targets[target.index].width, s.targets[target.index].height} : s.extent;
+    pass.renderPass = s.renderPass;
+    pass.framebuffer = targetFrame ? s.targets[target.index].framebuffer : s.framebuffers[s.currentImage];
+    pass.renderArea = {{0, 0}, renderExtent}; pass.clearValueCount = 2; pass.pClearValues = clear.data();
     vkCmdBeginRenderPass(s.command, &pass, VK_SUBPASS_CONTENTS_INLINE);
-    VkRect2D scissor{{0, 0}, s.extent};
+    VkRect2D scissor{{0, 0}, renderExtent};
     if (s.logicalWidth && s.logicalHeight) {
-        float scale = std::min(static_cast<float>(s.extent.width) / s.logicalWidth,
-                               static_cast<float>(s.extent.height) / s.logicalHeight);
+        float scale = std::min(static_cast<float>(renderExtent.width) / s.logicalWidth,
+                               static_cast<float>(renderExtent.height) / s.logicalHeight);
         if (scale >= 1.0F) scale = std::floor(scale);
         scissor.extent.width = static_cast<std::uint32_t>(s.logicalWidth * scale);
         scissor.extent.height = static_cast<std::uint32_t>(s.logicalHeight * scale);
-        scissor.offset.x = static_cast<std::int32_t>((s.extent.width - scissor.extent.width) / 2);
-        scissor.offset.y = static_cast<std::int32_t>((s.extent.height - scissor.extent.height) / 2);
+        scissor.offset.x = static_cast<std::int32_t>((renderExtent.width - scissor.extent.width) / 2);
+        scissor.offset.y = static_cast<std::int32_t>((renderExtent.height - scissor.extent.height) / 2);
     }
     VkViewport viewport{static_cast<float>(scissor.offset.x), static_cast<float>(scissor.offset.y),
                         static_cast<float>(scissor.extent.width), static_cast<float>(scissor.extent.height), 0, 1};
@@ -911,6 +1113,14 @@ Status VulkanBackend::submit(const Draw& draw) noexcept {
     if (draw.mesh.index >= kResources || !s.meshes[draw.mesh.index].active || s.meshes[draw.mesh.index].generation != draw.mesh.generation ||
         draw.material.index >= kResources || !s.materials[draw.material.index].active || s.materials[draw.material.index].generation != draw.material.generation)
         return error(ErrorCode::NotFound, "stale draw resource");
+    const auto& material = s.materials[draw.material.index].material;
+    if (material.targetTexture.valid()) {
+        const auto& source = s.targets[material.targetTexture.index];
+        if (s.offscreen && material.targetTexture.index == s.activeTarget)
+            return error(ErrorCode::InvalidState, "render-target feedback loop");
+        if (!source.contentsInitialized)
+            return error(ErrorCode::InvalidState, "render target has no completed contents");
+    }
     auto count = draw.indexCount ? draw.indexCount : s.meshes[draw.mesh.index].count;
     if (!count || count % 3 || draw.firstIndex > s.meshes[draw.mesh.index].count ||
         count > s.meshes[draw.mesh.index].count - draw.firstIndex) return error(ErrorCode::InvalidArgument, "submesh draw range");
@@ -956,45 +1166,71 @@ Status VulkanBackend::endFrame() noexcept {
         vkCmdDrawIndexed(s.command, count, 1, draw.firstIndex, 0, 0); s.stats.triangles += count / 3;
     }
     vkCmdEndRenderPass(s.command);
+    const bool targetFrame = s.offscreen;
     bool capture = s.capturePath[0] != '\0';
+    const VkExtent2D captureExtent = targetFrame
+        ? VkExtent2D{s.targets[s.activeTarget].width, s.targets[s.activeTarget].height} : s.extent;
+    VkImage outputImage = targetFrame ? s.targets[s.activeTarget].color.image : s.images[s.currentImage];
     Status status = Status::success();
+    const auto readbackBytes = std::uint64_t(captureExtent.width) * captureExtent.height * 4;
+    if (capture && s.readback.buffer && s.readback.bytes < readbackBytes) s.freeBuffer(s.readback);
     if (capture && !s.readback.buffer)
-        status = s.buffer(std::uint64_t(s.extent.width) * s.extent.height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        status = s.buffer(readbackBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, s.readback);
     if (!status) { s.lost = true; return status; }
     if (capture) {
-        transition(s.command, s.images[s.currentImage], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        transition(s.command, outputImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-        VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; copy.imageExtent = {s.extent.width, s.extent.height, 1};
-        vkCmdCopyImageToBuffer(s.command, s.images[s.currentImage], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s.readback.buffer, 1, &copy);
+        VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {captureExtent.width, captureExtent.height, 1};
+        vkCmdCopyImageToBuffer(s.command, outputImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s.readback.buffer, 1, &copy);
         VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
         barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.buffer = s.readback.buffer; barrier.size = VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(s.command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
     }
-    transition(s.command, s.images[s.currentImage], capture ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, capture ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-               0, capture ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    if (targetFrame) {
+        transition(s.command, outputImage, capture ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   capture ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                   VK_ACCESS_SHADER_READ_BIT,
+                   capture ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    } else {
+        transition(s.command, outputImage,
+                   capture ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                   capture ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                   0, capture ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                   VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    }
     status = s.check(vkEndCommandBuffer(s.command), "frame.command.end");
     if (status) status = s.check(vkResetFences(s.device, 1, &s.fence), "frame.fence.reset");
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.waitSemaphoreCount = 1; submit.pWaitSemaphores = &s.acquired; submit.pWaitDstStageMask = &waitStage;
+    submit.waitSemaphoreCount = targetFrame ? 0U : 1U;
+    submit.pWaitSemaphores = targetFrame ? nullptr : &s.acquired;
+    submit.pWaitDstStageMask = targetFrame ? nullptr : &waitStage;
     submit.commandBufferCount = 1; submit.pCommandBuffers = &s.command;
-    submit.signalSemaphoreCount = 1; submit.pSignalSemaphores = &s.finished[s.currentImage];
+    submit.signalSemaphoreCount = targetFrame ? 0U : 1U;
+    submit.pSignalSemaphores = targetFrame ? nullptr : &s.finished[s.currentImage];
     if (status) status = s.check(vkQueueSubmit(s.queue, 1, &submit, s.fence), "frame.submit");
     if (!status) { s.lost = true; return status; }
-    if (s.stats.frames == 0) s.log("frame.first.submit");
-    VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-    present.waitSemaphoreCount = 1; present.pWaitSemaphores = &s.finished[s.currentImage];
-    present.swapchainCount = 1; present.pSwapchains = &s.swapchain; present.pImageIndices = &s.currentImage;
-    auto result = vkQueuePresentKHR(s.queue, &present);
+    if (targetFrame) s.targets[s.activeTarget].contentsInitialized = true;
+    if (!targetFrame && s.stats.frames == 0) s.log("frame.first.submit");
     s.recording = false;
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) s.recreate = true;
-    else { status = s.check(result, "frame.present"); if (!status) { s.lost = true; return status; } }
-    if (s.stats.frames == 0) s.log("frame.first.present");
-    ++s.stats.frames;
+    s.offscreen = false;
+    if (!targetFrame) {
+        VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present.waitSemaphoreCount = 1; present.pWaitSemaphores = &s.finished[s.currentImage];
+        present.swapchainCount = 1; present.pSwapchains = &s.swapchain; present.pImageIndices = &s.currentImage;
+        auto result = vkQueuePresentKHR(s.queue, &present);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) s.recreate = true;
+        else { status = s.check(result, "frame.present"); if (!status) { s.lost = true; return status; } }
+        if (s.stats.frames == 0) s.log("frame.first.present");
+    }
+    if (!targetFrame) ++s.stats.frames;
     s.stats.cpuFrameMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s.frameStart).count();
     if (capture) {
         status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, kGpuTimeout), "capture.wait");
@@ -1005,17 +1241,17 @@ Status VulkanBackend::endFrame() noexcept {
         FILE* file{}; fopen_s(&file, s.capturePath.data(), "wb");
 #endif
         if (!file) return error(ErrorCode::StorageFailure, "capture file open");
-        bool written = std::fprintf(file, "P6\n%u %u\n255\n", s.extent.width, s.extent.height) > 0;
+        bool written = std::fprintf(file, "P6\n%u %u\n255\n", captureExtent.width, captureExtent.height) > 0;
         auto* pixels = static_cast<const unsigned char*>(s.readback.mapped);
         bool bgra = s.format == VK_FORMAT_B8G8R8A8_SRGB || s.format == VK_FORMAT_B8G8R8A8_UNORM;
         std::array<unsigned char, 3 * 4096> row{};
-        if (s.extent.width > 4096) written = false;
-        for (std::uint32_t y = 0; y < s.extent.height && written; ++y) {
-            for (std::uint32_t x = 0; x < s.extent.width; ++x) {
-                auto p = pixels + (std::uint64_t(y) * s.extent.width + x) * 4;
+        if (captureExtent.width > 4096) written = false;
+        for (std::uint32_t y = 0; y < captureExtent.height && written; ++y) {
+            for (std::uint32_t x = 0; x < captureExtent.width; ++x) {
+                auto p = pixels + (std::uint64_t(y) * captureExtent.width + x) * 4;
                 row[x*3] = p[bgra ? 2 : 0]; row[x*3+1] = p[1]; row[x*3+2] = p[bgra ? 0 : 2];
             }
-            written = std::fwrite(row.data(), 3, s.extent.width, file) == s.extent.width;
+            written = std::fwrite(row.data(), 3, captureExtent.width, file) == captureExtent.width;
         }
         if (std::fclose(file) != 0) written = false;
         s.capturePath[0] = '\0';
@@ -1051,6 +1287,11 @@ void VulkanBackend::shutdown() noexcept {
         for (auto& material : s.materials) { material.active = false; material.descriptor = {}; if (++material.generation == 0) ++material.generation; }
         for (auto& mesh : s.meshes) { s.freeBuffer(mesh.vertices); s.freeBuffer(mesh.indices); mesh.active = false; if (++mesh.generation == 0) ++mesh.generation; }
         for (auto& texture : s.textures) { s.freeImage(texture.image); texture.active = false; texture.references = 0; if (++texture.generation == 0) ++texture.generation; }
+        for (auto& target : s.targets) {
+            s.freeTarget(target);
+            target.references = 0;
+            if (++target.generation == 0) ++target.generation;
+        }
         s.freeBuffer(s.uniform);
         if (s.pipelineLayout) vkDestroyPipelineLayout(s.device, s.pipelineLayout, nullptr);
         if (s.descriptorLayout) vkDestroyDescriptorSetLayout(s.device, s.descriptorLayout, nullptr);

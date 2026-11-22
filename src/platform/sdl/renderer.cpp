@@ -386,8 +386,10 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
     const int offsetX = flip
         ? static_cast<int>(bounds.width) - spec.frameWidth - spec.offsetX
         : spec.offsetX;
-    const SDL_Rect destination{static_cast<int>(bounds.x - cameraX) + offsetX,
-                               static_cast<int>(bounds.y) + spec.offsetY,
+    const SDL_Rect destination{static_cast<int>(bounds.x - cameraX) + offsetX +
+                                   (drawingWorld_ ? worldOffsetX_ : 0),
+                               static_cast<int>(bounds.y) + spec.offsetY +
+                                   (drawingWorld_ ? worldOffsetY_ : 0),
                                spec.frameWidth, spec.frameHeight};
     if (drawSink_ != nullptr) {
         rendering::Vec4 uv{};
@@ -412,9 +414,10 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
 bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
     const framework::RoomDefinition* definition = room.definition;
     if (definition == nullptr) return false;
-    const int firstColumn = std::max(0, static_cast<int>(cameraX) / kTileSize);
-    const int lastColumn = std::min(room.columns - 1, firstColumn + 640 / kTileSize + 1);
     for (std::size_t layer = 0; layer < definition->layers().size(); ++layer) {
+        const float layerCameraX = cameraX * definition->layers()[layer].scrollFactorX;
+        const int firstColumn = std::max(0, static_cast<int>(layerCameraX) / kTileSize);
+        const int lastColumn = std::min(room.columns - 1, firstColumn + 640 / kTileSize + 1);
         for (int row = 0; row < definition->rows(); ++row) {
             for (int column = firstColumn; column <= lastColumn; ++column) {
                 const framework::TileType* tile = definition->tile(layer, column, row);
@@ -425,7 +428,7 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                     tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
                     tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
                     tileset.tileWidth, tileset.tileHeight};
-                const SDL_Rect destination{static_cast<int>(column * kTileSize - cameraX),
+                const SDL_Rect destination{static_cast<int>(column * kTileSize - layerCameraX),
                                            row * kTileSize, kTileSize, kTileSize};
                 const CanvasSprite* image = drawSink_ != nullptr
                     ? canvasWorldSprite(tileset.sheet.data()) : nullptr;
@@ -457,7 +460,8 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                          tile->flipX, tile->flipY}, uv);
                     if (!status || drawSinkFailed_ ||
                         !drawSink_->texture(image->texture,
-                                            {destination.x, destination.y,
+                                            {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                                             destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
                                              destination.w, destination.h},
                                             uv, {1, 1, 1, 1},
                                             static_cast<float>(tile->rotation))) {
@@ -465,7 +469,10 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                     }
                     continue;
                 }
-                SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination,
+                const SDL_Rect shifted{destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                                       destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
+                                       destination.w, destination.h};
+                SDL_RenderCopyEx(renderer_, sheet->texture, &source, &shifted,
                                  static_cast<double>(tile->rotation), nullptr,
                                  static_cast<SDL_RendererFlip>(flags));
             }
@@ -475,6 +482,10 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
 }
 
 bool Renderer::sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip) noexcept {
+    if (drawingWorld_) {
+        destination.x += worldOffsetX_;
+        destination.y += worldOffsetY_;
+    }
     const auto index = static_cast<std::size_t>(sprite);
     const SpriteSheet& sheet = kSpriteSheets[index];
     if (drawSink_ != nullptr) {
@@ -511,6 +522,10 @@ void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
 }
 
 void Renderer::fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept {
+    if (drawingWorld_) {
+        bounds.x += worldOffsetX_;
+        bounds.y += worldOffsetY_;
+    }
     if (drawSink_ != nullptr) {
         if (!drawSinkFailed_ && !drawSink_->fill({bounds.x, bounds.y, bounds.w, bounds.h},
                                                   {color.r, color.g, color.b, color.a})) {
@@ -1032,7 +1047,8 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
                  tile->flipX, tile->flipY}, uv);
             if (!status || drawSinkFailed_ ||
                 !drawSink_->texture(image->texture,
-                                    {destination.x, destination.y,
+                                    {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                                     destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
                                      destination.w, destination.h},
                                     uv, {1, 1, 1, static_cast<float>(alpha) / 255.0F},
                                     static_cast<float>(tile->rotation))) {
@@ -1041,7 +1057,10 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             return;
         }
         SDL_SetTextureAlphaMod(sheet->texture, alpha);
-        SDL_RenderCopy(renderer_, sheet->texture, &source, &destination);
+        const SDL_Rect shifted{destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                               destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
+                               destination.w, destination.h};
+        SDL_RenderCopy(renderer_, sheet->texture, &source, &shifted);
         if (alpha != 255) SDL_SetTextureAlphaMod(sheet->texture, 255);
     };
 
@@ -1191,11 +1210,13 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     if (!paused && mouseAim_) {
         const int reticleX = static_cast<int>(std::lround(mouseAimPoint_.x));
         const int reticleY = static_cast<int>(std::lround(mouseAimPoint_.y));
-        panel({reticleX - 7, reticleY - 1, 5, 2}, kOrange);
-        panel({reticleX + 3, reticleY - 1, 5, 2}, kOrange);
-        panel({reticleX - 1, reticleY - 7, 2, 5}, kOrange);
-        panel({reticleX - 1, reticleY + 3, 2, 5}, kOrange);
-        panel({reticleX - 1, reticleY - 1, 2, 2}, kText);
+        const int offsetX = drawingWorld_ ? worldOffsetX_ : 0;
+        const int offsetY = drawingWorld_ ? worldOffsetY_ : 0;
+        panel({reticleX - 7 - offsetX, reticleY - 1 - offsetY, 5, 2}, kOrange);
+        panel({reticleX + 3 - offsetX, reticleY - 1 - offsetY, 5, 2}, kOrange);
+        panel({reticleX - 1 - offsetX, reticleY - 7 - offsetY, 2, 5}, kOrange);
+        panel({reticleX - 1 - offsetX, reticleY + 3 - offsetY, 2, 5}, kOrange);
+        panel({reticleX - 1 - offsetX, reticleY - 1 - offsetY, 2, 2}, kText);
     } else if (!paused) {
         const float screenAimX = player.aim.x - player.aim.y;
         const float screenAimY = (player.aim.x + player.aim.y) * 0.5F;
@@ -1272,11 +1293,13 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                         std::span<const vfx::Particle> particles,
                         const RenderDebugInfo* debug,
                         std::uint8_t damageFlashOpacity,
-                        std::span<const vfx::Particle> impacts) noexcept {
+                        std::span<const vfx::Particle> impacts,
+                        std::span<const vfx::Particle> explosions,
+                        std::span<const vfx::Particle> fog) noexcept {
     SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
     SDL_RenderClear(renderer_);
     drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey, particles, debug,
-                    damageFlashOpacity, impacts);
+                    damageFlashOpacity, impacts, explosions, fog);
     SDL_RenderPresent(renderer_);
 }
 
@@ -1287,7 +1310,9 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
                           std::span<const vfx::Particle> particles,
                           const RenderDebugInfo* debug,
                           std::uint8_t damageFlashOpacity,
-                          std::span<const vfx::Particle> impacts) noexcept {
+                          std::span<const vfx::Particle> impacts,
+                          std::span<const vfx::Particle> explosions,
+                          std::span<const vfx::Particle> fog) noexcept {
     if ((worldSheetCount_ != 0 && worldSprites == nullptr) || (sprites == nullptr &&
         std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; }))) {
         SDL_Log("Recording game with loaded SDL textures is not supported");
@@ -1340,7 +1365,8 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
     canvasSprites_ = sprites;
     canvasWorldSprites_ = worldSprites;
     if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey,
-                                          particles, debug, damageFlashOpacity, impacts);
+                                          particles, debug, damageFlashOpacity, impacts,
+                                          explosions, fog);
     canvasSprites_ = nullptr;
     canvasWorldSprites_ = nullptr;
     return endRecording();
@@ -1352,21 +1378,32 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                                std::span<const vfx::Particle> particles,
                                const RenderDebugInfo* debug,
                                std::uint8_t damageFlashOpacity,
-                               std::span<const vfx::Particle> impacts) noexcept {
+                               std::span<const vfx::Particle> impacts,
+                               std::span<const vfx::Particle> explosions,
+                               std::span<const vfx::Particle> fog) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
     panel({0, 0, 640, 360},
           SDL_Color{room.background[0], room.background[1], room.background[2], 255});
 
+    const Vec2 shakeOffset = game.cameraShakeOffset();
+    worldOffsetX_ = static_cast<int>(shakeOffset.x);
+    worldOffsetY_ = static_cast<int>(shakeOffset.y);
+    drawingWorld_ = true;
     if (game.isometric()) {
         drawIsometricWorld(game, paused);
     } else {
         drawSideWorld(game, paused);
     }
     if (!showMap) {
+        if (game.roomId() == RoomId::CargoHold) drawParticles(game, fog);
         drawParticles(game, particles);
         drawParticles(game, impacts);
+        drawParticles(game, explosions);
     }
+    drawingWorld_ = false;
+    worldOffsetX_ = 0;
+    worldOffsetY_ = 0;
     if (damageFlashOpacity != 0) {
         panel({0, 0, 640, 360}, SDL_Color{255, 24, 18, damageFlashOpacity});
     }

@@ -2,21 +2,24 @@
 
 Baseline: `1e90adc6519d8f278f856beaaac7f668287909bd`.
 The original experiment was developed separately; the renderer is now also
-connected to an opt-in PS5 game build. No console deployment was performed.
+connected to an opt-in PS5 game build. Build scripts do not deploy to consoles;
+hardware results below are operator-reported.
 
 | Acceptance stage | Result |
 | --- | --- |
 | A: genuine Windows GPU rendering | PASS: NVIDIA GeForce RTX 4070, textured cube/floor, depth, lights and presentation |
 | B: reusable initial backend | PASS for SDL-free interfaces, bounded resources, meshes/cameras, materials and alpha sprites; advanced API work remains |
 | C: PS5-compatible linked Vulkan rendering application/package | STATIC PASS: separate RADV diagnostics and the PROJECT ECHO Vulkan game candidate |
-| D: actual PS5 Vulkan rendering | PARTIAL: operator reports a visible cyan clear and moving interactive cube; the game candidate remains untested |
+| D: actual PS5 Vulkan rendering | PASS (operator-reported): the operator reports the latest Vulkan game candidate fully functional; installed digest and setup were not supplied |
 
-The latest native Windows regression passed 19/19 tests; the Windows Vulkan
-suite passed 17/17, including real GPU readback, mocked PS5 display selection
-and virtual controller input without SDL video. The separate PS5 SDL and Vulkan
-game packages both passed their static and negative package tests. These Windows
-tests do not establish controller or rendering behavior on PS5. The Vulkan
-candidate and digest are documented in [PS5_BUILD](PS5_BUILD.md#ps5-vulkan-game-candidate).
+The latest native Windows regression passed 19/19 tests. The Vulkan experiment
+passed 25/25 tests in both Debug and Release, including NVIDIA GPU target color
+and depth readback. These Windows tests do not establish PS5 rendering behavior.
+The latest Vulkan game candidate's local FSELF SHA-256 is
+`16e0b58d262f51bae1286ba8fae077dabaf57fa76383d6fe077f5bac879c5a4a`; its
+installed digest is unknown. The separate PS5 SDL and Vulkan game-package
+results remain as documented in
+[PS5_BUILD](PS5_BUILD.md#ps5-vulkan-game-candidate).
 
 ## Verified Windows evidence
 
@@ -27,12 +30,15 @@ not unimplemented Vulkan 1.4 features. This is hardware rasterization, never a
 CPU renderer or Vulkan software-device fallback.
 
 `scripts/build-vulkan-windows.ps1 -Configuration Debug -RunTests` and the same
-command with `-Configuration Release` each passed **4/4**:
+command with `-Configuration Release` each passed **25/25**:
 
 - Rendering math, camera, hierarchy, validation, schema/content and VFX tests.
 - glTF mesh/material import, strided normal/UV data and invalid-data cases.
 - Real device/swapchain/pipeline/buffer/texture/depth creation, 60 presented
   frames, resize to 960x540, lifetime probes, GPU readback and clean shutdown.
+- Offscreen target creation, 128x128-to-256x128 resize, destruction and memory
+  accounting; a 128x128 target capture verifies the clear, depth ordering and
+  color attachment output. Validation reports zero errors.
 - GPU image-region comparison with explicit pixel thresholds.
 
 The integration log reports zero validation errors. The independently staged
@@ -276,13 +282,73 @@ followed by software-renderer `Out of memory` and successful 720p retry implicat
 CPU-side allocations, but the exact failing allocation/heap cause is not proven.
 It does not establish insufficient GPU memory; no production allocator changed.
 
+## Offscreen target milestone
+
+The Windows Vulkan Debug and Release suites each passed 25/25, including a
+real NVIDIA GPU readback that checks offscreen color output and depth ordering,
+target resize/destruction, and GPU allocation accounting with zero validation
+errors. The updated Vulkan backend static library also cross-compiled for
+`x86_64-sie-ps5`. No PS5 game package was rebuilt for this milestone, and the
+new target path has not been run on console.
+
+## Frame-pass scheduler milestone
+
+Added a fixed-capacity, SDL-free scheduler with ordered stages, explicit
+dependencies, optional disabled callbacks, cycle detection, and callback-error
+propagation. Headless tests cover stage ordering, dependencies, disabled passes,
+cycles, stale handles after clearing, and stopping after callback failure.
+Vulkan Debug and Release each passed 25/25, the production Windows suite passed
+19/19, and the PS5-target Vulkan renderer static library cross-compiled.
+The offscreen-target diagnostic and regular Vulkan experiment frame loop use
+the scheduler; begin-frame, opaque, transparent, particle, UI and presentation
+callbacks execute in their corresponding stages. The scheduler tracks declared
+resource hazards but does not emit GPU barriers. No PS5 package was rebuilt or
+run on-console for this change.
+
+## Render-target sampling milestone
+
+`Material::targetTexture` now binds a completed Vulkan render target as a
+material's base texture, and capability JSON reports target-sampling support.
+Live materials retain their source target; resize
+refreshes descriptors only after the backend is idle, and destruction is
+rejected while the target is referenced. Draw submission rejects uninitialized
+sources and same-target feedback.
+
+The Windows GPU diagnostic schedules a source render, a feedback rejection and
+a later sampling pass, then verifies both source and composed target pixels by
+readback. The run also exercises descriptor refresh across resize, the
+uninitialized-source guard, target lifetime, and zero-error validation. Debug
+and Release each passed 25/25, the production Windows suite passed 19/19, and
+the updated PS5-target renderer static library cross-compiled. This is a
+low-level sampling path, not a built-in bloom/blur effect or backend GPU
+resource-state tracker. No PS5 package or console run was produced.
+
+## Frame resource hazard tracking
+
+The fixed-capacity scheduler accepts up to 16 frame resources with declared
+per-pass read/write access. It infers read-after-write, write-after-read and
+write-after-write ordering in pipeline-stage order, rejects same-pass
+read/write feedback, and fails before a callback reads an uninitialized
+resource. Disabled writers do not initialize outputs. The target-sampling GPU
+diagnostic declares its source and output resources; headless tests cover
+producer/consumer ordering, skipped writers, external initialized inputs,
+feedback rejection, stale handles and uninitialized reads.
+
+Vulkan Debug and Release each passed 25/25 tests, and the production Windows
+suite passed 19/19. This scheduler provides CPU-side ordering only: it does not
+track image layouts, access masks, or issue Vulkan synchronization barriers.
+The 3D experiment's regular presentation loop now uses scheduled callbacks; the
+production game's separate 2D loop is not integrated. No PS5 package or
+on-console run was produced.
+
 ## Remaining work before broader acceptance
 
-No runtime-selectable backend, general SDL adapter, full 3D scene authoring schema, GPU
-multi-material submesh submission, normal
-maps/IBL, offscreen target/viewport API, shadows, bloom/blur, instancing, GPU
+No runtime-selectable backend, general SDL adapter, full 3D scene authoring
+schema, GPU multi-material submesh submission, backend GPU resource-state or
+barrier graph, built-in bloom/blur or shadow effects, normal maps/IBL, instancing, GPU
 timing/compute particles, richer glTF/importer registry, full animation/layers,
-screen flash, camera shake or light events is claimed. VFX is bounded CPU
+screen flash, camera shake or light events is claimed. The scheduler orders
+callbacks; the production 2D game loop remains separate. VFX is bounded CPU
 simulation rasterized by the GPU. Device loss fails explicitly; automatic
 recovery is not implemented.
 

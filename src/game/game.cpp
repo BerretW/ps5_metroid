@@ -16,6 +16,13 @@ constexpr float kJumpImpulse = 420.0F;
 constexpr float kMaximumFallSpeed = 520.0F;
 constexpr float kCoyoteSeconds = 0.10F;
 constexpr float kJumpBufferSeconds = 0.12F;
+constexpr std::array<Vec2, kCameraShakeDurationSteps> kCameraShakeOffsets{{
+    {-8.0F, -5.0F}, {8.0F, 5.0F}, {-7.0F, 4.0F}, {7.0F, -4.0F},
+    {-6.0F, -4.0F}, {6.0F, 4.0F}, {-5.0F, 3.0F}, {5.0F, -3.0F},
+    {-4.0F, -3.0F}, {4.0F, 3.0F}, {-3.0F, 2.0F}, {3.0F, -2.0F},
+    {-2.0F, -2.0F}, {2.0F, 2.0F}, {-1.0F, 1.0F}, {1.0F, -1.0F},
+    {0.0F, 1.0F}, {0.0F, 0.0F},
+}};
 constexpr std::string_view kMaxHealthAttribute = "echo:attribute/player.max_health";
 constexpr std::string_view kMoveSpeedAttribute = "echo:attribute/player.move_speed";
 constexpr std::string_view kJumpImpulseAttribute = "echo:attribute/player.jump_impulse";
@@ -397,6 +404,7 @@ void Game::start() noexcept {
     speedBoostSeconds_ = 0.0F;
     jumpBoostSeconds_ = 0.0F;
     shieldSeconds_ = 0.0F;
+    cameraShakeTicks_ = 0;
     doubleJumpUsed_ = false;
     abilityCollected_ = false;
     abilities_.reset();
@@ -632,6 +640,12 @@ float Game::cameraX() const noexcept {
     return std::clamp(centered, 0.0F, roomWidth() - 640.0F);
 }
 
+Vec2 Game::cameraShakeOffset() const noexcept {
+    if (cameraShakeTicks_ == 0) return {};
+    const std::size_t index = kCameraShakeOffsets.size() - cameraShakeTicks_;
+    return kCameraShakeOffsets[index];
+}
+
 int Game::livingEnemies(RoomId room) const noexcept {
     return static_cast<int>(std::count_if(enemies_.begin(), enemies_.end(), [room](const Enemy& enemy) {
         return enemy.room == room && enemy.alive;
@@ -699,11 +713,12 @@ bool Game::overlapsHazard(const Rect& bounds) const noexcept {
 }
 
 framework::Status Game::update(const Input& input, float deltaSeconds) noexcept {
+    const float dt = std::clamp(deltaSeconds, 0.0F, 0.05F);
     if (completed_) {
+        if (dt > 0.0F && cameraShakeTicks_ > 0) --cameraShakeTicks_;
         return claimQuestRewardIfReady();
     }
 
-    const float dt = std::clamp(deltaSeconds, 0.0F, 0.05F);
     gateBlocked_ = false;
     accessBlocked_ = false;
     if (cutscenePlayer_.active()) {
@@ -740,6 +755,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
         return framework::Status::success();
     }
     questChoiceDirection_ = 0;
+    if (dt > 0.0F && cameraShakeTicks_ > 0) --cameraShakeTicks_;
     if (input.useItemPressed) {
         const framework::Status status = useActiveItem();
         if (!status) return status;
@@ -1626,6 +1642,7 @@ void Game::resolveRoomEdges() noexcept {
 
 void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     room_ = destination;
+    cameraShakeTicks_ = 0;
     player_.position.x = fromLeft ? 16.0F : roomWidth() - kPlayerWidth - 16.0F;
     // Isometric rooms keep their doorways in the middle rows of the grid.
     player_.position.y = isometric()
@@ -1653,6 +1670,7 @@ void Game::damagePlayer() noexcept {
         player_.health = maximumHealth();
         enterRoom(RoomId::LandingBay, true);
     }
+    cameraShakeTicks_ = kCameraShakeDurationSteps;
 }
 
 } // namespace echo

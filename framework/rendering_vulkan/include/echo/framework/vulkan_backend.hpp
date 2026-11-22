@@ -22,6 +22,9 @@ public:
     Status destroyTexture(TextureHandle) noexcept override;
     Status destroyMaterial(MaterialHandle) noexcept override;
     Status createTarget(std::uint32_t, std::uint32_t, TargetHandle&) noexcept override;
+    Status beginTargetFrame(TargetHandle, const FrameState&) noexcept override;
+    Status resizeTarget(TargetHandle, std::uint32_t, std::uint32_t) noexcept override;
+    Status destroyTarget(TargetHandle) noexcept override;
     Status beginFrame(const FrameState&) noexcept override;
     Status submit(const Draw&) noexcept override;
     Status endFrame() noexcept override;
@@ -30,6 +33,7 @@ public:
     Diagnostics diagnostics() const noexcept override;
     void shutdown() noexcept override;
 private:
+    Status beginFrameTo(const FrameState&, TargetHandle) noexcept;
     struct State;
     State* state_{};
 };

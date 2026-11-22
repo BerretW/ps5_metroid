@@ -26,6 +26,7 @@ inline constexpr int kRoomRows = 12;
 inline constexpr int kRoomWidth = kTileSize * kRoomColumns;
 inline constexpr int kRoomHeight = kTileSize * kRoomRows;
 inline constexpr float kFixedStep = 1.0F / 60.0F;
+inline constexpr std::uint8_t kCameraShakeDurationSteps = 18;
 
 struct Vec2 {
     float x{};
@@ -363,6 +364,7 @@ public:
     [[nodiscard]] std::span<const Projectile> enemyProjectiles() const noexcept { return enemyProjectiles_; }
     [[nodiscard]] Tile tileAt(int column, int row) const noexcept;
     [[nodiscard]] float cameraX() const noexcept;
+    [[nodiscard]] Vec2 cameraShakeOffset() const noexcept;
     [[nodiscard]] bool abilityCollected() const noexcept {
         return hasAbility(kEchoStepAbilityId);
     }
@@ -457,6 +459,7 @@ private:
     float speedBoostSeconds_{};
     float jumpBoostSeconds_{};
     float shieldSeconds_{};
+    std::uint8_t cameraShakeTicks_{};
     bool doubleJumpUsed_{};
     bool abilityCollected_{};
     bool gateBlocked_{};

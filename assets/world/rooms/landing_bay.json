@@ -6,6 +6,7 @@
   "layers": [
     {
       "name": "back",
+      "scrollFactorX": 0.35,
       "rows": [
         " *        *        *        *        *  ",
         " -     -     -     -     -     -     -  ",

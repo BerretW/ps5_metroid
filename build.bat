@@ -23,7 +23,26 @@ set "build_exit=%errorlevel%"
 goto finished
 
 :ps5
+echo.
+echo Select PS5 renderer
+echo S - SDL renderer
+echo V - Vulkan renderer
+echo Q - Cancel
+echo.
+choice /C SVQ /N /M "Select renderer [S/V/Q]: "
+if errorlevel 255 goto choice_failed
+if errorlevel 3 goto cancelled
+if errorlevel 2 goto ps5_vulkan
+if errorlevel 1 goto ps5_sdl
+goto cancelled
+
+:ps5_sdl
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-ps5.ps1" -Target Game -SkipPs5Keyboard -RestoreDependencies
+set "build_exit=%errorlevel%"
+goto finished
+
+:ps5_vulkan
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-ps5.ps1" -Target Game -SkipPs5Keyboard -Vulkan -RestoreDependencies
 set "build_exit=%errorlevel%"
 goto finished
 

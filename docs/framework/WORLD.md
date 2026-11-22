@@ -61,7 +61,7 @@ bounds and at least one animation whose frames fit the sheet.
 | `background` | RGB clear colour. |
 | `tilesets` | Any number (up to 16) of sheets: `id`, `sheet`, `tileWidth`, `tileHeight`, optional `margin` and `spacing`. |
 | `tiles` | Legend: one map symbol → `tileset`, `x`, `y` (cell on that sheet), optional `rotation` (0/90/180/270), `flipX`, `flipY` and `collision` (`none`, `solid`, `hazard`). |
-| `layers` | Up to 4 named layers drawn in order; each is a list of row strings. `.` and space are empty. |
+| `layers` | Up to 4 named tile layers drawn in order; each is a list of row strings. Optional `scrollFactorX` (0–1, default 1) controls horizontal parallax in side-view rooms. `.` and space are empty. |
 | `exits` | `left`/`right` with target `room`, optional `requiresAbility` or `completesGame`. |
 | `objects` | Up to 16 placements: `id`, `object`, optional `position`, `facing` and `properties`. |
 
@@ -72,7 +72,11 @@ shared legend. Power Station, Research Lab and Central Chamber redefine only
 `#` and `=` to use their own tileset row.
 
 Only the `main` layer's tile collision is used by the simulation; other layers
-are decoration.
+are decoration. Side-view layer 0 may use `scrollFactorX` below 1 for a distant
+background; 0 stays fixed while 1 follows the camera. The Landing Bay's `back`
+layer uses 0.35, while its terrain remains at 1. Object placements are drawn
+after tile layers and continue to provide room props. Isometric rooms require
+the default factor because their tile layers participate in depth sorting.
 
 ## Limits
 

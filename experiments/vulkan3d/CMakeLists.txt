@@ -103,6 +103,18 @@ if(BUILD_TESTING)
         --capture "${CMAKE_CURRENT_BINARY_DIR}/gpu-frame.ppm")
     set_tests_properties(echo_vulkan_gpu PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(echo_vulkan_gpu PROPERTIES FIXTURES_SETUP echo_gpu_capture)
+    add_test(NAME echo_vulkan_target_gpu COMMAND echo_vulkan3d --frames 1 --validation --probe
+        --target-capture "${CMAKE_CURRENT_BINARY_DIR}/render-target.ppm"
+        --target-sample-capture "${CMAKE_CURRENT_BINARY_DIR}/render-target-sample.ppm")
+    set_tests_properties(echo_vulkan_target_gpu PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
+        FIXTURES_SETUP echo_render_target_capture)
+    add_test(NAME echo_vulkan_target_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_render_target.ps1"
+        -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/render-target.ppm"
+        -SampleImagePath "${CMAKE_CURRENT_BINARY_DIR}/render-target-sample.ppm")
+    set_tests_properties(echo_vulkan_target_readback PROPERTIES
+        FIXTURES_REQUIRED echo_render_target_capture TIMEOUT 30)
     find_program(ECHO_POWERSHELL NAMES pwsh.exe powershell.exe REQUIRED)
     add_test(NAME echo_vulkan_frame
         COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass

@@ -111,8 +111,10 @@ void testGameplayVfx() {
     after.roamers[0].health = 2;
     check(static_cast<bool>(effects->step(before, after)) &&
               static_cast<bool>(duplicate->step(before, after)) &&
-              effects->impacts().size() == 24 && duplicate->impacts().size() == 24,
-          "enemy defeat and roamer damage each emit an impact burst");
+              effects->impacts().size() == 24 && duplicate->impacts().size() == 24 &&
+              effects->explosions().size() == 32 &&
+              duplicate->explosions().size() == 32,
+          "enemy defeat emits an explosion alongside ordinary impact bursts");
     if (effects->impacts().size() == 24 && duplicate->impacts().size() == 24) {
         check(effects->impacts()[0].position.x == 110.0F &&
                   effects->impacts()[0].position.y == 95.0F &&
@@ -120,6 +122,13 @@ void testGameplayVfx() {
                   effects->impacts()[12].position.y == 100.0F &&
                   effects->impacts()[0].velocity.x == duplicate->impacts()[0].velocity.x,
               "impact bursts use enemy centers and deterministic velocities");
+    }
+    if (effects->explosions().size() == 32 && duplicate->explosions().size() == 32) {
+        check(effects->explosions()[0].position.x == 110.0F &&
+                  effects->explosions()[0].position.y == 95.0F &&
+                  effects->explosions()[0].velocity.x ==
+                      duplicate->explosions()[0].velocity.x,
+              "enemy explosions use the defeat location and deterministic velocities");
     }
     echo::Projectile projectile{};
     projectile.bounds = {30.0F, 40.0F, 8.0F, 8.0F};
@@ -129,13 +138,15 @@ void testGameplayVfx() {
           "shot burst starts at the projectile center");
     check(static_cast<bool>(effects->step(after, after)) &&
               effects->impacts().size() == 24 &&
+              effects->explosions().size() == 32 &&
               effects->impacts()[0].age == echo::kFixedStep,
           "particles advance once without repeating unchanged damage");
     auto transition = after;
     transition.room = echo::RoomId::ResearchLab;
     transition.roamers[0].health = 0;
     check(static_cast<bool>(effects->step(after, transition)) &&
-              effects->shots().empty() && effects->impacts().empty(),
+              effects->shots().empty() && effects->impacts().empty() &&
+              effects->explosions().empty() && effects->fog().empty(),
           "room transition clears effects without a false roamer hit");
     check(static_cast<bool>(effects->shot(projectile)) &&
               static_cast<bool>(effects->reset()) && effects->shots().empty() &&
@@ -145,8 +156,29 @@ void testGameplayVfx() {
     ++respawn.deaths;
     respawn.enemies[0].health = 0;
     check(static_cast<bool>(effects->step(before, respawn)) &&
-              effects->shots().empty() && effects->impacts().empty(),
+              effects->shots().empty() && effects->impacts().empty() &&
+              effects->explosions().empty() && effects->fog().empty(),
           "death and respawn clear effects without false hits");
+
+    auto cargoSnapshot = before;
+    cargoSnapshot.room = echo::RoomId::CargoHold;
+    check(static_cast<bool>(effects->reset()) && static_cast<bool>(duplicate->reset()) &&
+              static_cast<bool>(effects->step(before, cargoSnapshot)) &&
+              static_cast<bool>(duplicate->step(before, cargoSnapshot)) &&
+              effects->fog().size() == 128 && duplicate->fog().size() == 128 &&
+              effects->fog()[0].position.x == 96.0F &&
+              effects->fog()[0].position.y == 48.0F &&
+              effects->fog()[127].position.x == 672.0F &&
+              effects->fog()[127].position.y == 336.0F &&
+              effects->fog()[0].velocity.x == duplicate->fog()[0].velocity.x,
+          "Cargo Hold fog starts as a deterministic full-room mist field");
+    check(static_cast<bool>(effects->step(cargoSnapshot, cargoSnapshot)) &&
+              effects->fog().size() == 128 &&
+              effects->fog()[0].age == echo::kFixedStep,
+          "Cargo Hold fog advances only on a fixed gameplay step");
+    check(static_cast<bool>(effects->step(cargoSnapshot, transition)) &&
+              effects->fog().empty(),
+          "leaving the Cargo Hold clears its ambient fog");
 
     echo::Game hunter;
     auto hunt = hunter.checkpoint();
@@ -755,9 +787,10 @@ class SpriteProbeSink final : public echo::rendering::ICanvas2D {
 public:
     bool clear(echo::rendering::Color2D) noexcept override { return true; }
     bool fill(echo::rendering::Rect2D, echo::rendering::Color2D) noexcept override { return true; }
-    bool texture(echo::rendering::TextureHandle handle, echo::rendering::Rect2D,
+    bool texture(echo::rendering::TextureHandle handle, echo::rendering::Rect2D destination,
                  echo::rendering::Vec4 uv, echo::rendering::Vec4 tint,
                  float rotation) noexcept override {
+        if (calls == 0) firstDestination = destination;
         ++calls;
         lastHandle = handle;
         lastUv = uv;
@@ -773,6 +806,7 @@ public:
     int mirroredCalls{};
     int rotatedCalls{};
     int translucentCalls{};
+    echo::rendering::Rect2D firstDestination{};
     echo::rendering::TextureHandle lastHandle{};
     echo::rendering::Vec4 lastUv{};
     echo::rendering::Vec4 lastTint{};
@@ -1162,6 +1196,35 @@ int main() {
         };
         checkRecordedGame(false);
         checkRecordedGame(true);
+        echo::Game calmShakeGame = recordedGame;
+        auto shakeCheckpoint = calmShakeGame.checkpoint();
+        shakeCheckpoint.room = echo::RoomId::MaintenanceTunnel;
+        shakeCheckpoint.playerPosition = {760.0F, 292.0F};
+        shakeCheckpoint.enemyHealth[2] = 0;
+        check(calmShakeGame.restore(shakeCheckpoint),
+              "camera-shake render fixture restores beside an enemy");
+        echo::Game shakeGame = calmShakeGame;
+        const int shakeHealth = shakeGame.player().health;
+        const auto shakeUpdate = shakeGame.update({});
+        const echo::Vec2 shakeOffset = shakeGame.cameraShakeOffset();
+        check(static_cast<bool>(shakeUpdate) && shakeGame.player().health < shakeHealth &&
+                  std::abs(shakeOffset.x) >= 6.0F && std::abs(shakeOffset.y) >= 3.0F,
+              "accepted render-fixture damage produces visible camera shake");
+        keyboard.drawGame(calmShakeGame, false, false, "SPACE", "J", "E");
+        const auto calmWorld = capture(keyboardWindow, {220, 200, 200, 140});
+        const auto calmHud = capture(keyboardWindow, {470, 12, 158, 38});
+        keyboard.drawGame(shakeGame, false, false, "SPACE", "J", "E");
+        const auto shakenWorld = capture(keyboardWindow, {220, 200, 200, 140});
+        const auto shakenHud = capture(keyboardWindow, {470, 12, 158, 38});
+        const auto shakenScreen = capture(keyboardWindow, {0, 0, 640, 360});
+        check(shakenWorld != calmWorld && shakenHud == calmHud,
+              "camera shake moves world imagery without shifting the HUD");
+        check(keyboard.recordGame(menuSink, shakeGame, false, false, "SPACE", "J", "E") &&
+                  SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                       recordedMenu.data(),
+                                       menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                  shakenScreen == recordedMenu,
+              "SDL and abstract canvas render camera shake identically");
         keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E");
         const auto unflashed = capture(keyboardWindow, {0, 100, 640, 100});
         keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E", {}, nullptr, 64);
@@ -1389,6 +1452,42 @@ int main() {
                                       &canvasSprites, &canvasWorldSprites) &&
                       spriteProbe.calls > 1 && spriteProbe.rotatedCalls > 0,
                   "recording submits JSON room tiles and object atlas frames to canvas handles");
+            const auto landingCheckpoint = worldGame.checkpoint();
+            const auto* landingDefinition = worldGame.currentRoom().definition;
+            const float initialLayerX =
+                static_cast<float>(spriteProbe.firstDestination.x);
+            const auto expectedFirstLayerX = [&](float cameraX) {
+                if (landingDefinition == nullptr || landingDefinition->layers().empty()) return -1.0F;
+                const auto& layer = landingDefinition->layers()[0];
+                const float layerCameraX = cameraX * layer.scrollFactorX;
+                const int firstColumn = static_cast<int>(layerCameraX) / 32;
+                for (int row = 0; row < landingDefinition->rows(); ++row) {
+                    for (int column = firstColumn; column < landingDefinition->columns(); ++column) {
+                        if (landingDefinition->tile(0, column, row) != nullptr) {
+                            return static_cast<float>(column * 32) - layerCameraX;
+                        }
+                    }
+                }
+                return -1.0F;
+            };
+            check(landingDefinition != nullptr && worldGame.cameraX() == 0.0F &&
+                      std::abs(initialLayerX - expectedFirstLayerX(worldGame.cameraX())) < 0.1F,
+                  "the Landing Bay background layer starts at its declared parallax offset");
+            auto scrolledCheckpoint = landingCheckpoint;
+            scrolledCheckpoint.playerPosition = {1000.0F, 280.0F};
+            check(static_cast<bool>(worldGame.restore(scrolledCheckpoint)),
+                  "parallax fixture moves the player camera through the Landing Bay");
+            spriteProbe = {};
+            const bool recordedScrolledBay =
+                keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
+                                    &canvasSprites, &canvasWorldSprites);
+            check(recordedScrolledBay &&
+                      std::abs(static_cast<float>(spriteProbe.firstDestination.x) -
+                               expectedFirstLayerX(worldGame.cameraX())) < 0.1F &&
+                      std::abs(static_cast<float>(spriteProbe.firstDestination.x) -
+                               initialLayerX) > 1.0F &&
+                      static_cast<bool>(worldGame.restore(landingCheckpoint)),
+                  "canvas recording applies the JSON parallax factor as the camera moves");
             echo::platform::CanvasWorldSprites invalidWorldSprites = canvasWorldSprites;
             invalidWorldSprites.sheets[0].path[0] = '\\';
             check(!keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
@@ -1419,19 +1518,29 @@ int main() {
             isoImpact.color = {1.0F, 0.6F, 0.1F, 1.0F};
             isoImpact.scale = 1.0F;
             const std::array<echo::vfx::Particle, 1> isoImpacts{isoImpact};
+            auto isoExplosion = isoImpact;
+            isoExplosion.color = {1.0F, 0.92F, 0.45F, 0.9F};
+            isoExplosion.scale = 1.8F;
+            const std::array<echo::vfx::Particle, 1> isoExplosions{isoExplosion};
+            auto isoFog = isoImpact;
+            isoFog.position = {330.0F, 180.0F, 0.0F};
+            isoFog.color = {0.66F, 0.78F, 0.84F, 0.18F};
+            isoFog.scale = 2.5F;
+            const std::array<echo::vfx::Particle, 1> isoFogParticles{isoFog};
             keyboard.drawGame(cargoGame, false, false, "SPACE", "J", "E");
             const auto isoWithoutImpact = capture(keyboardWindow, {0, 0, 640, 360});
             keyboard.drawGame(cargoGame, false, false, "SPACE", "J", "E",
-                              {}, nullptr, 0, isoImpacts);
+                              {}, nullptr, 0, isoImpacts, isoExplosions, isoFogParticles);
             const auto isoWithImpact = capture(keyboardWindow, {0, 0, 640, 360});
             check(isoWithImpact != isoWithoutImpact &&
                       keyboard.recordGame(menuSink, cargoGame, false, false, "SPACE", "J", "E",
-                                          nullptr, nullptr, {}, nullptr, 0, isoImpacts) &&
+                                          nullptr, nullptr, {}, nullptr, 0, isoImpacts,
+                                          isoExplosions, isoFogParticles) &&
                       SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
                                            recordedMenu.data(),
                                            menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
                       isoWithImpact == recordedMenu,
-                  "isometric impacts render consistently in SDL and abstract canvas");
+                  "isometric impacts, explosions and fog match in SDL and abstract canvas");
             const SDL_Rect centre{260, 120, 120, 120};
             pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
             const auto sideCentre = capture(padWindow, centre);

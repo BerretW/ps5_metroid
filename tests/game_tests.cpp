@@ -647,10 +647,53 @@ void testProjectileCombatAndDamage() {
     check(game.livingEnemies(echo::RoomId::MaintenanceTunnel) == 0, "projectiles defeat a destructible enemy");
 
     echo::Game damageGame;
-    moveUntilRoom(damageGame, echo::RoomId::MaintenanceTunnel, 1);
+    check(moveUntilRoom(damageGame, echo::RoomId::MaintenanceTunnel, 1),
+          "damage test reaches the maintenance tunnel");
+    auto damageState = damageGame.checkpoint();
+    damageState.playerPosition = {760.0F, 292.0F};
+    damageState.enemyHealth[2] = 0;
+    check(damageGame.restore(damageState), "contact-damage fixture restores beside an enemy");
     const int initialHealth = damageGame.player().health;
-    step(damageGame, {.moveX = 1}, 250);
+    step(damageGame, {});
     check(damageGame.player().health < initialHealth, "enemy contact damages the player");
+    const echo::Vec2 firstShake = damageGame.cameraShakeOffset();
+    check(std::abs(firstShake.x) >= 6.0F && std::abs(firstShake.y) >= 3.0F,
+          "accepted contact damage starts a visible camera shake");
+    const int damagedHealth = damageGame.player().health;
+
+    echo::GameCheckpoint damagedCheckpoint = damageGame.checkpoint();
+    echo::Game restoredDamage = damageGame;
+    check(restoredDamage.restore(damagedCheckpoint) &&
+              restoredDamage.cameraShakeOffset().x == 0.0F &&
+              restoredDamage.cameraShakeOffset().y == 0.0F,
+          "restoring a checkpoint clears transient camera shake");
+
+    step(damageGame, {}, 1);
+    const echo::Vec2 advancedShake = damageGame.cameraShakeOffset();
+    check(damageGame.player().health == damagedHealth &&
+              (advancedShake.x != firstShake.x || advancedShake.y != firstShake.y),
+          "invulnerability prevents repeat damage while shake advances by a fixed step");
+    step(damageGame, {}, echo::kCameraShakeDurationSteps - 1);
+    check(damageGame.cameraShakeOffset().x == 0.0F &&
+              damageGame.cameraShakeOffset().y == 0.0F,
+          "camera shake ends after its fixed-step duration");
+
+    echo::Game retriggerGame;
+    check(moveUntilRoom(retriggerGame, echo::RoomId::MaintenanceTunnel, 1),
+          "retrigger test reaches the maintenance tunnel");
+    int observedHealth = retriggerGame.player().health;
+    int acceptedHits = 0;
+    for (int tick = 0; tick < 250; ++tick) {
+        step(retriggerGame, {.moveX = 1});
+        if (retriggerGame.player().health < observedHealth) {
+            ++acceptedHits;
+            const echo::Vec2 retriggeredShake = retriggerGame.cameraShakeOffset();
+            check(retriggeredShake.x == firstShake.x && retriggeredShake.y == firstShake.y,
+                  "each later accepted hit restarts the camera shake");
+            observedHealth = retriggerGame.player().health;
+        }
+    }
+    check(acceptedHits > 1, "the retrigger fixture receives multiple accepted hits");
 }
 
 void testHazardDeathAndRespawn() {
@@ -886,7 +929,10 @@ void testNewEnemyBehaviorsAndItems() {
     shieldState.activeItem = {ItemId::ShieldCell, 1};
     check(shielded.restore(shieldState), "shield fixture restores beside an enemy");
     step(shielded, {.useItemPressed = true});
-    check(shielded.player().health == 5, "shield prevents enemy contact damage");
+    check(shielded.player().health == 5 &&
+              shielded.cameraShakeOffset().x == 0.0F &&
+              shielded.cameraShakeOffset().y == 0.0F,
+          "shield prevents enemy damage and its camera shake");
     std::array<bool, static_cast<std::size_t>(ItemId::Count)> drops{};
     for (std::size_t index = 2; index < echo::kLootDropCount; ++index) {
         const auto id = static_cast<std::size_t>(echo::Game::expectedLoot(index).item);

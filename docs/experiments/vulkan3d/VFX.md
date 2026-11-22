@@ -50,13 +50,20 @@ loaded game. Projectile births produce sparks at the projectile center; because
 births are inferred from active-slot changes, a slot reused within the same
 step cannot be detected. Per-enemy health changes produce impact bursts for
 regular enemies and room-local isometric stalkers, including lethal hits.
-Both effects advance only on gameplay fixed steps, and room changes, death,
+Defeating an enemy also produces a larger, separately bounded explosion burst.
+In the Cargo Hold, a 4-by-4 grid seeds a translucent blue-gray fog field, then
+continues emission at 18 particles per second. Fog is drawn only in that room.
+All effects advance on gameplay fixed steps; room changes, death,
 new games and Continue clear their particles and recreate their emitters.
 Transitions suppress damage comparisons to avoid treating respawns as hits.
 Each emitter is bounded; failed bursts are logged instead of growing storage.
-These effects are presentation-only and do not change game state. Camera
-shake and light-event coupling remain deferred; the VFX module itself owns only
-particles and emitter simulation.
+These particle effects are presentation-only and do not change game state.
+Accepted player damage also starts a deterministic two-axis camera shake for
+18 fixed steps (0.3 seconds), with offsets up to 8 by 5 logical pixels. Its
+shared world offset moves the SDL and canvas world while the HUD and damage
+flash stay screen-fixed. The transient shake is not saved; room entry clears
+it, and lethal damage starts it after respawning. Light-event coupling remains
+deferred; the VFX module itself owns only particles and emitter simulation.
 
 The standalone reference application explicitly translates live particles into
 additively blended Vulkan quads using per-draw tint/scale. Interactive updates
