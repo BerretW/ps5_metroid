@@ -1,17 +1,19 @@
 #requires -Version 5.1
-param([switch]$Controller)
+param([switch]$Controller, [switch]$Vulkan)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$packageVariant = if ($Controller) { "ps5-controller" } else { "ps5" }
-$gameBuildName = if ($Controller) { "game-controller" } else { "game" }
+if ($Controller -and $Vulkan) { throw "Choose -Controller or -Vulkan, not both." }
+$packageVariant = if ($Vulkan) { "ps5-vulkan" } elseif ($Controller) { "ps5-controller" } else { "ps5" }
+$gameBuildName = if ($Vulkan) { "game-vulkan" } elseif ($Controller) { "game-controller" } else { "game" }
 $package = Join-Path $root ("dist\" + $packageVariant + "\PPSA91007")
 $gameBuild = Join-Path $root ("build\ps5\" + $gameBuildName)
 $validator = Join-Path $root "scripts\test-ps5-package.ps1"
 $tool = Join-Path $root "build\ps5\host\ps5-native-tool.exe"
-& $validator -PackagePath $package
-if ($Controller) {
-    $report = Get-Content -LiteralPath (Join-Path $root "build\ps5\logs\PPSA91007-validation.json") -Raw |
+$testLogs = Join-Path $root ("build\ps5\logs\package-tests\" + $packageVariant)
+& $validator -PackagePath $package -LogDirectory $testLogs -VulkanGame:$Vulkan
+if ($Controller -or $Vulkan) {
+    $report = Get-Content -LiteralPath (Join-Path $testLogs "PPSA91007-validation.json") -Raw |
         ConvertFrom-Json
     if (@($report.systemRuntimeModules) -contains "libSceKeyboard.prx" -or
         @($report.systemRuntimeModules) -contains "libSceImeDialog.prx") {
@@ -43,7 +45,7 @@ $fixture = Join-Path $container "PPSA91007"
 
 function Expect-Rejection([string]$Pattern) {
     try {
-        & $validator -PackagePath $fixture
+        & $validator -PackagePath $fixture -LogDirectory $testLogs -VulkanGame:$Vulkan
     } catch {
         if ($_.Exception.Message -notmatch $Pattern) { throw }
         Write-Host "Expected rejection: $Pattern"
@@ -53,14 +55,45 @@ function Expect-Rejection([string]$Pattern) {
 }
 
 try {
-    $defaultReport = Join-Path $root "build\ps5\logs\PPSA91007-validation.json"
+    $defaultReport = Join-Path $testLogs "PPSA91007-validation.json"
     $defaultReportHash = (Get-FileHash -LiteralPath $defaultReport -Algorithm SHA256).Hash
     $isolatedLogs = Join-Path $container "isolated-logs"
-    & $validator -PackagePath $fixture -LogDirectory $isolatedLogs
+    & $validator -PackagePath $fixture -LogDirectory $isolatedLogs -VulkanGame:$Vulkan
     $isolatedReport = Get-Content -LiteralPath (Join-Path $isolatedLogs "PPSA91007-validation.json") -Raw | ConvertFrom-Json
     if ($isolatedReport.package -ne $fixture -or $isolatedReport.staticValidation -ne "PASS" -or
         (Get-FileHash -LiteralPath $defaultReport -Algorithm SHA256).Hash -ne $defaultReportHash) {
         throw "Isolated validation did not preserve the default package report."
+    }
+    if ($Vulkan) {
+        $shader = Join-Path $fixture "assets\shaders\scene.frag.spv"
+        $originalShader = [IO.File]::ReadAllBytes($shader)
+        $invalidShader = [byte[]]$originalShader.Clone()
+        $invalidShader[0] = 0
+        [IO.File]::WriteAllBytes($shader, $invalidShader)
+        Expect-Rejection "Invalid PS5 Vulkan SPIR-V asset"
+        Remove-Item -LiteralPath $shader -Force
+        Expect-Rejection "PS5 Vulkan shader is missing"
+        [IO.File]::WriteAllBytes($shader, $originalShader)
+        $stub = Join-Path $fixture "sce_module\libSceAgc.so"
+        [IO.File]::WriteAllText($stub, "host-only fixture")
+        Expect-Rejection "Host-only AGC link stubs must not be packaged"
+        Remove-Item -LiteralPath $stub -Force
+        $paramPath = Join-Path $fixture "sce_sys\param.json"
+        $originalParam = [IO.File]::ReadAllBytes($paramPath)
+        $alternateParam = [Text.Encoding]::UTF8.GetString($originalParam) | ConvertFrom-Json
+        $alternateParam.contentId = "UP9000-PPSA91007_00-OTHERIDENTITY001"
+        [IO.File]::WriteAllText($paramPath, ($alternateParam | ConvertTo-Json -Depth 8),
+            (New-Object Text.UTF8Encoding($false)))
+        Expect-Rejection "PS5 Vulkan game must retain the production identity"
+        [IO.File]::WriteAllBytes($paramPath, $originalParam)
+        $provenancePath = Join-Path $fixture "licenses\build-provenance.json"
+        $originalProvenance = [IO.File]::ReadAllBytes($provenancePath)
+        $invalidProvenance = [Text.Encoding]::UTF8.GetString($originalProvenance) | ConvertFrom-Json
+        $invalidProvenance.vertexSpirvSha256 = "0" * 64
+        [IO.File]::WriteAllText($provenancePath, ($invalidProvenance | ConvertTo-Json -Depth 8),
+            (New-Object Text.UTF8Encoding($false)))
+        Expect-Rejection "PS5 Vulkan package provenance does not match"
+        [IO.File]::WriteAllBytes($provenancePath, $originalProvenance)
     }
     $asset = Join-Path $fixture "assets\sprites\player.png"
     $original = [IO.File]::ReadAllBytes($asset)
@@ -262,6 +295,6 @@ try {
     $invalidElf = Join-Path $container "misaligned.elf"
     if (Test-Path -LiteralPath $invalidElf) { Remove-Item -LiteralPath $invalidElf -Force }
     Remove-Item -LiteralPath $container -Force
-    & $validator -PackagePath $package
+    & $validator -PackagePath $package -LogDirectory $testLogs -VulkanGame:$Vulkan
 }
 Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."

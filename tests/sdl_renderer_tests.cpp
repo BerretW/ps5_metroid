@@ -8,6 +8,8 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -18,6 +20,11 @@
 namespace {
 
 int failures = 0;
+
+float linearToSrgb(float value) noexcept {
+    return value <= 0.0031308F ? value * 12.92F
+                               : 1.055F * std::pow(value, 1.0F / 2.4F) - 0.055F;
+}
 
 void check(bool condition, std::string_view message) {
     if (!condition) {
@@ -449,26 +456,126 @@ std::vector<Uint32> capture(SDL_Window* window, SDL_Rect logicalRegion) {
     return pixels;
 }
 
-class SdlMenuSink final : public echo::platform::DrawSink {
+class SdlMenuSink final : public echo::rendering::ICanvas2D {
 public:
     explicit SdlMenuSink(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
-    bool clear(SDL_Color color) noexcept override {
+    bool clear(echo::rendering::Color2D color) noexcept override {
         return SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a) == 0 &&
                SDL_RenderClear(renderer_) == 0;
     }
-    bool fill(SDL_Rect bounds, SDL_Color color) noexcept override {
+    bool fill(echo::rendering::Rect2D bounds, echo::rendering::Color2D color) noexcept override {
+        const SDL_Rect rect{bounds.x, bounds.y, bounds.w, bounds.h};
         return SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a) == 0 &&
-               SDL_RenderFillRect(renderer_, &bounds) == 0;
+               SDL_RenderFillRect(renderer_, &rect) == 0;
+    }
+    bool registerTexture(echo::rendering::TextureHandle handle, SDL_Texture* texture,
+                         int width, int height) noexcept {
+        if (!handle.valid() || texture == nullptr || width <= 0 || height <= 0) return false;
+        for (auto& entry : textures_) {
+            if (!entry.texture) {
+                entry = {handle, texture, width, height};
+                return true;
+            }
+        }
+        return false;
+    }
+    bool texture(echo::rendering::TextureHandle handle, echo::rendering::Rect2D bounds,
+                 echo::rendering::Vec4 uv, echo::rendering::Vec4 tint,
+                 float rotation) noexcept override {
+        const auto found = std::find_if(textures_.begin(), textures_.end(),
+            [handle](const Texture& entry) { return entry.texture && entry.handle == handle; });
+        if (found == textures_.end() || bounds.w <= 0 || bounds.h <= 0 ||
+            !std::isfinite(uv.x) || !std::isfinite(uv.y) ||
+            !std::isfinite(uv.z) || !std::isfinite(uv.w) ||
+            !std::isfinite(tint.x) || !std::isfinite(tint.y) ||
+            !std::isfinite(tint.z) || !std::isfinite(tint.w) ||
+            !std::isfinite(rotation) || uv.z == 0.0F || uv.w == 0.0F ||
+            uv.x < 0.0F || uv.x > 1.0F || uv.y < 0.0F || uv.y > 1.0F ||
+            uv.x + uv.z < 0.0F || uv.x + uv.z > 1.0F ||
+            uv.y + uv.w < 0.0F || uv.y + uv.w > 1.0F ||
+            tint.x < 0.0F || tint.x > 1.0F || tint.y < 0.0F || tint.y > 1.0F ||
+            tint.z < 0.0F || tint.z > 1.0F || tint.w < 0.0F || tint.w > 1.0F) return false;
+        const int x0 = static_cast<int>(std::lround(uv.x * found->width));
+        const int x1 = static_cast<int>(std::lround((uv.x + uv.z) * found->width));
+        const int y0 = static_cast<int>(std::lround(uv.y * found->height));
+        const int y1 = static_cast<int>(std::lround((uv.y + uv.w) * found->height));
+        const SDL_Rect source{std::min(x0, x1), std::min(y0, y1),
+                              std::abs(x1 - x0), std::abs(y1 - y0)};
+        const SDL_Rect destination{bounds.x, bounds.y, bounds.w, bounds.h};
+        const auto channel = [](float value) {
+            return static_cast<Uint8>(std::lround(linearToSrgb(value) * 255.0F));
+        };
+        if (source.w <= 0 || source.h <= 0 ||
+            SDL_SetTextureColorMod(found->texture, channel(tint.x), channel(tint.y),
+                                   channel(tint.z)) != 0 ||
+            SDL_SetTextureAlphaMod(found->texture,
+                static_cast<Uint8>(std::lround(tint.w * 255.0F))) != 0) return false;
+        const auto flip = static_cast<SDL_RendererFlip>(
+            (uv.z < 0.0F ? SDL_FLIP_HORIZONTAL : 0) |
+            (uv.w < 0.0F ? SDL_FLIP_VERTICAL : 0));
+        const int result = SDL_RenderCopyEx(renderer_, found->texture, &source, &destination,
+                                             rotation, nullptr, flip);
+        const bool restored = SDL_SetTextureColorMod(found->texture, 255, 255, 255) == 0 &&
+                              SDL_SetTextureAlphaMod(found->texture, 255) == 0;
+        return result == 0 && restored;
     }
 private:
+    struct Texture {
+        echo::rendering::TextureHandle handle{};
+        SDL_Texture* texture{};
+        int width{}, height{};
+    };
     SDL_Renderer* renderer_;
+    std::array<Texture, 16> textures_{};
 };
 
-class FailingMenuSink final : public echo::platform::DrawSink {
+class FailingMenuSink final : public echo::rendering::ICanvas2D {
 public:
-    bool clear(SDL_Color) noexcept override { return true; }
-    bool fill(SDL_Rect, SDL_Color) noexcept override { ++calls; return false; }
+    bool clear(echo::rendering::Color2D) noexcept override { return true; }
+    bool fill(echo::rendering::Rect2D, echo::rendering::Color2D) noexcept override { ++calls; return false; }
+    bool texture(echo::rendering::TextureHandle, echo::rendering::Rect2D,
+                 echo::rendering::Vec4, echo::rendering::Vec4, float) noexcept override { return false; }
     int calls{};
+};
+
+class FailingClearSink final : public echo::rendering::ICanvas2D {
+public:
+    bool clear(echo::rendering::Color2D) noexcept override { return false; }
+    bool fill(echo::rendering::Rect2D, echo::rendering::Color2D) noexcept override {
+        ++fills;
+        return true;
+    }
+    bool texture(echo::rendering::TextureHandle, echo::rendering::Rect2D,
+                 echo::rendering::Vec4, echo::rendering::Vec4, float) noexcept override { return false; }
+    int fills{};
+};
+
+class SpriteProbeSink final : public echo::rendering::ICanvas2D {
+public:
+    bool clear(echo::rendering::Color2D) noexcept override { return true; }
+    bool fill(echo::rendering::Rect2D, echo::rendering::Color2D) noexcept override { return true; }
+    bool texture(echo::rendering::TextureHandle handle, echo::rendering::Rect2D,
+                 echo::rendering::Vec4 uv, echo::rendering::Vec4 tint,
+                 float rotation) noexcept override {
+        ++calls;
+        lastHandle = handle;
+        lastUv = uv;
+        lastTint = tint;
+        lastRotation = rotation;
+        mirroredCalls += uv.z < 0.0F || uv.w < 0.0F ? 1 : 0;
+        rotatedCalls += std::abs(rotation) > 0.001F ? 1 : 0;
+        translucentCalls += tint.w < 0.999F ? 1 : 0;
+        return !fail;
+    }
+    bool fail{};
+    int calls{};
+    int mirroredCalls{};
+    int rotatedCalls{};
+    int translucentCalls{};
+    echo::rendering::TextureHandle lastHandle{};
+    echo::rendering::Vec4 lastUv{};
+    echo::rendering::Vec4 lastTint{};
+    float lastRotation{};
 };
 
 } // namespace
@@ -745,6 +852,30 @@ int main() {
             throw std::runtime_error(SDL_GetError());
         SdlMenuSink menuSink{menuRenderer.get()};
         std::vector<Uint32> recordedMenu(static_cast<std::size_t>(menuWidth) * menuHeight);
+        const Uint32 whitePixel = SDL_MapRGBA(menuSurface->format, 255, 255, 255, 255);
+        std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> canvasTexture{
+            SDL_CreateTexture(menuRenderer.get(), SDL_PIXELFORMAT_ARGB8888,
+                              SDL_TEXTUREACCESS_STATIC, 1, 1), SDL_DestroyTexture};
+        if (!canvasTexture ||
+            SDL_UpdateTexture(canvasTexture.get(), nullptr, &whitePixel, sizeof(whitePixel)) != 0 ||
+            SDL_SetTextureBlendMode(canvasTexture.get(), SDL_BLENDMODE_BLEND) != 0 ||
+            !menuSink.registerTexture({0, 1}, canvasTexture.get(), 1, 1) ||
+            !menuSink.clear({0, 0, 0, 255}) ||
+            !menuSink.texture({0, 1}, {20, 20, 32, 32}, {0, 0, 1, 1},
+                              {1, 1, 1, 1}, 0.0F))
+            throw std::runtime_error("Portable canvas textured draw failed");
+        Uint32 canvasPixel{};
+        SDL_Rect canvasSample{20 * menuWidth / 640, 20 * menuHeight / 360, 1, 1};
+        if (SDL_RenderReadPixels(menuRenderer.get(), &canvasSample, SDL_PIXELFORMAT_ARGB8888,
+                                 &canvasPixel, sizeof(canvasPixel)) != 0)
+            throw std::runtime_error(SDL_GetError());
+        Uint8 canvasR{}, canvasG{}, canvasB{}, canvasA{};
+        SDL_GetRGBA(canvasPixel, menuSurface->format, &canvasR, &canvasG, &canvasB, &canvasA);
+        check(canvasR == 255 && canvasG == 255 && canvasB == 255 && canvasA == 255,
+              "portable 2D canvas draws a texture with normalized UV coordinates");
+        check(!menuSink.texture({0, 1}, {20, 20, 32, 32}, {0.75F, 0, 0.5F, 1},
+                                {1, 1, 1, 1}, 0.0F),
+              "portable 2D canvas rejects UV regions outside the texture");
         const auto checkRecordedMenu = [&](echo::platform::Renderer& renderer, SDL_Window* window,
                                            int selection, bool canContinue) {
             renderer.drawMenu(selection, canContinue);
@@ -760,8 +891,45 @@ int main() {
         FailingMenuSink failingMenu{};
         check(!keyboard.recordMenu(failingMenu, 0) && failingMenu.calls == 1,
               "menu recording propagates the first sink failure");
+        FailingClearSink failingClear{};
+        check(!keyboard.recordMenu(failingClear, 0) && failingClear.fills == 0,
+              "failed canvas clear stops recording before any fills");
         checkRecordedMenu(keyboard, keyboardWindow, 2, true);
         echo::Game recordedGame;
+        const auto checkRecordedScreen = [&](SDL_Window* window, bool recorded,
+                                             std::string_view description) {
+            const auto original = capture(window, {0, 0, 640, 360});
+            if (!recorded || SDL_RenderReadPixels(menuRenderer.get(), nullptr,
+                    SDL_PIXELFORMAT_ARGB8888, recordedMenu.data(),
+                    menuWidth * static_cast<int>(sizeof(Uint32))) != 0)
+                throw std::runtime_error("Screen recording or readback failed");
+            check(original == recordedMenu, description);
+        };
+        pad.drawOptions(4, 60, echo::framework::DialogueLanguage::Czech,
+                        false, "SPACE", "J", "E");
+        checkRecordedScreen(padWindow, pad.recordOptions(menuSink, 4, 60,
+            echo::framework::DialogueLanguage::Czech, false, "SPACE", "J", "E"),
+            "recorded options exactly match SDL");
+        echo::platform::InventoryMenu recordedInventory{};
+        recordedInventory.selected = 2;
+        pad.drawInventory(recordedGame, recordedInventory, "TEST MESSAGE");
+        checkRecordedScreen(padWindow, pad.recordInventory(menuSink, recordedGame,
+            recordedInventory, "TEST MESSAGE"), "recorded inventory exactly matches SDL");
+        echo::input::ControllerSnapshot labFixture{};
+        labFixture.connected = true;
+        echo::input::setText(labFixture.name, "Simulated DualSense");
+        labFixture.axes[SDL_CONTROLLER_AXIS_LEFTX] = 16000;
+        labFixture.touchpadApiAvailable = true;
+        echo::input::TouchSample labTouch{0, 0, true, 0.5F, 0.5F, 0.75F};
+        labFixture.touches = &labTouch;
+        labFixture.touchSampleCount = 1;
+        pad.drawDualSenseLab(labFixture, 1);
+        checkRecordedScreen(padWindow, pad.recordDualSenseLab(menuSink, labFixture, 1),
+            "recorded DualSense Lab exactly matches SDL including stick and touch outlines");
+        FailingMenuSink failingOptions{};
+        check(!pad.recordOptions(failingOptions, 0, 60, echo::framework::DialogueLanguage::English,
+                                 false, "SPACE", "J", "E") && failingOptions.calls == 1,
+              "options recording propagates the first sink failure");
         const auto checkRecordedGame = [&](bool showMap) {
             keyboard.drawGame(recordedGame, showMap, false, "SPACE", "J", "E");
             const auto original = capture(keyboardWindow, {0, 0, 640, 360});
@@ -777,6 +945,23 @@ int main() {
         check(!keyboard.recordGame(failingGame, recordedGame, false, false, "SPACE", "J", "E") &&
                   failingGame.calls == 1,
               "game recording propagates sink failures");
+        echo::platform::CanvasSprites canvasSprites{};
+        canvasSprites[static_cast<std::size_t>(echo::platform::Sprite::Player)] = {{73, 1}, 192, 32};
+        SpriteProbeSink spriteProbe{};
+        check(keyboard.recordGame(spriteProbe, recordedGame, false, false, "SPACE", "J", "E",
+                                  &canvasSprites) &&
+                  spriteProbe.calls == 1 && spriteProbe.lastHandle.index == 73 &&
+                  std::abs(spriteProbe.lastUv.z - 0.125F) < 0.0001F,
+              "game recording submits the player sprite with its atlas frame");
+        spriteProbe = {};
+        spriteProbe.fail = true;
+        check(!keyboard.recordGame(spriteProbe, recordedGame, false, false, "SPACE", "J", "E",
+                                   &canvasSprites) && spriteProbe.calls == 1,
+              "game recording propagates texture submission failure");
+        canvasSprites[static_cast<std::size_t>(echo::platform::Sprite::Player)].width = 1;
+        check(!keyboard.recordGame(spriteProbe, recordedGame, false, false, "SPACE", "J", "E",
+                                   &canvasSprites),
+              "game recording rejects invalid sprite sheet dimensions");
         keyboard.drawMenu(3);
         const auto labMenuEntry = capture(keyboardWindow, {120, 246, 230, 24});
         keyboard.drawMenu(2);
@@ -824,6 +1009,15 @@ int main() {
               "missing asset directory keeps the built-in art");
         pad.drawGame(game, false, false, "SPACE", "J", "E");
         check(fallbackPlayer == capture(padWindow, playerRegion), "fallback art renders without sprites");
+        echo::platform::RgbaImage decodedPlayer{};
+        check(echo::platform::loadPngRgba(ECHO_SOURCE_ASSETS "sprites/player.png", decodedPlayer) &&
+                  decodedPlayer.pixels != nullptr && decodedPlayer.width >= 24 &&
+                  decodedPlayer.width % 24 == 0 && decodedPlayer.height == 32,
+              "shared RGBA PNG decoder returns bounded player atlas pixels");
+        echo::platform::freePngRgba(decodedPlayer);
+        check(decodedPlayer.pixels == nullptr && decodedPlayer.width == 0 &&
+                  decodedPlayer.height == 0,
+              "decoded PNG storage releases and resets its output");
         check(pad.loadSprites(ECHO_SOURCE_ASSETS) == static_cast<int>(echo::platform::Sprite::Count),
               "all packaged PNG sprite sheets decode with expected dimensions");
         check(!pad.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E"),
@@ -837,9 +1031,79 @@ int main() {
             echo::Game worldGame;
             check(static_cast<bool>(worldGame.configureWorld(*worldLayout)),
                   "the packaged world layout configures a game");
+            canvasSprites[static_cast<std::size_t>(echo::platform::Sprite::Player)].width = 192;
             check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 20 &&
                       pad.worldSheetCount() == 20,
                   "every world sprite sheet and tileset referenced by JSON decodes");
+            echo::platform::CanvasWorldSprites canvasWorldSprites{};
+            const auto addWorldSprite = [&](std::string_view sheetPath) {
+                if (sheetPath.empty()) return true;
+                for (std::size_t index = 0; index < canvasWorldSprites.count; ++index) {
+                    if (sheetPath == canvasWorldSprites.sheets[index].path.data()) return true;
+                }
+                if (canvasWorldSprites.count == canvasWorldSprites.sheets.size() ||
+                    sheetPath.size() >= echo::platform::CanvasWorldSprite{}.path.size()) {
+                    return false;
+                }
+                echo::platform::CanvasWorldSprite& entry =
+                    canvasWorldSprites.sheets[canvasWorldSprites.count];
+                std::copy(sheetPath.begin(), sheetPath.end(), entry.path.begin());
+                std::array<char, 512> pngPath{};
+                const int written = std::snprintf(pngPath.data(), pngPath.size(), "%s%.*s",
+                    ECHO_SOURCE_ASSETS, static_cast<int>(sheetPath.size()), sheetPath.data());
+                echo::platform::RgbaImage decoded{};
+                if (written <= 0 || written >= static_cast<int>(pngPath.size()) ||
+                    !echo::platform::loadPngRgba(pngPath.data(), decoded)) {
+                    return false;
+                }
+                entry.image = {{static_cast<std::uint32_t>(canvasWorldSprites.count + 101), 1},
+                               static_cast<std::uint32_t>(decoded.width),
+                               static_cast<std::uint32_t>(decoded.height)};
+                echo::platform::freePngRgba(decoded);
+                ++canvasWorldSprites.count;
+                return true;
+            };
+            const auto addObjectSprite = [&](const echo::framework::ObjectDefinition* object) {
+                return object == nullptr || addWorldSprite(object->sprite().sheet.data());
+            };
+            const echo::WorldLayout& loadedWorld = worldGame.world();
+            const auto& archetypes = loadedWorld.archetypes;
+            bool worldSpritesLoaded =
+                addObjectSprite(archetypes.player) && addObjectSprite(archetypes.playerIso) &&
+                addObjectSprite(archetypes.engineer) && addObjectSprite(archetypes.pickup) &&
+                addObjectSprite(archetypes.projectile) &&
+                addObjectSprite(archetypes.enemyProjectile) && addObjectSprite(archetypes.loot);
+            for (const echo::EnemySpawn& enemy : loadedWorld.enemies) {
+                worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(enemy.archetype);
+            }
+            for (const echo::EnemySpawn& enemy : loadedWorld.roamerList()) {
+                worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(enemy.archetype);
+            }
+            for (const echo::DoorLayout& door : loadedWorld.doorList()) {
+                worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(door.archetype);
+            }
+            for (const echo::PropLayout& prop : loadedWorld.propList()) {
+                worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(prop.archetype);
+            }
+            for (const echo::RoomLayout& room : loadedWorld.rooms) {
+                if (room.definition == nullptr) continue;
+                for (const echo::framework::TilesetSpec& tileset : room.definition->tilesets()) {
+                    worldSpritesLoaded =
+                        worldSpritesLoaded && addWorldSprite(tileset.sheet.data());
+                }
+            }
+            check(worldSpritesLoaded && canvasWorldSprites.count == 20,
+                  "world sprite handles are populated from every JSON-referenced sheet");
+            spriteProbe = {};
+            check(keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
+                                      &canvasSprites, &canvasWorldSprites) &&
+                      spriteProbe.calls > 1 && spriteProbe.rotatedCalls > 0,
+                  "recording submits JSON room tiles and object atlas frames to canvas handles");
+            echo::platform::CanvasWorldSprites invalidWorldSprites = canvasWorldSprites;
+            invalidWorldSprites.sheets[0].path[0] = '\\';
+            check(!keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
+                                       &canvasSprites, &invalidWorldSprites),
+                  "recording rejects unsafe world sprite paths");
             const SDL_Rect floorRegion{0, 320, 640, 32};
             pad.drawGame(game, false, false, "SPACE", "J", "E");
             const auto builtInFloor = capture(padWindow, floorRegion);
@@ -854,6 +1118,11 @@ int main() {
             check(static_cast<bool>(cargoGame.configureWorld(*worldLayout)) &&
                       cargoGame.restore(cargo) && cargoGame.isometric(),
                   "the JSON Cargo Hold is an isometric room");
+            spriteProbe = {};
+            check(keyboard.recordGame(spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
+                                      &canvasSprites, &canvasWorldSprites) &&
+                      spriteProbe.calls > 1,
+                  "isometric JSON tiles and directional object atlases record through canvas");
             const SDL_Rect centre{260, 120, 120, 120};
             pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
             const auto sideCentre = capture(padWindow, centre);
@@ -877,6 +1146,9 @@ int main() {
         check(echo::platform::loadPngTexture(SDL_GetRenderer(padWindow), ECHO_SOURCE_ASSETS "sounds/shot.wav") ==
                   nullptr,
               "non-PNG data is rejected by the sprite decoder");
+        check(!echo::platform::loadPngRgba(ECHO_SOURCE_ASSETS "sounds/shot.wav", decodedPlayer) &&
+                  decodedPlayer.pixels == nullptr,
+              "shared RGBA PNG decoder rejects non-PNG asset data");
     } catch (const std::exception& error) {
         ++failures;
         std::cerr << "SDL prompt test failed: " << error.what() << '\n';

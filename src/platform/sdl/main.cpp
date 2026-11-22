@@ -6,6 +6,11 @@
 #include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
 
+#ifdef ECHO_PS5_VULKAN
+#include "echo/framework/vulkan_backend.hpp"
+#include "platform/sdl/gpu_canvas.hpp"
+#endif
+
 #include <SDL.h>
 
 #include <algorithm>
@@ -181,6 +186,22 @@ void logMessage(std::string_view message) {
     log << message << '\n';
 #endif
 }
+
+#ifdef ECHO_PS5_VULKAN
+bool logRenderStatus(echo::framework::Status status) noexcept {
+    if (status) return true;
+    std::array<char, 512> line{};
+    std::snprintf(line.data(), line.size(), "Vulkan error [%u] %.*s: %.*s",
+                  static_cast<unsigned>(status.code), static_cast<int>(status.subject.size()),
+                  status.subject.data(), static_cast<int>(status.detail.size()), status.detail.data());
+    logMessage(line.data());
+    return false;
+}
+
+void logVulkanStage(void*, std::string_view stage) noexcept {
+    logMessage(stage);
+}
+#endif
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_SAVE_STORAGE_DIAGNOSTICS)
 void logProviderDiagnostics(const echo::framework::Ps5SaveStorage& provider) {
@@ -636,7 +657,11 @@ int main(int, char**) {
     }
     diagnosticCheckpoint("ECHO DIAG 05: controller ready; before normal logger");
 #else
+#ifdef ECHO_PS5_VULKAN
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER) != 0) {
+#else
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
+#endif
 #ifdef __PROSPERO__
         std::fprintf(stderr, "SDL initialization failed: %s\n", SDL_GetError());
 #else
@@ -645,7 +670,11 @@ int main(int, char**) {
         return 1;
     }
 #endif
+#ifdef ECHO_PS5_VULKAN
+    logMessage("SDL game-controller initialized without SDL video");
+#else
     logMessage("SDL video and game-controller subsystems initialized");
+#endif
 
     std::array<char, 512> assetsRoot{};
     std::array<char, 512> gameConfigPath{};
@@ -731,6 +760,27 @@ int main(int, char**) {
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");
 #endif
     echo::platform::Renderer renderer{kControlScheme};
+#ifdef ECHO_PS5_VULKAN
+    echo::rendering::VulkanBackend gpuBackend{};
+    echo::platform::GpuCanvas gpuCanvas{gpuBackend};
+    logMessage("PS5 Vulkan renderer initialization starting");
+    const auto gpuStatus = gpuBackend.initialize(
+        {nullptr, 1280, 720, "/app0/assets/shaders", false, 640, 360, logVulkanStage, nullptr});
+    if (!logRenderStatus(gpuStatus)) {
+        gpuBackend.shutdown();
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+    if (!logRenderStatus(gpuCanvas.initialize())) {
+        (void)logRenderStatus(gpuCanvas.shutdown());
+        gpuBackend.shutdown();
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+    logMessage("PS5 Vulkan canvas initialized");
+#else
     if (!renderer.create()) {
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
         diagnosticFailure("ECHO DIAG ERROR: renderer creation failed");
@@ -743,10 +793,13 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
+#endif
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 07: renderer ready; before normal logger");
 #endif
+#ifndef ECHO_PS5_VULKAN
     logMessage("SDL window and renderer created");
+#endif
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 07a: before audio subsystem/device");
@@ -763,10 +816,25 @@ int main(int, char**) {
     {
         std::array<char, 512> assets{};
         if (echo::platform::assetRoot(assets.data(), assets.size())) {
+#ifdef ECHO_PS5_VULKAN
+            if (!logRenderStatus(gpuCanvas.loadSprites(assets.data())) ||
+                !logRenderStatus(gpuCanvas.loadWorldSprites(assets.data(), game.world()))) {
+                logMessage("Vulkan asset initialization failed");
+                audio.close();
+                (void)logRenderStatus(gpuCanvas.shutdown());
+                gpuBackend.shutdown();
+                framework.shutdown();
+                SDL_Quit();
+                return 1;
+            }
+            const int sprites = static_cast<int>(gpuCanvas.sprites().size());
+            const int worldSheets = static_cast<int>(gpuCanvas.worldSprites().count);
+#else
             const int sprites = renderer.loadSprites(assets.data());
             ECHO_DIAG("ECHO DIAG 08b: %d sprites; before world sheets", sprites);
             const int worldSheets = renderer.loadWorldSprites(assets.data(), game.world());
             ECHO_DIAG("ECHO DIAG 08c: %d world sheets; before sounds", worldSheets);
+#endif
             const int sounds = audio.loadSounds(assets.data());
             ECHO_DIAG("ECHO DIAG 08d: %d sounds", sounds);
             std::array<char, 160> summary{};
@@ -815,6 +883,9 @@ int main(int, char**) {
     Screen screen = Screen::MainMenu;
     RebindAction rebindAction = RebindAction::None;
     bool running = true;
+#ifdef ECHO_PS5_VULKAN
+    bool renderFailed = false;
+#endif
     bool paused = false;
     bool showMap = false;
     bool waitingForKey = false;
@@ -2033,6 +2104,46 @@ int main(int, char**) {
                       showMap ? 1 : 0);
         }
 #endif
+#ifdef ECHO_PS5_VULKAN
+        bool recorded = false;
+        auto& canvas = gpuCanvas.batch();
+        if (screen == Screen::MainMenu) {
+            recorded = renderer.recordMenu(canvas, menuSelection, continueAvailable);
+        } else if (screen == Screen::DualSenseLab) {
+            refreshControllerSnapshot();
+            recorded = renderer.recordDualSenseLab(canvas, controllerSnapshot, SDL_NumJoysticks());
+        } else if (screen == Screen::Inventory) {
+            recorded = renderer.recordInventory(canvas, game, inventoryMenu, inventoryMessage.data());
+        } else {
+            const auto jump = keyName(bindings.jump);
+            const auto shoot = keyName(bindings.shoot);
+            const auto interact = keyName(bindings.interact);
+            if (screen == Screen::Options) {
+                recorded = renderer.recordOptions(canvas, optionSelection, volume, dialogueLanguage,
+                                                  waitingForKey, jump.data(), shoot.data(),
+                                                  interact.data(), displayMode);
+            } else {
+                recorded = renderer.recordGame(canvas, game, showMap, paused, jump.data(),
+                                               shoot.data(), interact.data(), &gpuCanvas.sprites(),
+                                               &gpuCanvas.worldSprites());
+            }
+        }
+        if (!recorded) {
+            logMessage("Vulkan canvas recording failed");
+            renderFailed = true;
+            break;
+        }
+        const auto frameStatus = gpuCanvas.beginFrame();
+        if (!frameStatus && frameStatus.code == echo::framework::ErrorCode::InvalidState &&
+            frameStatus.detail == "swapchain out of date; retry frame") {
+            SDL_Delay(1);
+            continue;
+        }
+        if (!logRenderStatus(frameStatus) || !logRenderStatus(gpuCanvas.endFrame())) {
+            renderFailed = true;
+            break;
+        }
+#else
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection, continueAvailable);
         } else if (screen == Screen::DualSenseLab) {
@@ -2051,6 +2162,7 @@ int main(int, char**) {
                 renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data());
             }
         }
+#endif
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
         if (diagnosticFirstFrame) {
             diagnosticCheckpoint("ECHO DIAG 12: first frame rendered");
@@ -2075,9 +2187,21 @@ int main(int, char**) {
     }
     SDL_free(controllerSnapshot.touches);
     audio.close();
+#ifdef ECHO_PS5_VULKAN
+    if (!logRenderStatus(gpuCanvas.shutdown())) renderFailed = true;
+    gpuBackend.shutdown();
+    if (gpuBackend.diagnostics().allocatedGpuBytes != 0) {
+        logMessage("Vulkan GPU allocation cleanup was incomplete");
+        renderFailed = true;
+    }
+#endif
     renderer.destroy();
     framework.shutdown();
     SDL_Quit();
     logMessage("Application shutdown");
+#ifdef ECHO_PS5_VULKAN
+    return renderFailed ? 1 : 0;
+#else
     return 0;
+#endif
 }

@@ -1,8 +1,10 @@
 # Vulkan / RADV compatibility audit
 
 Audit date: 2026-11-22. The Windows experiment uses the installed desktop Vulkan
-loader and a real hardware GPU, not the PS5 driver. RADV is the selected future
-PS5 backend; the older `ps5vk` driver is not linked or treated as interchangeable.
+loader and a real hardware GPU, not the PS5 driver. RADV is now linked into an
+opt-in, statically validated PS5 game candidate; the older `ps5vk` driver is not
+linked or treated as interchangeable. The game candidate itself is not yet
+hardware-tested.
 
 ## Exact upstream revisions
 
@@ -29,7 +31,8 @@ recorded, and no release executable was repurposed as a library.
 
 ## Approach B: native Windows adaptation
 
-**PARTIALLY IMPLEMENTED / Vulkan BLOCKED**, not proved fundamentally impossible.
+**GAME CANDIDATE BUILDS / PS5 HARDWARE NOT TESTED.** A clean-machine restoration
+of the RADV host tools remains incomplete.
 [build-radv.sh](https://github.com/mihawk-99/PS5_Vulkan/blob/7f492b4c6f67a4e8c8c67a4272cfeef22abea9cc/tools/build-radv.sh)
 uses Bash, rsync, symlinks, git archive and Meson/Ninja. Bash orchestration, copying,
 hashing and symlinks can be replaced by PowerShell/native equivalents. Meson,
@@ -138,7 +141,12 @@ graphics-queue retrieval. A separate first-frame log reports successful submit,
 fence wait and queue-present returns, and the operator confirms a visible
 turquoise screen. A later interactive cube log reports graphics-pipeline,
 pad and repeated presentation stages, and the operator confirms visible motion.
-This does not establish textured rendering or clean shutdown.
+This does not establish textured rendering or clean shutdown. The separate
+`dist/ps5-vulkan/PPSA91007` game now links the same RADV archive and the existing
+game loop, with SDL controller/audio but without SDL video. Its package passes
+static validation, and on 2026-11-22 the operator confirmed that it is fully
+playable on PS5, including controls, audio, saving and clean shutdown. The
+installed digest and setup were not provided.
 
 The link recipe explicitly
 selects `lib/linux/libclang_rt.builtins-x86_64.a`; the name is host-specific, but
@@ -156,7 +164,7 @@ sets FreeBSD/x86_64/little-endian as the **host** machine and
 | ABI | Public PS5 x86_64 ELF; Echo target is `x86_64-sie-ps5`. Object compatibility alone does not establish libc or loader compatibility. |
 | Driver archive | Whole-archive linkage required; optional weak dispatch declarations must retain hidden visibility. |
 | CRT | Echo native `_start` and clean-room runtime differ from payload CRT assumptions; do not switch to `payload_main`. |
-| C++ | RADV ACO needs libc++, libc++abi, libunwind; original Echo does not link them. |
+| C++ | RADV ACO needs libc++, libc++abi, libunwind; the Vulkan variant links the verified ELF archives, while the original SDL variant remains unchanged. |
 | Linker | The experimental unwind layout and native converter passed static checks for the diagnostics; instance and device creation were reported on hardware. |
 | Allocator | Platform wraps the malloc family to a direct-memory heap; all alloc/free domains must agree. Never blindly redirect the working SDL application. |
 | Threads | Wrapped create/join/detach allocate 2 MiB default stacks in direct memory. |

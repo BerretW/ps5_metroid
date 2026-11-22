@@ -41,8 +41,8 @@ instancing, shadow maps, postprocessing, and compute as unsupported.
 hardware device selection, swapchain, depth, graphics pipelines, descriptors,
 device-local vertex/index buffers, sRGB base textures and staging uploads.
 Its platform surface adapter is separate; gameplay never owns Vulkan handles.
-The independent experiment links these targets explicitly, without modifying
-the production framework selection or forcing SDL rendering through this API.
+The Windows diagnostic and opt-in PS5 Vulkan game link these targets explicitly.
+The original SDL renderer remains the default for the other builds.
 
 Backend limits are 64 meshes, 64 materials, 64 textures and 512 queued draws.
 Resource handles have generations; destroying a texture referenced by a live
@@ -64,18 +64,45 @@ The Windows Vulkan backend also supports a bounded dynamic mesh for batched
 updated only between frames, after waiting for the previous submission fence.
 Updates validate the entire mesh and capacity before changing either buffer;
 handles retain the existing generation and lifecycle checks. This is an
-explicit Vulkan-backend API, not yet a portable `IRenderBackend` capability.
+portable `IRenderBackend` operation; other backends must implement it or return
+an explicit unsupported error.
 The GPU probe updates a mesh over 60 frames, checks separate index ranges
 and verifies the last frame by readback. This is not a performance benchmark.
 
-The standalone Windows diagnostic records the actual game's menu and fallback
-gameplay geometry through `DrawSink`, batches colored rectangles into a dynamic
-mesh and draws them with Vulkan. The production SDL path remains the default.
-SDL tests compare recorded menus and fallback gameplay pixel-for-pixel with
-their SDL output, check failure propagation, and reject recording with loaded
-SDL textures. A fixed-step diagnostic runs the built-in game simulation;
-Windows GPU readback checks that its player moves. Vulkan blending is not
+The standalone Windows diagnostic records the actual game's menu and gameplay
+geometry through the SDL-free `ICanvas2D` interface, batches geometry into a
+dynamic mesh and draws it with Vulkan. With `--game --sprites` it supplies
+backend-owned handles for the six original built-in sprite sheets.
+`--game --sprites --data-world` loads the packaged game configuration and JSON
+world, uploads its referenced world sprite sheets, and records the configured
+starting room, including atlas frames and tiled layers. `CanvasWorldSprites`
+associates validated asset-relative paths with backend handles; the recorder
+preserves tile UV transforms, mirroring, rotation and isometric occlusion tint.
+SDL tests compare recorded menus, options, inventory, DualSense Lab and fallback
+gameplay with their SDL output, check failure propagation, and reject recording with loaded
+SDL textures when no canvas sprites are supplied. A fixed-step diagnostic runs
+the built-in game simulation; Windows GPU readback checks both player movement
+and the original sprite. Vulkan blending is not
 claimed to be pixel-identical to SDL, especially for translucent panels.
+
+`ICanvas2D` describes ordered clears, rectangle fills, and textured quads in
+caller-defined logical coordinates. Textured quads take a backend texture handle,
+normalized UV transform, linear tint, and clockwise rotation in degrees. The
+experimental Vulkan canvas bakes atlas UVs into vertices, rotates in logical
+coordinates before viewport conversion, batches adjacent materials, and preserves submission
+order; texture creation and lifetime remain the selected backend's responsibility.
+The SDL test sink covers the same command shape. Clipping and frame lifecycle
+are not part of this interface; the platform adapter loads resources and presents
+the batched canvas via `IRenderBackend`. The game can be built with the PS5
+Vulkan path or the existing SDL path, but the choice is build-time rather than
+runtime. Screen recording still lives alongside SDL-specific rendering and input;
+this is an incremental boundary, not a fully backend-independent 2D/3D API.
+
+The Vulkan canvas test submits both a synthetic 1x1 GPU texture and the original
+player PNG atlas through `ICanvas2D`, applies UV selection, tint and rotation,
+and checks the GPU-captured pixels. The JSON-world GPU test loads the real content
+configuration and world sprites, then compares its capture against the built-in
+fallback. SDL and the diagnostic share the bounded `loadPngRgba` decoder.
 
 Opaque draws write/test depth, alpha draws test without writes, additive
 particle draws test without writes, and overlay draws bypass depth. The shader
@@ -83,18 +110,19 @@ uses bounded frame lighting and per-draw transform/material/tint parameters.
 The demo uses perspective or isometric projection, a parented emissive cube,
 a floor, translucent geometry, the original Echo sprite and numeric UI.
 
-There is no native PS5 presentation adapter, SDL compatibility adapter,
-offscreen render-target/viewport binding API, instanced draw path, GPU timer,
+The PS5 candidate has an ICD dispatch and `VK_KHR_display` surface adapter. It
+has not been exercised on PS5 as part of the full game. There is no general SDL
+compatibility adapter, offscreen render-target/viewport binding API, instanced draw path, GPU timer,
 shadow/postprocessing path or compute dispatch. A GPU mesh draw currently uses
 one material for its complete index buffer; imported CPU submesh material
 indices do not imply GPU multi-material submission. Device loss is an explicit
 failure, not automatic recovery or a software fallback. The hierarchy's handles
 are renderer-scene references, not a replacement gameplay entity registry.
-The diagnostic uses built-in fallback art and world data, and supports only
-limited keyboard controls. Other screens, original sprites, game content,
-audio, controller input, saves, the production game loop and the PS5 adapter
-have not yet been connected to Vulkan. It is not a complete game renderer or
-a PS5 hardware result.
+The Windows diagnostic remains separate from the game. The PS5 build connects
+the production fixed-step loop, screen recording, controller, audio and saves to
+the GPU canvas, but their behavior in this combination is not yet hardware
+verified. The PS5 path currently renders the existing 2D game; it does not
+enable the separate 3D/VFX demonstration in gameplay.
 
 The opt-in host manifest exporter uses the existing unified manifest/schema
 machinery and the actual `VfxModule::info()` descriptor. Rendering is currently

@@ -2,14 +2,16 @@
 
 The operator reported a visible turquoise first frame and a moving interactive
 cube on PS5, with successful RADV graphics and pad stages in the supplied logs.
-The full scene remains **NOT TESTED**.
+The Vulkan game remains **NOT TESTED** on PS5.
 Upstream tests and PROJECT ECHO's software isometric room are not substitutes.
 Deployment is manual only.
 
-Before copying any files, verify the candidate digest/static report and confirm
-`PPSA91008` is unused on the console. Do not overwrite `PPSA91007`, system
-libraries, other titles, or running files. Keep the original game independently
-installed. Record console model, firmware, loader version, resolution and hashes.
+For the `PPSA91008` diagnostics below, verify the candidate digest/static report
+and confirm that identity is unused on the console. Do not overwrite
+`PPSA91007`, system libraries, other titles, or running files. Keep the original
+game independently installed. The separate `PPSA91007` Vulkan game procedure
+below requires a backup and a deliberate replacement of only the project's own
+title. Record console model, firmware, loader version, resolution and hashes.
 
 ## Runtime preflight first
 
@@ -18,9 +20,9 @@ whole `dist/vulkan-experiment/PPSA91008` title directory, not its parent folder
 and not just `eboot.bin`. Place it directly at `/data/homebrew/PPSA91008` (or
 one level below a Kraken Mount scan root); Kraken Mount does not recurse through
 arbitrarily deep directory trees. Inspect `licenses/build-provenance.json` and
-the static validation report before copying. This preflight and a future Vulkan title share `PPSA91008`;
-do not install both under the same identity concurrently or replace another app
-without confirming ownership.
+the static validation report before copying. The diagnostic variants share
+`PPSA91008`; do not install them concurrently or replace another app without
+confirming ownership. The Vulkan game candidate instead uses `PPSA91007`.
 
 The test has no video/controller interface and should exit after its checks.
 Neither a black screen nor a clean exit proves success. Retrieve
@@ -240,7 +242,39 @@ successful loop submit/fence/present and one `radv.cube.loop.heartbeat`.
 The installed digest, behavior of both axes and centering, and manual-close
 outcome were not reported.
 
-## Future Vulkan application
+## PROJECT ECHO Vulkan game
+
+The separately staged game candidate is `dist\ps5-vulkan\PPSA91007`, with
+`eboot.bin` SHA-256
+`5994688994746aeae6a265f039cef29715142fefac6f0dfe52c52b6c030aec41`.
+Its static report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`.
+On 2026-11-22 the operator confirmed that the PS5 Vulkan game is fully playable,
+including controller input, audio, saving and clean shutdown. The installed
+executable digest and firmware/loader setup were not supplied. The title is the
+existing game using a 2D Vulkan canvas, not the separate 3D/VFX demonstration.
+
+1. Back up the existing project title outside all loader scan roots and back up
+   `/data/project_echo/saves` before trying the candidate. Both builds share
+   saves and title ID `PPSA91007`; never scan two copies of that identity.
+2. Manually copy the **complete** `PPSA91007` directory from the Vulkan staging
+   path into the loader's configured scan root, replacing only your own
+   installed PROJECT ECHO title. Do not copy AGC host stubs or system modules.
+3. Back up `/data/project_echo/logs/project_echo.log` before launch. The game
+   appends to this log; older lines must not be mistaken for this run.
+4. The operator confirms full playability, including controls, audio, saving and
+   clean shutdown.
+5. To identify the exact tested binary and setup, retrieve the new log lines and
+   report the last stage, visible result, any console error, installed executable
+   hash, firmware and loader version. Useful markers include
+   `SDL game-controller initialized without SDL video`, `instance.ready`,
+   `device.ready`, `PS5 Vulkan canvas initialized`, `frame.first.submit`,
+   `frame.first.present` and `shutdown.complete`. A return from present is not
+   proof of a visible frame. If no new log is written, record the loader error;
+   this may be an early failure or logging failure.
+
+No automatic connection, upload or console deletion is performed.
+
+## Separate 3D Vulkan application
 
 | Check | Evidence required | Status |
 | --- | --- | --- |

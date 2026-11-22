@@ -1,6 +1,6 @@
 # Native Windows PS5 compatibility
 
-**Cross-compilation, linking and application-directory packaging: PASS. Hello and earlier controller builds launch: PASS (user-reported). The latest controller build, including branched quests, one-time rewards and autosave format 6, is statically validated but needs a hardware run. The original keyboard-enabled build still fails on launch.**
+**Cross-compilation, linking and application-directory packaging: PASS. The operator reports an earlier `dist/ps5-controller` SDL build tested and working on PS5 (2026-11-22); individual features and the installed digest were not specified. The separate Vulkan game candidate is statically validated but has not been run on PS5. The original keyboard-enabled build still fails on launch.**
 
 Verified on 2026-11-20 using Windows 11 x64, PowerShell 5.1.26100.9818, official Windows LLVM/LLD 18.1.8, CMake 4.4.4, Ninja 1.13.2 and native MSVC 19.51.36252 host utilities. No PS5 binary was executed on Windows. The working Windows executable and shared gameplay implementation were preserved.
 
@@ -14,6 +14,23 @@ Verified on 2026-11-20 using Windows 11 x64, PowerShell 5.1.26100.9818, official
 ```
 
 The game command completes and validates standalone Hello before configuring SDL or compiling PROJECT ECHO. For a first game build with missing dependencies, add `-RestoreDependencies` to the game command. Restore verifies pinned archive SHA256 values and clean Git commits. LLVM is extracted under `.deps`, not installed globally. [dependencies.ps5.json](../dependencies.ps5.json) records the exact SDK, LLVM, host zlib and source pins.
+
+### Opt-in Vulkan game candidate
+
+Once the separately prepared, pinned RADV archive and host tools are available,
+run `.\scripts\build-ps5.ps1 -Target Game -SkipPs5Keyboard -Vulkan` and
+`.\tests\ps5_package_tests.ps1 -Vulkan`. The complete title is staged at
+`dist\ps5-vulkan\PPSA91007`, separately from the default SDL controller build.
+Unlike the SDL variant, it links the native RADV/platform and ELF C++ runtime
+archives, uses `VK_KHR_display` without SDL video, and includes validated SPIR-V.
+The native `_start` and title identity are unchanged. Static checks do not prove
+game execution, input, audio, saving or shutdown on PS5.
+
+Both variants use `PPSA91007`; back up the existing title and saves, and leave
+only one copy of this identity in the console loader's scan roots. The complete
+directory, not only its ELF, must be copied manually. See
+[Vulkan build](experiments/vulkan3d/PS5_BUILD.md#ps5-vulkan-game-candidate) and
+[manual tests](experiments/vulkan3d/HARDWARE_TESTS.md#project-echo-vulkan-game).
 
 ## Toolchain comparison: not interchangeable
 
@@ -48,8 +65,8 @@ The initial blanket assertion that Bash scripts made native Windows compilation 
 | SDK Windows wrappers | `.cmd` compiler/CMake wrappers and `prospero-lld.exe` already exist. The source linker wrapper uses `unistd.h`/`libgen.h`, MinGW-oriented compilation and weak command quoting. These defaults also inject payload CRT/libraries, so they are not used for native applications. |
 | Host C++ converters and runtime builder | Standard C++20 plus zlib, not inherently Linux-only. Compiled as Windows PE/COFF executables with native MSVC. Their host zlib is independently source-built for Windows. |
 | Target headers and libraries | v0.42 `target/include`, `target/include/c++/v1` and compatible `target/lib/*.so` ELF import stubs. The `.so` files describe system symbols; they are not copied into the title or executed on Windows. |
-| Target CRT / runtime | Boilerplate `app_crt.cpp`, its minimal allocation bridge, system runtime imports and reproduced clean-room libc module. SDK payload `crt1.o`, `libc.a`, `libc++.a`, `libc++abi.a` and `libunwind.a` are not linked into the final application. |
-| Host-specific compiler runtimes | Linux `libclang_rt` archives and Windows COFF compiler-runtime `.lib` files are not PS5 target libraries. No such archive is linked. The final target has no unresolved emulated-TLS, stack-check, C++ exception or payload-loader helper imports. |
+| Target CRT / runtime | SDL build: boilerplate `app_crt.cpp`, its minimal allocation bridge, system runtime imports and reproduced clean-room libc module; SDK payload CRT and C++ archives are not linked. The Vulkan variant retains `_start` but links compatible ELF libc++/libc++abi/libunwind and the PS5 platform runtime. |
+| Host-specific compiler runtimes | SDL build: no host compiler-runtime archive is linked. Vulkan uses the separately cross-built PS5 ELF compiler-rt builtins, not Windows COFF or a Linux-host executable. Neither variant switches to the payload-loader entry point. |
 | SDL2 dependencies | Software SDL, PS5 VideoOut, Pad/UserService, AudioOut, Keyboard/ImeDialog/SystemService and kernel pthread/timer APIs. GL/GLES/Vulkan/HIDAPI/loadso are disabled. SDL's unused filesystem backend is disabled because its `getargv` contract is payload-specific. |
 | PacBrew static archives | Inspected SDL and libsamplerate ELF64 x86-64 objects. Libsamplerate references ordinary allocation/memory functions and no loader ABI, but is unnecessary when the existing option is OFF. No prebuilt SDL, Mesa, PacBrew host executable or package manager is required. |
 | ELF / FSELF packaging | Native LLD PIE -> native converter SCE ELF -> native FSELF signing/wrapping -> title directory. PowerShell builds the title tree and original PROJECT ECHO icon. |
@@ -59,9 +76,9 @@ The initial blanket assertion that Bash scripts made native Windows compilation 
 
 [cmake/ps5-windows.cmake](../cmake/ps5-windows.cmake) sets the PS5 target, SDK sysroot, native Windows LLVM paths and target archiver. C++ headers precede C headers; `-nostdinc++` prevents host C++ headers leaking into the cross-build.
 
-Compile flags: `--target=x86_64-sie-ps5`, `-fvisibility-nodllstorageclass=default`, SDK `-isystem` directories, `-fno-stack-protector`, `-fno-plt`, `-femulated-tls`, C++20, `-O2`, `-Wall -Wextra`, `-ffunction-sections -fdata-sections`, `-fno-exceptions -fno-rtti`.
+Compile flags: `--target=x86_64-sie-ps5`, SDK `-isystem` directories, `-fno-stack-protector`, `-fno-plt`, `-femulated-tls`, C++20, `-O2`, `-Wall -Wextra`, `-ffunction-sections -fdata-sections`, `-fno-exceptions -fno-rtti`. The SDL variant uses `-fvisibility-nodllstorageclass=default`; Vulkan instead uses `-fno-visibility-from-dllstorageclass -fdenormal-fp-math=ieee` for the verified RADV ABI/weak-symbol boundary.
 
-Direct LLD flags: `-m elf_x86_64 -pie --eh-frame-hdr -z max-page-size=0x4000 -mllvm -emulated-tls --hash-style=gnu`, upstream `ps5-pie.ld`, `app-symbols.map`, entry `_start`, and `--as-needed` for an explicit native system-stub allowlist.
+Direct LLD common flags: `-m elf_x86_64 -pie --eh-frame-hdr -z max-page-size=0x4000 -mllvm -emulated-tls --hash-style=gnu`, entry `_start`, and `--as-needed` for an explicit native system-stub allowlist. The SDL variant uses upstream `ps5-pie.ld` and `app-symbols.map`; Vulkan uses the separately verified RADV runtime layout, symbol maps, wrappers and whole-archive linkage.
 
 Converter constants: module SDK `0x02000009`, companion SDK `0x08050001`, original file name `eboot.elf`. Native response files avoid Windows command-length limits. CMake internally normalizes paths so Clang's GNU-style response parser does not consume Windows backslashes as escapes. Rpaths are disabled, including cached try-compile settings.
 

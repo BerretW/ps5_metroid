@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/game.hpp"
+#include "echo/framework/canvas2d.hpp"
 #include "input/dualsense_diagnostics.hpp"
 #include "platform/sdl/inventory_menu.hpp"
 #include "platform/sdl/settings_persistence.hpp"
@@ -16,11 +17,21 @@ enum class ControlScheme { Keyboard, PlayStation };
 
 enum class Sprite { Player, Enemy, Tiles, Projectile, Pickup, Door, Count };
 
-class DrawSink {
-public:
-    virtual ~DrawSink() = default;
-    virtual bool clear(SDL_Color color) noexcept = 0;
-    virtual bool fill(SDL_Rect bounds, SDL_Color color) noexcept = 0;
+struct CanvasSprite {
+    rendering::TextureHandle texture{};
+    std::uint32_t width{}, height{};
+};
+using CanvasSprites = std::array<CanvasSprite, static_cast<int>(Sprite::Count)>;
+
+struct CanvasWorldSprite {
+    std::array<char, 96> path{};
+    CanvasSprite image{};
+};
+
+struct CanvasWorldSprites {
+    static constexpr std::size_t Capacity = 48;
+    std::array<CanvasWorldSprite, Capacity> sheets{};
+    std::size_t count{};
 };
 
 class Renderer {
@@ -57,23 +68,35 @@ public:
     int loadWorldSprites(const char* assetDirectory, const WorldLayout& world) noexcept;
     [[nodiscard]] int worldSheetCount() const noexcept { return worldSheetCount_; }
     void drawMenu(int selection, bool continueAvailable = true) noexcept;
-    [[nodiscard]] bool recordMenu(DrawSink& sink, int selection,
+    [[nodiscard]] bool recordMenu(rendering::ICanvas2D& sink, int selection,
                                   bool continueAvailable = true) noexcept;
     void drawOptions(int selection, int volume, framework::DialogueLanguage language,
                      bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
                      std::string_view interactKey,
                      DisplayMode display = DisplayMode::Window720) noexcept;
+    [[nodiscard]] bool recordOptions(rendering::ICanvas2D& sink, int selection, int volume,
+                                     framework::DialogueLanguage language, bool waitingForKey,
+                                     std::string_view jumpKey, std::string_view shootKey,
+                                     std::string_view interactKey,
+                                     DisplayMode display = DisplayMode::Window720) noexcept;
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey) noexcept;
-    [[nodiscard]] bool recordGame(DrawSink& sink, const Game& game, bool showMap, bool paused,
+    [[nodiscard]] bool recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                                   std::string_view jumpKey, std::string_view shootKey,
-                                  std::string_view interactKey) noexcept;
+                                  std::string_view interactKey,
+                                  const CanvasSprites* sprites = nullptr,
+                                  const CanvasWorldSprites* worldSprites = nullptr) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
+    [[nodiscard]] bool recordInventory(rendering::ICanvas2D& sink, const Game& game,
+                                       const InventoryMenu& menu, std::string_view message) noexcept;
     void drawDualSenseLab(const input::ControllerSnapshot& controller,
                           int connectedControllers) noexcept;
+    [[nodiscard]] bool recordDualSenseLab(rendering::ICanvas2D& sink,
+                                          const input::ControllerSnapshot& controller,
+                                          int connectedControllers) noexcept;
 
 private:
     struct WorldSheet {
@@ -87,16 +110,26 @@ private:
     void text(int x, int y, std::string_view value, int scale, SDL_Color color) noexcept;
     void panel(SDL_Rect bounds, SDL_Color color) noexcept;
     void fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept;
-    bool beginRecording(DrawSink& sink, SDL_Color background) noexcept;
+    bool beginRecording(rendering::ICanvas2D& sink, SDL_Color background) noexcept;
     bool endRecording() noexcept;
     void drawMenuContent(int selection, bool continueAvailable) noexcept;
+    void drawOptionsContent(int selection, int volume, framework::DialogueLanguage language,
+                            bool waitingForKey, std::string_view jumpKey,
+                            std::string_view shootKey, std::string_view interactKey,
+                            DisplayMode display) noexcept;
     void drawGameContent(const Game& game, bool showMap, bool paused,
                          std::string_view jumpKey, std::string_view shootKey,
                          std::string_view interactKey) noexcept;
+    void drawInventoryContent(const Game& game, const InventoryMenu& menu,
+                              std::string_view message) noexcept;
+    void drawDualSenseLabContent(const input::ControllerSnapshot& controller,
+                                 int connectedControllers) noexcept;
+    void outline(SDL_Rect bounds, SDL_Color color) noexcept;
     bool sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip = false) noexcept;
     void releaseSprites() noexcept;
     void releaseWorldSprites() noexcept;
     [[nodiscard]] const WorldSheet* worldSheet(std::string_view path) const noexcept;
+    [[nodiscard]] const CanvasSprite* canvasWorldSprite(std::string_view path) const noexcept;
     bool loadWorldSheet(const char* assetDirectory, std::string_view path) noexcept;
     bool drawObject(const framework::ObjectDefinition* object, std::string_view animation,
                     Uint64 ticks, Rect bounds, float cameraX, bool flip) noexcept;
@@ -112,7 +145,9 @@ private:
     int worldSheetCount_{};
     bool mouseAim_{};
     SDL_FPoint mouseAimPoint_{};
-    DrawSink* drawSink_{};
+    rendering::ICanvas2D* drawSink_{};
+    const CanvasSprites* canvasSprites_{};
+    const CanvasWorldSprites* canvasWorldSprites_{};
     bool drawSinkFailed_{};
 };
 

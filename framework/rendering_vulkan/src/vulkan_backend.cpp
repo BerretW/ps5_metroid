@@ -2,6 +2,7 @@
 #include "platform_surface.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -11,6 +12,11 @@
 namespace echo::rendering {
 namespace {
 constexpr std::uint32_t kResources = 64, kImages = 16, kDraws = 512;
+#ifdef ECHO_PS5_VULKAN
+constexpr std::uint64_t kGpuTimeout = 10000000000ULL;
+#else
+constexpr std::uint64_t kGpuTimeout = UINT64_MAX;
+#endif
 struct Buffer { VkBuffer buffer{}; VkDeviceMemory memory{}; VkDeviceSize bytes{}; void* mapped{}; };
 struct Image { VkImage image{}; VkDeviceMemory memory{}; VkImageView view{}; VkSampler sampler{}; VkDeviceSize bytes{}; };
 struct MeshSlot {
@@ -46,7 +52,7 @@ void transition(VkCommandBuffer command, VkImage image, VkImageLayout from, VkIm
 struct VulkanBackend::State {
     VkInstance instance{}; VkDebugUtilsMessengerEXT debug{};
     VkPhysicalDevice physical{}; VkDevice device{}; VkSurfaceKHR surface{}; VkQueue queue{};
-    std::uint32_t family{}, width{}, height{}, imageCount{}, currentImage{};
+    std::uint32_t family{}, width{}, height{}, logicalWidth{}, logicalHeight{}, imageCount{}, currentImage{};
     VkPhysicalDeviceMemoryProperties memoryProperties{};
     VkSwapchainKHR swapchain{}; VkFormat format{}, depthFormat{}; VkExtent2D extent{};
     std::array<VkImage, kImages> images{};
@@ -68,6 +74,8 @@ struct VulkanBackend::State {
     std::atomic<std::uint32_t> validationErrors{};
     Diagnostics stats{};
     bool initialized{}, recording{}, recreate{}, lost{}, transferSupported{};
+    RenderLogCallback diagnosticLog{};
+    void* diagnosticContext{};
     std::array<char, 512> shaderDirectory{}, failure{}, capturePath{};
     std::chrono::steady_clock::time_point frameStart{};
 
@@ -76,9 +84,13 @@ struct VulkanBackend::State {
         if (result == VK_ERROR_DEVICE_LOST) lost = true;
         std::snprintf(failure.data(), failure.size(), "%s: VkResult=%d", step, static_cast<int>(result));
         std::fprintf(stderr, "{\"stage\":\"%s\",\"result\":%d}\n", step, static_cast<int>(result));
+        if (diagnosticLog) diagnosticLog(diagnosticContext, failure.data());
         return error(ErrorCode::InitializationFailed, failure.data());
     }
-    void log(const char* stage) noexcept { std::printf("{\"stage\":\"%s\",\"result\":\"ok\"}\n", stage); }
+    void log(const char* stage) noexcept {
+        std::printf("{\"stage\":\"%s\",\"result\":\"ok\"}\n", stage);
+        if (diagnosticLog) diagnosticLog(diagnosticContext, stage);
+    }
     std::uint32_t memoryType(std::uint32_t bits, VkMemoryPropertyFlags properties) noexcept {
         for (std::uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i)
             if ((bits & (1U << i)) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) return i;
@@ -189,8 +201,15 @@ struct VulkanBackend::State {
     }
     Status shader(const char* name, VkShaderModule& module) noexcept {
         std::array<char, 1024> path{};
+#ifdef ECHO_PS5_VULKAN
+        std::snprintf(path.data(), path.size(), "%s/%s", shaderDirectory.data(), name);
+        errno = 0;
+        FILE* file = std::fopen(path.data(), "rb");
+        const auto openResult = errno;
+#else
         std::snprintf(path.data(), path.size(), "%s\\%s", shaderDirectory.data(), name);
         FILE* file = nullptr; const auto openResult=fopen_s(&file, path.data(), "rb");
+#endif
         if (!file) {
             std::fprintf(stderr,"{\"stage\":\"shader.open\",\"shader\":\"%s\",\"result\":\"unavailable\",\"errno\":%d}\n",
                          name,static_cast<int>(openResult));
@@ -285,6 +304,22 @@ struct VulkanBackend::State {
         VkSurfaceCapabilitiesKHR caps{};
         auto s = check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps), "surface.capabilities");
         if (!s) return s;
+#ifdef ECHO_PS5_VULKAN
+        if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
+            !(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ||
+            !(caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ||
+            caps.maxImageArrayLayers < 1)
+            return error(ErrorCode::MissingCapability, "PS5 display surface capabilities");
+        std::array<VkPresentModeKHR, 16> modes{};
+        std::uint32_t modeCount = static_cast<std::uint32_t>(modes.size());
+        s = check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical, surface, &modeCount, modes.data()),
+                  "surface.present_modes");
+        if (!s) return s;
+        if (!modeCount || modeCount > modes.size() ||
+            std::find(modes.begin(), modes.begin() + modeCount, VK_PRESENT_MODE_FIFO_KHR) ==
+                modes.begin() + modeCount)
+            return error(ErrorCode::MissingCapability, "PS5 FIFO present mode");
+#endif
         std::uint32_t count{};
         s = check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &count, nullptr), "surface.formats");
         if (!s) return s;
@@ -294,16 +329,36 @@ struct VulkanBackend::State {
         if (!s) return s;
         auto selected = formats[0];
         bool found{};
+#ifdef ECHO_PS5_VULKAN
+        for (std::uint32_t i = 0; i < count; ++i) {
+            if ((formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
+                 (count == 1 && formats[i].format == VK_FORMAT_UNDEFINED)) &&
+                formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                selected = {VK_FORMAT_B8G8R8A8_UNORM, formats[i].colorSpace};
+                found = true;
+                break;
+            }
+        }
+        if (!found) return error(ErrorCode::MissingCapability, "PS5 BGRA UNORM swapchain format required");
+#else
         for (std::uint32_t i = 0; i < count; ++i)
             if ((formats[i].format == VK_FORMAT_B8G8R8A8_SRGB || formats[i].format == VK_FORMAT_R8G8B8A8_SRGB) &&
                 formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { selected = formats[i]; found = true; break; }
         if (!found) return error(ErrorCode::MissingCapability, "8-bit sRGB swapchain format required");
+#endif
         format = selected.format;
         extent = caps.currentExtent.width != UINT32_MAX ? caps.currentExtent : VkExtent2D{
             std::clamp(width, caps.minImageExtent.width, caps.maxImageExtent.width),
             std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height)};
         if (!extent.width || !extent.height) return error(ErrorCode::InvalidState, "window minimized; defer frame");
+#ifdef ECHO_PS5_VULKAN
+        if (extent.width != width || extent.height != height)
+            return error(ErrorCode::MissingCapability, "PS5 display mode and swapchain extent differ");
+#endif
         auto wanted = caps.minImageCount + 1;
+#ifdef ECHO_PS5_VULKAN
+        if (wanted < 3 && (!caps.maxImageCount || caps.maxImageCount >= 3)) wanted = 3;
+#endif
         if (caps.maxImageCount && wanted > caps.maxImageCount) wanted = caps.maxImageCount;
         if (wanted > kImages) return error(ErrorCode::CapacityExceeded, "swapchain image capacity");
         transferSupported = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
@@ -394,14 +449,48 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
     if (!state_) return error(ErrorCode::CapacityExceeded, "backend host allocation");
     auto& s = *state_;
     if (s.instance) return error(ErrorCode::InvalidState, "already initialized");
-    if (!init.nativeWindow || !init.shaderDirectory || std::strlen(init.shaderDirectory) >= s.shaderDirectory.size() ||
-        !init.width || !init.height) return error(ErrorCode::InvalidArgument, "window, dimensions or shader path");
+    if (!init.shaderDirectory || std::strlen(init.shaderDirectory) >= s.shaderDirectory.size() ||
+        !init.width || !init.height || (!!init.logicalWidth != !!init.logicalHeight))
+        return error(ErrorCode::InvalidArgument, "dimensions, logical viewport or shader path");
+#ifndef ECHO_PS5_VULKAN
+    if (!init.nativeWindow) return error(ErrorCode::InvalidArgument, "window is required");
+#else
+    if (init.validation) return error(ErrorCode::MissingCapability, "PS5 validation layers are unavailable");
+    s.diagnosticLog = init.log; s.diagnosticContext = init.logContext;
+    const char* missing{};
+    if (!loadGlobalDispatch(missing)) {
+        std::fprintf(stderr, "PS5 Vulkan global function unavailable: %s\n", missing);
+        std::snprintf(s.failure.data(), s.failure.size(), "PS5 Vulkan global function missing: %s", missing);
+        return error(ErrorCode::MissingCapability, s.failure.data());
+    }
+    std::array<VkExtensionProperties, 128> availableExtensions{};
+    std::uint32_t extensionCount = static_cast<std::uint32_t>(availableExtensions.size());
+    auto extensionStatus = s.check(vkEnumerateInstanceExtensionProperties(
+        nullptr, &extensionCount, availableExtensions.data()), "instance.extensions");
+    if (!extensionStatus) return extensionStatus;
+    if (extensionCount > availableExtensions.size())
+        return error(ErrorCode::CapacityExceeded, "PS5 instance extension count");
+    bool hasSurface{}, hasDisplay{};
+    for (std::uint32_t i = 0; i < extensionCount; ++i) {
+        hasSurface |= std::strcmp(availableExtensions[i].extensionName, VK_KHR_SURFACE_EXTENSION_NAME) == 0;
+        hasDisplay |= std::strcmp(availableExtensions[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0;
+    }
+    if (!hasSurface || !hasDisplay)
+        return error(ErrorCode::MissingCapability, "PS5 display instance extensions");
+#endif
+    s.diagnosticLog = init.log; s.diagnosticContext = init.logContext;
     std::memcpy(s.shaderDirectory.data(), init.shaderDirectory, std::strlen(init.shaderDirectory) + 1);
     s.width = init.width; s.height = init.height;
+    s.logicalWidth = init.logicalWidth; s.logicalHeight = init.logicalHeight;
     std::array<const char*, 3> extensions{VK_KHR_SURFACE_EXTENSION_NAME, platformSurfaceExtension(), VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
     const char* layer = "VK_LAYER_KHRONOS_validation";
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Echo Vulkan Experiment"; app.applicationVersion = 1; app.apiVersion = VK_API_VERSION_1_1;
+    app.pApplicationName = "PROJECT ECHO"; app.applicationVersion = 1;
+#ifdef ECHO_PS5_VULKAN
+    app.apiVersion = VK_API_VERSION_1_0;
+#else
+    app.apiVersion = VK_API_VERSION_1_1;
+#endif
     VkDebugUtilsMessengerCreateInfoEXT debug{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     debug.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debug.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
@@ -411,8 +500,20 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
     instance.pApplicationInfo = &app; instance.enabledExtensionCount = init.validation ? 3 : 2;
     instance.ppEnabledExtensionNames = extensions.data();
     if (init.validation) { instance.enabledLayerCount = 1; instance.ppEnabledLayerNames = &layer; instance.pNext = &debug; }
+    s.log("instance.create.begin");
     auto result = s.check(vkCreateInstance(&instance, nullptr, &s.instance), "instance.create");
     if (!result) { shutdown(); return result; }
+    if (!s.instance) return error(ErrorCode::InitializationFailed, "Vulkan instance was null");
+#ifdef ECHO_PS5_VULKAN
+    if (!loadInstanceDispatch(s.instance, missing)) {
+        std::fprintf(stderr, "PS5 Vulkan instance function unavailable: %s\n", missing);
+        if (vkDestroyInstance) vkDestroyInstance(s.instance, nullptr);
+        else std::fprintf(stderr, "PS5 Vulkan instance could not be destroyed\n");
+        s.instance = {};
+        std::snprintf(s.failure.data(), s.failure.size(), "PS5 Vulkan instance function missing: %s", missing);
+        return error(ErrorCode::MissingCapability, s.failure.data());
+    }
+#endif
     if (init.validation) {
         auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(s.instance, "vkCreateDebugUtilsMessengerEXT"));
         if (!create) { shutdown(); return error(ErrorCode::MissingCapability, "debug messenger extension"); }
@@ -420,18 +521,27 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
         if (!result) { shutdown(); return result; }
     }
     s.log("instance.ready");
-    result = s.check(createPlatformSurface(s.instance, init.nativeWindow, &s.surface), "surface.create");
+#ifndef ECHO_PS5_VULKAN
+    VkExtent2D preferredExtent{s.width, s.height};
+    result = s.check(createPlatformSurface(s.instance, VK_NULL_HANDLE, init.nativeWindow,
+                                           &s.surface, &preferredExtent), "surface.create");
     if (!result) { shutdown(); return result; }
+#endif
     std::uint32_t count{};
     result = s.check(vkEnumeratePhysicalDevices(s.instance, &count, nullptr), "gpu.enumerate");
     std::array<VkPhysicalDevice, 16> devices{};
     if (!result || !count || count > devices.size()) { shutdown(); return result ? error(ErrorCode::MissingCapability, "GPU count") : result; }
     result = s.check(vkEnumeratePhysicalDevices(s.instance, &count, devices.data()), "gpu.enumerate");
     if (!result) { shutdown(); return result; }
+    s.log("gpu.enumerated");
     int best = -1;
     for (std::uint32_t i = 0; i < count; ++i) {
         VkPhysicalDeviceProperties properties{}; vkGetPhysicalDeviceProperties(devices[i], &properties);
+#ifdef ECHO_PS5_VULKAN
+        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU || properties.apiVersion < VK_API_VERSION_1_0) continue;
+#else
         if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU || properties.apiVersion < VK_API_VERSION_1_1) continue;
+#endif
         std::uint32_t extCount{};
         result = s.check(vkEnumerateDeviceExtensionProperties(devices[i], nullptr, &extCount, nullptr), "gpu.extensions");
         if (!result) { shutdown(); return result; }
@@ -446,15 +556,38 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
         if (queues > 64) continue;
         std::array<VkQueueFamilyProperties, 64> families{};
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &queues, families.data());
+#ifdef ECHO_PS5_VULKAN
+        VkSurfaceKHR candidateSurface{};
+        VkExtent2D candidateExtent{s.width, s.height};
+        s.log("surface.create.begin");
+        result = s.check(createPlatformSurface(s.instance, devices[i], init.nativeWindow,
+                                               &candidateSurface, &candidateExtent), "surface.create");
+        if (!result) continue;
+#else
+        VkSurfaceKHR candidateSurface = s.surface;
+#endif
         for (std::uint32_t q = 0; q < queues; ++q) {
             VkBool32 present{};
-            result = s.check(vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, s.surface, &present), "gpu.presentation");
-            if (!result) { shutdown(); return result; }
+            result = s.check(vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q, candidateSurface, &present), "gpu.presentation");
+            if (!result) {
+#ifdef ECHO_PS5_VULKAN
+                if (candidateSurface != s.surface) vkDestroySurfaceKHR(s.instance, candidateSurface, nullptr);
+#endif
+                shutdown(); return result;
+            }
             int score = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : 1;
-            if ((families[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present && score > best) {
+            if (families[q].queueCount && (families[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present && score > best) {
                 s.physical = devices[i]; s.family = q; best = score;
+#ifdef ECHO_PS5_VULKAN
+                if (s.surface && s.surface != candidateSurface) vkDestroySurfaceKHR(s.instance, s.surface, nullptr);
+                s.surface = candidateSurface;
+                s.width = candidateExtent.width; s.height = candidateExtent.height;
+#endif
             }
         }
+#ifdef ECHO_PS5_VULKAN
+        if (candidateSurface != s.surface) vkDestroySurfaceKHR(s.instance, candidateSurface, nullptr);
+#endif
     }
     if (!s.physical) { shutdown(); return error(ErrorCode::MissingCapability, "no hardware graphics/present queue"); }
     VkPhysicalDeviceProperties properties{}; vkGetPhysicalDeviceProperties(s.physical, &properties);
@@ -468,8 +601,21 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
     VkDeviceCreateInfo device{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device.queueCreateInfoCount = 1; device.pQueueCreateInfos = &queue;
     device.enabledExtensionCount = 1; device.ppEnabledExtensionNames = &swapExtension;
+    s.log("device.create.begin");
     result = s.check(vkCreateDevice(s.physical, &device, nullptr, &s.device), "device.create");
     if (!result) { shutdown(); return result; }
+    if (!s.device) { shutdown(); return error(ErrorCode::InitializationFailed, "Vulkan device was null"); }
+#ifdef ECHO_PS5_VULKAN
+    if (!loadDeviceDispatch(s.device, missing)) {
+        std::fprintf(stderr, "PS5 Vulkan device function unavailable: %s\n", missing);
+        if (vkDestroyDevice) vkDestroyDevice(s.device, nullptr);
+        else std::fprintf(stderr, "PS5 Vulkan device could not be destroyed\n");
+        s.device = {};
+        shutdown();
+        std::snprintf(s.failure.data(), s.failure.size(), "PS5 Vulkan device function missing: %s", missing);
+        return error(ErrorCode::MissingCapability, s.failure.data());
+    }
+#endif
     vkGetDeviceQueue(s.device, s.family, 0, &s.queue); s.log("device.ready");
     VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pool.queueFamilyIndex = s.family;
@@ -500,7 +646,7 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
     VkPipelineLayoutCreateInfo pipeline{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pipeline.setLayoutCount = 1; pipeline.pSetLayouts = &s.descriptorLayout; pipeline.pushConstantRangeCount = 1; pipeline.pPushConstantRanges = &push;
     if (result) result = s.check(vkCreatePipelineLayout(s.device, &pipeline, nullptr, &s.pipelineLayout), "pipeline.layout");
-    if (result) result = s.makeSwapchain();
+    if (result) { s.log("swapchain.create.begin"); result = s.makeSwapchain(); }
     if (!result) { shutdown(); return result; }
     s.initialized = true;
     return result;
@@ -561,7 +707,7 @@ Status VulkanBackend::updateDynamicMesh(MeshHandle handle, MeshView mesh) noexce
     auto status = validateMesh(mesh); if (!status) return status;
     if (mesh.vertices.size() > slot.vertexCapacity || mesh.indices.size() > slot.indexCapacity)
         return error(ErrorCode::CapacityExceeded, "dynamic mesh capacity");
-    status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, UINT64_MAX), "dynamic.mesh.wait");
+    status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, kGpuTimeout), "dynamic.mesh.wait");
     if (!status) return status;
     std::memcpy(slot.vertices.mapped, mesh.vertices.data(), mesh.vertices.size_bytes());
     std::memcpy(slot.indices.mapped, mesh.indices.data(), mesh.indices.size_bytes());
@@ -676,13 +822,13 @@ Status VulkanBackend::beginFrame(const FrameState& frame) noexcept {
     for (auto light : frame.pointLights) if (!validVector(light.positionRadius) || !validVector(light.colorIntensity))
         return error(ErrorCode::InvalidValue, "point light uniforms");
     auto& s = *state_;
-    auto status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, UINT64_MAX), "frame.wait");
+    auto status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, kGpuTimeout), "frame.wait");
     if (!status) return status;
     if (s.recreate) {
         status = s.idle(); if (!status) return status;
         s.freeSwapchain(); status = s.makeSwapchain(); if (!status) return status;
     }
-    auto acquire = vkAcquireNextImageKHR(s.device, s.swapchain, UINT64_MAX, s.acquired, VK_NULL_HANDLE, &s.currentImage);
+    auto acquire = vkAcquireNextImageKHR(s.device, s.swapchain, kGpuTimeout, s.acquired, VK_NULL_HANDLE, &s.currentImage);
     if (acquire == VK_ERROR_OUT_OF_DATE_KHR) { s.recreate = true; return error(ErrorCode::InvalidState, "swapchain out of date; retry frame"); }
     if (acquire == VK_SUBOPTIMAL_KHR) s.recreate = true;
     else { status = s.check(acquire, "frame.acquire"); if (!status) return status; }
@@ -695,13 +841,31 @@ Status VulkanBackend::beginFrame(const FrameState& frame) noexcept {
     if (!status) { s.lost = true; return status; }
     std::array<VkClearValue, 2> clear{};
     clear[0].color = {{frame.clearColor.x, frame.clearColor.y, frame.clearColor.z, frame.clearColor.w}};
+#ifdef ECHO_PS5_VULKAN
+    const auto toSrgb = [](float value) noexcept {
+        value = std::clamp(value, 0.0F, 1.0F);
+        return value <= 0.0031308F ? value * 12.92F : 1.055F * std::pow(value, 1.0F / 2.4F) - 0.055F;
+    };
+    for (int i = 0; i < 3; ++i) clear[0].color.float32[i] = toSrgb(clear[0].color.float32[i]);
+#endif
     clear[1].depthStencil = {1, 0};
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = s.renderPass; pass.framebuffer = s.framebuffers[s.currentImage];
     pass.renderArea = {{0, 0}, s.extent}; pass.clearValueCount = 2; pass.pClearValues = clear.data();
     vkCmdBeginRenderPass(s.command, &pass, VK_SUBPASS_CONTENTS_INLINE);
-    VkViewport viewport{0, 0, static_cast<float>(s.extent.width), static_cast<float>(s.extent.height), 0, 1};
-    VkRect2D scissor{{0, 0}, s.extent}; vkCmdSetViewport(s.command, 0, 1, &viewport); vkCmdSetScissor(s.command, 0, 1, &scissor);
+    VkRect2D scissor{{0, 0}, s.extent};
+    if (s.logicalWidth && s.logicalHeight) {
+        float scale = std::min(static_cast<float>(s.extent.width) / s.logicalWidth,
+                               static_cast<float>(s.extent.height) / s.logicalHeight);
+        if (scale >= 1.0F) scale = std::floor(scale);
+        scissor.extent.width = static_cast<std::uint32_t>(s.logicalWidth * scale);
+        scissor.extent.height = static_cast<std::uint32_t>(s.logicalHeight * scale);
+        scissor.offset.x = static_cast<std::int32_t>((s.extent.width - scissor.extent.width) / 2);
+        scissor.offset.y = static_cast<std::int32_t>((s.extent.height - scissor.extent.height) / 2);
+    }
+    VkViewport viewport{static_cast<float>(scissor.offset.x), static_cast<float>(scissor.offset.y),
+                        static_cast<float>(scissor.extent.width), static_cast<float>(scissor.extent.height), 0, 1};
+    vkCmdSetViewport(s.command, 0, 1, &viewport); vkCmdSetScissor(s.command, 0, 1, &scissor);
     return Status::success();
 }
 Status VulkanBackend::submit(const Draw& draw) noexcept {
@@ -802,13 +966,17 @@ Status VulkanBackend::endFrame() noexcept {
     ++s.stats.frames;
     s.stats.cpuFrameMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s.frameStart).count();
     if (capture) {
-        status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, UINT64_MAX), "capture.wait");
+        status = s.check(vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, kGpuTimeout), "capture.wait");
         if (!status) return status;
+#ifdef ECHO_PS5_VULKAN
+        FILE* file = std::fopen(s.capturePath.data(), "wb");
+#else
         FILE* file{}; fopen_s(&file, s.capturePath.data(), "wb");
+#endif
         if (!file) return error(ErrorCode::StorageFailure, "capture file open");
         bool written = std::fprintf(file, "P6\n%u %u\n255\n", s.extent.width, s.extent.height) > 0;
         auto* pixels = static_cast<const unsigned char*>(s.readback.mapped);
-        bool bgra = s.format == VK_FORMAT_B8G8R8A8_SRGB;
+        bool bgra = s.format == VK_FORMAT_B8G8R8A8_SRGB || s.format == VK_FORMAT_B8G8R8A8_UNORM;
         std::array<unsigned char, 3 * 4096> row{};
         if (s.extent.width > 4096) written = false;
         for (std::uint32_t y = 0; y < s.extent.height && written; ++y) {

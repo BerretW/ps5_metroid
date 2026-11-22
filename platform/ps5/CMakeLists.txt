@@ -30,6 +30,15 @@ if(ECHO_PS5_GAME)
     file(TO_CMAKE_PATH "${SDL_SOURCE}" SDL_SOURCE)
     get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
     add_subdirectory("${echo_root}/framework" framework)
+    if(ECHO_PS5_VULKAN)
+        if(NOT ECHO_RADV_LINK_INPUTS OR NOT EXISTS "${ECHO_RADV_LINK_INPUTS}" OR
+           NOT ECHO_PS5_NO_KEYBOARD OR ECHO_PS5_STARTUP_DIAGNOSTICS)
+            message(FATAL_ERROR "PS5 Vulkan requires verified RADV link inputs and the controller-only non-diagnostic SDL build.")
+        endif()
+        include("${ECHO_RADV_LINK_INPUTS}")
+        add_subdirectory("${echo_root}/framework/rendering" framework_rendering)
+        add_subdirectory("${echo_root}/framework/rendering_vulkan" framework_rendering_vulkan)
+    endif()
     if(NOT TARGET EchoFramework::Narrative)
         message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
     endif()
@@ -67,6 +76,7 @@ if(ECHO_PS5_GAME)
         "${echo_root}/src"
         "${echo_root}/third_party"
         "${echo_root}/framework/core/include"
+        "${echo_root}/framework/rendering/include"
         "${echo_root}/framework/inventory/include")
     target_compile_definitions(project_echo_ps5 PRIVATE SDL_MAIN_HANDLED)
     if(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -84,13 +94,40 @@ if(ECHO_PS5_GAME)
         endif()
     endif()
     target_compile_options(project_echo_ps5 PRIVATE -O2 -Wall -Wextra -ffunction-sections -fdata-sections)
-    target_link_options(project_echo_ps5 PRIVATE
-        "-T${native}/ps5-pie.ld" "--version-script=${native}/app-symbols.map" -e _start)
+    if(ECHO_PS5_VULKAN)
+        target_sources(project_echo_ps5 PRIVATE
+            "${echo_root}/src/platform/sdl/canvas_assets.cpp"
+            "${echo_root}/src/platform/sdl/gpu_canvas.cpp"
+            "${echo_root}/experiments/vulkan3d/ps5/radv/compat.c")
+        target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_VULKAN)
+        target_link_options(project_echo_ps5 PRIVATE
+            "-T${echo_root}/experiments/vulkan3d/ps5/runtime/runtime-layout.ld"
+            "-L${native}" "--version-script=${ECHO_RADV_ALIASES_MAP}"
+            "--version-script=${echo_root}/experiments/vulkan3d/ps5/runtime/runtime-symbols.map"
+            --exclude-libs=ALL --error-limit=0 ${ECHO_RADV_LINK_FLAGS} -e _start)
+    else()
+        target_link_options(project_echo_ps5 PRIVATE
+            "-T${native}/ps5-pie.ld" "--version-script=${native}/app-symbols.map" -e _start)
+    endif()
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
-    target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
-        EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
-        EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
-        EchoFramework::Abilities EchoFramework::Quests
-        EchoFramework::Cutscenes EchoFramework::World
-        --end-group --as-needed ${stubs})
+    if(ECHO_PS5_VULKAN)
+        target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
+            EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
+            EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
+            EchoFramework::Abilities EchoFramework::Quests EchoFramework::Cutscenes EchoFramework::World
+            EchoFramework::RenderingVulkan EchoFramework::Rendering --end-group ${ECHO_RADV_STUBS}
+            --whole-archive "${ECHO_RADV_ARCHIVE}" --no-whole-archive --start-group
+            "${PS5_SDK_ROOT}/target/lib/libc++.a" "${PS5_SDK_ROOT}/target/lib/libc++abi.a"
+            "${PS5_SDK_ROOT}/target/lib/libunwind.a"
+            "${PS5_SDK_ROOT}/target/lib/libclang_rt.builtins-x86_64.a"
+            "${PS5_SDK_ROOT}/target/lib/libps5platform.a"
+            --end-group --as-needed ${stubs})
+    else()
+        target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
+            EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
+            EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
+            EchoFramework::Abilities EchoFramework::Quests
+            EchoFramework::Cutscenes EchoFramework::World
+            --end-group --as-needed ${stubs})
+    endif()
 endif()

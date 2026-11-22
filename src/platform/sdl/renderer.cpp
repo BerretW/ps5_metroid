@@ -2,6 +2,7 @@
 
 #include "platform/sdl/assets.hpp"
 #include "platform/sdl/bitmap_font.hpp"
+#include "platform/sdl/sprite_sheets.hpp"
 
 #include <algorithm>
 #include <array>
@@ -75,21 +76,6 @@ constexpr Glyph kGlyphs[] = {
 void setColor(SDL_Renderer* renderer, SDL_Color color) noexcept {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
 }
-
-struct SpriteSheet {
-    const char* file;
-    int frameWidth;
-    int frameHeight;
-};
-
-constexpr std::array<SpriteSheet, static_cast<int>(Sprite::Count)> kSpriteSheets{{
-    {"sprites/player.png", 24, 32},
-    {"sprites/enemy.png", 32, 32},
-    {"sprites/tiles.png", 32, 32},
-    {"sprites/projectile.png", 12, 8},
-    {"sprites/pickup.png", 32, 32},
-    {"sprites/door.png", 44, 48},
-}};
 
 // Player sheet layout: idle 0-1, run 2-5, jump 6, fall 7.
 int playerFrame(const Player& player, Uint64 ticks) noexcept {
@@ -285,6 +271,15 @@ const Renderer::WorldSheet* Renderer::worldSheet(std::string_view path) const no
     return nullptr;
 }
 
+const CanvasSprite* Renderer::canvasWorldSprite(std::string_view path) const noexcept {
+    if (canvasWorldSprites_ == nullptr) return nullptr;
+    for (std::size_t index = 0; index < canvasWorldSprites_->count; ++index) {
+        const CanvasWorldSprite& sheet = canvasWorldSprites_->sheets[index];
+        if (std::string_view(sheet.path.data()) == path) return &sheet.image;
+    }
+    return nullptr;
+}
+
 bool Renderer::loadWorldSheet(const char* assetDirectory, std::string_view path) noexcept {
     if (path.empty() || worldSheet(path) != nullptr) return true;
     if (worldSheetCount_ == kMaxWorldSheets || path.size() >= WorldSheet{}.path.size() ||
@@ -347,8 +342,12 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
     if (object == nullptr) return false;
     const framework::SpriteSheetSpec& spec = object->sprite();
     const WorldSheet* sheet = worldSheet(spec.sheet.data());
+    const CanvasSprite* image = drawSink_ != nullptr
+        ? canvasWorldSprite(spec.sheet.data()) : nullptr;
     const framework::AnimationSpec* animation = object->animationOrDefault(animationName);
-    if (sheet == nullptr || animation == nullptr || animation->frames <= 0 ||
+    if ((drawSink_ != nullptr && (image == nullptr || !image->texture.valid())) ||
+        (drawSink_ == nullptr && sheet == nullptr) ||
+        animation == nullptr || animation->frames <= 0 ||
         spec.frameWidth <= 0 || spec.frameHeight <= 0) {
         return false;
     }
@@ -358,8 +357,10 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
         : frames - 1U;
     const SDL_Rect source{(animation->column + static_cast<int>(frame)) * spec.frameWidth,
                           animation->row * spec.frameHeight, spec.frameWidth, spec.frameHeight};
-    if (source.x < 0 || source.y < 0 || source.x + source.w > sheet->width ||
-        source.y + source.h > sheet->height) {
+    const int sheetWidth = drawSink_ != nullptr ? static_cast<int>(image->width) : sheet->width;
+    const int sheetHeight = drawSink_ != nullptr ? static_cast<int>(image->height) : sheet->height;
+    if (source.x < 0 || source.y < 0 || source.x + source.w > sheetWidth ||
+        source.y + source.h > sheetHeight) {
         return false;
     }
     // Mirroring keeps the frame aligned with the collision box.
@@ -369,6 +370,22 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
     const SDL_Rect destination{static_cast<int>(bounds.x - cameraX) + offsetX,
                                static_cast<int>(bounds.y) + spec.offsetY,
                                spec.frameWidth, spec.frameHeight};
+    if (drawSink_ != nullptr) {
+        rendering::Vec4 uv{};
+        const auto status = rendering::spriteUvTransform(
+            image->width, image->height,
+            {static_cast<std::uint32_t>(source.x), static_cast<std::uint32_t>(source.y),
+             static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
+             flip, false}, uv);
+        if (!status || drawSinkFailed_ ||
+            !drawSink_->texture(image->texture,
+                                {destination.x, destination.y, destination.w, destination.h},
+                                uv, {1, 1, 1, 1}, 0.0F)) {
+            drawSinkFailed_ = true;
+            return false;
+        }
+        return true;
+    }
     return SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination, 0.0, nullptr,
                             flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE) == 0;
 }
@@ -391,8 +408,17 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                     tileset.tileWidth, tileset.tileHeight};
                 const SDL_Rect destination{static_cast<int>(column * kTileSize - cameraX),
                                            row * kTileSize, kTileSize, kTileSize};
-                if (sheet == nullptr || source.x + source.w > sheet->width ||
-                    source.y + source.h > sheet->height) {
+                const CanvasSprite* image = drawSink_ != nullptr
+                    ? canvasWorldSprite(tileset.sheet.data()) : nullptr;
+                const int sheetWidth = drawSink_ != nullptr
+                    ? (image != nullptr ? static_cast<int>(image->width) : 0)
+                    : (sheet != nullptr ? sheet->width : 0);
+                const int sheetHeight = drawSink_ != nullptr
+                    ? (image != nullptr ? static_cast<int>(image->height) : 0)
+                    : (sheet != nullptr ? sheet->height : 0);
+                if ((drawSink_ != nullptr && (image == nullptr || !image->texture.valid())) ||
+                    (drawSink_ == nullptr && sheet == nullptr) ||
+                    source.x + source.w > sheetWidth || source.y + source.h > sheetHeight) {
                     // Keep collision visible when a tileset is missing.
                     if (tile->collision == framework::TileCollision::Hazard) {
                         panel(destination, SDL_Color{121, 43, 51, 255});
@@ -403,6 +429,23 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                 }
                 const int flags = (tile->flipX ? SDL_FLIP_HORIZONTAL : 0) |
                                   (tile->flipY ? SDL_FLIP_VERTICAL : 0);
+                if (drawSink_ != nullptr) {
+                    rendering::Vec4 uv{};
+                    const auto status = rendering::spriteUvTransform(
+                        image->width, image->height,
+                        {static_cast<std::uint32_t>(source.x), static_cast<std::uint32_t>(source.y),
+                         static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
+                         tile->flipX, tile->flipY}, uv);
+                    if (!status || drawSinkFailed_ ||
+                        !drawSink_->texture(image->texture,
+                                            {destination.x, destination.y,
+                                             destination.w, destination.h},
+                                            uv, {1, 1, 1, 1},
+                                            static_cast<float>(tile->rotation))) {
+                        drawSinkFailed_ = true;
+                    }
+                    continue;
+                }
                 SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination,
                                  static_cast<double>(tile->rotation), nullptr,
                                  static_cast<SDL_RendererFlip>(flags));
@@ -414,13 +457,29 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
 
 bool Renderer::sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip) noexcept {
     const auto index = static_cast<std::size_t>(sprite);
+    const SpriteSheet& sheet = kSpriteSheets[index];
+    if (drawSink_ != nullptr) {
+        if (canvasSprites_ == nullptr || !(*canvasSprites_)[index].texture.valid()) return false;
+        const CanvasSprite& texture = (*canvasSprites_)[index];
+        const int frames = static_cast<int>(texture.width / static_cast<std::uint32_t>(sheet.frameWidth));
+        rendering::Vec4 uv{};
+        const auto status = rendering::spriteUvTransform(texture.width, texture.height,
+            {static_cast<std::uint32_t>((frame % frames) * sheet.frameWidth), 0,
+             static_cast<std::uint32_t>(sheet.frameWidth), static_cast<std::uint32_t>(sheet.frameHeight),
+             flip, false}, uv);
+        if (!status || (!drawSinkFailed_ &&
+            !drawSink_->texture(texture.texture, {destination.x, destination.y, destination.w, destination.h},
+                                uv, {1, 1, 1, 1}, 0.0F))) {
+            drawSinkFailed_ = true;
+        }
+        return true;
+    }
     SDL_Texture* texture = sprites_[index];
     if (texture == nullptr) {
         return false;
     }
     int width = 0;
     SDL_QueryTexture(texture, nullptr, nullptr, &width, nullptr);
-    const SpriteSheet& sheet = kSpriteSheets[index];
     const int frames = std::max(1, width / sheet.frameWidth);
     const SDL_Rect source{(frame % frames) * sheet.frameWidth, 0, sheet.frameWidth, sheet.frameHeight};
     return SDL_RenderCopyEx(renderer_, texture, &source, &destination, 0.0, nullptr,
@@ -434,7 +493,10 @@ void Renderer::panel(SDL_Rect bounds, SDL_Color color) noexcept {
 
 void Renderer::fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept {
     if (drawSink_ != nullptr) {
-        if (!drawSinkFailed_ && !drawSink_->fill(bounds, color)) drawSinkFailed_ = true;
+        if (!drawSinkFailed_ && !drawSink_->fill({bounds.x, bounds.y, bounds.w, bounds.h},
+                                                  {color.r, color.g, color.b, color.a})) {
+            drawSinkFailed_ = true;
+        }
     } else {
         SDL_RenderFillRect(renderer_, &bounds);
     }
@@ -527,10 +589,10 @@ void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     SDL_RenderPresent(renderer_);
 }
 
-bool Renderer::beginRecording(DrawSink& sink, SDL_Color background) noexcept {
+bool Renderer::beginRecording(rendering::ICanvas2D& sink, SDL_Color background) noexcept {
     if (drawSink_ != nullptr) return false;
     drawSink_ = &sink;
-    drawSinkFailed_ = !sink.clear(background);
+    drawSinkFailed_ = !sink.clear({background.r, background.g, background.b, background.a});
     return true;
 }
 
@@ -539,7 +601,7 @@ bool Renderer::endRecording() noexcept {
     return !drawSinkFailed_;
 }
 
-bool Renderer::recordMenu(DrawSink& sink, int selection, bool continueAvailable) noexcept {
+bool Renderer::recordMenu(rendering::ICanvas2D& sink, int selection, bool continueAvailable) noexcept {
     if (!beginRecording(sink, kBackground)) return false;
     if (!drawSinkFailed_) drawMenuContent(selection, continueAvailable);
     return endRecording();
@@ -581,6 +643,27 @@ void Renderer::drawOptions(int selection, int volume,
                            std::string_view interactKey, DisplayMode display) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
+    drawOptionsContent(selection, volume, language, waitingForKey, jumpKey, shootKey,
+                       interactKey, display);
+    SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::recordOptions(rendering::ICanvas2D& sink, int selection, int volume,
+                             framework::DialogueLanguage language, bool waitingForKey,
+                             std::string_view jumpKey, std::string_view shootKey,
+                             std::string_view interactKey, DisplayMode display) noexcept {
+    if (!beginRecording(sink, kBackground)) return false;
+    if (!drawSinkFailed_) {
+        drawOptionsContent(selection, volume, language, waitingForKey, jumpKey, shootKey,
+                           interactKey, display);
+    }
+    return endRecording();
+}
+
+void Renderer::drawOptionsContent(int selection, int volume,
+                                  framework::DialogueLanguage language, bool waitingForKey,
+                                  std::string_view jumpKey, std::string_view shootKey,
+                                  std::string_view interactKey, DisplayMode display) noexcept {
     panel({74, 38, 492, 284}, kPanel);
     panel({74, 38, 492, 3}, kCyan);
     text(110, 62, "OPTIONS", 3, kText);
@@ -629,7 +712,6 @@ void Renderer::drawOptions(int selection, int volume,
         text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL"
                                     : "ENTER REBIND  LEFT RIGHT CHANGE", 1, kMuted);
     }
-    SDL_RenderPresent(renderer_);
 }
 
 void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
@@ -868,14 +950,40 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
             tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
             tileset.tileWidth, tileset.tileHeight};
-        if (sheet == nullptr || source.x + source.w > sheet->width ||
-            source.y + source.h > sheet->height) {
+        const CanvasSprite* image = drawSink_ != nullptr
+            ? canvasWorldSprite(tileset.sheet.data()) : nullptr;
+        const int sheetWidth = drawSink_ != nullptr
+            ? (image != nullptr ? static_cast<int>(image->width) : 0)
+            : (sheet != nullptr ? sheet->width : 0);
+        const int sheetHeight = drawSink_ != nullptr
+            ? (image != nullptr ? static_cast<int>(image->height) : 0)
+            : (sheet != nullptr ? sheet->height : 0);
+        if ((drawSink_ != nullptr && (image == nullptr || !image->texture.valid())) ||
+            (drawSink_ == nullptr && sheet == nullptr) ||
+            source.x + source.w > sheetWidth || source.y + source.h > sheetHeight) {
             const Tile cell = tile->collision == framework::TileCollision::Hazard ? Tile::Hazard
                             : tile->collision == framework::TileCollision::Solid  ? Tile::Solid
                                                                                    : Tile::Empty;
             panel(layer == 0 ? SDL_Rect{top.x - 16, top.y + 8, 32, 16}
                              : SDL_Rect{top.x - 24, top.y - 24, 48, 48},
                   cellColor(cell));
+            return;
+        }
+        if (drawSink_ != nullptr) {
+            rendering::Vec4 uv{};
+            const auto status = rendering::spriteUvTransform(
+                image->width, image->height,
+                {static_cast<std::uint32_t>(source.x), static_cast<std::uint32_t>(source.y),
+                 static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
+                 tile->flipX, tile->flipY}, uv);
+            if (!status || drawSinkFailed_ ||
+                !drawSink_->texture(image->texture,
+                                    {destination.x, destination.y,
+                                     destination.w, destination.h},
+                                    uv, {1, 1, 1, static_cast<float>(alpha) / 255.0F},
+                                    static_cast<float>(tile->rotation))) {
+                drawSinkFailed_ = true;
+            }
             return;
         }
         SDL_SetTextureAlphaMod(sheet->texture, alpha);
@@ -1060,16 +1168,64 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     SDL_RenderPresent(renderer_);
 }
 
-bool Renderer::recordGame(DrawSink& sink, const Game& game, bool showMap, bool paused,
+bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                           std::string_view jumpKey, std::string_view shootKey,
-                          std::string_view interactKey) noexcept {
-    if (worldSheetCount_ != 0 ||
-        std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; })) {
+                          std::string_view interactKey, const CanvasSprites* sprites,
+                          const CanvasWorldSprites* worldSprites) noexcept {
+    if ((worldSheetCount_ != 0 && worldSprites == nullptr) || (sprites == nullptr &&
+        std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; }))) {
         SDL_Log("Recording game with loaded SDL textures is not supported");
         return false;
     }
+    if (sprites != nullptr) {
+        for (std::size_t index = 0; index < sprites->size(); ++index) {
+            const CanvasSprite& texture = (*sprites)[index];
+            const SpriteSheet& sheet = kSpriteSheets[index];
+            if (texture.texture.valid() &&
+                (texture.width > 4096 || texture.height > 4096 ||
+                 texture.width < static_cast<std::uint32_t>(sheet.frameWidth) ||
+                 texture.width % static_cast<std::uint32_t>(sheet.frameWidth) != 0 ||
+                 texture.height != static_cast<std::uint32_t>(sheet.frameHeight))) {
+                SDL_Log("Invalid canvas sprite sheet dimensions");
+                return false;
+            }
+        }
+    }
+    if (worldSprites != nullptr) {
+        if (worldSprites->count == 0 || worldSprites->count > worldSprites->sheets.size()) {
+            SDL_Log("Invalid canvas world sprite count");
+            return false;
+        }
+        for (std::size_t index = 0; index < worldSprites->count; ++index) {
+            const CanvasWorldSprite& sheet = worldSprites->sheets[index];
+            const auto terminator = std::find(sheet.path.begin(), sheet.path.end(), '\0');
+            if (terminator == sheet.path.end()) {
+                SDL_Log("Invalid canvas world sprite path");
+                return false;
+            }
+            const std::string_view path(sheet.path.data(),
+                                        static_cast<std::size_t>(terminator - sheet.path.begin()));
+            if (path.empty() || !framework::WorldModule::validSpritePath(path) ||
+                !sheet.image.texture.valid() || sheet.image.width == 0 ||
+                sheet.image.height == 0 || sheet.image.width > 4096 ||
+                sheet.image.height > 4096) {
+                SDL_Log("Invalid canvas world sprite sheet");
+                return false;
+            }
+            for (std::size_t previous = 0; previous < index; ++previous) {
+                if (std::string_view(worldSprites->sheets[previous].path.data()) == path) {
+                    SDL_Log("Duplicate canvas world sprite sheet path");
+                    return false;
+                }
+            }
+        }
+    }
     if (!beginRecording(sink, SDL_Color{8, 15, 26, 255})) return false;
+    canvasSprites_ = sprites;
+    canvasWorldSprites_ = worldSprites;
     if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey);
+    canvasSprites_ = nullptr;
+    canvasWorldSprites_ = nullptr;
     return endRecording();
 }
 
@@ -1252,6 +1408,19 @@ void Renderer::drawInventory(const Game& game, const InventoryMenu& menu,
                              std::string_view message) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
+    drawInventoryContent(game, menu, message);
+    SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::recordInventory(rendering::ICanvas2D& sink, const Game& game,
+                               const InventoryMenu& menu, std::string_view message) noexcept {
+    if (!beginRecording(sink, kBackground)) return false;
+    if (!drawSinkFailed_) drawInventoryContent(game, menu, message);
+    return endRecording();
+}
+
+void Renderer::drawInventoryContent(const Game& game, const InventoryMenu& menu,
+                                    std::string_view message) noexcept {
     panel({16, 16, 608, 328}, kPanel);
     panel({16, 16, 608, 3}, kCyan);
     text(28, 28, "INVENTORY", 2, kText);
@@ -1296,20 +1465,46 @@ void Renderer::drawInventory(const Game& game, const InventoryMenu& menu,
     text(28, 333, controls_ == ControlScheme::PlayStation
                      ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/BACK"
                      : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/BACK", 1, kMuted);
-    SDL_RenderPresent(renderer_);
 }
 
 void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
                                 int connectedControllers) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
+    drawDualSenseLabContent(controller, connectedControllers);
+    SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::recordDualSenseLab(rendering::ICanvas2D& sink,
+                                  const input::ControllerSnapshot& controller,
+                                  int connectedControllers) noexcept {
+    if (!beginRecording(sink, kBackground)) return false;
+    if (!drawSinkFailed_) drawDualSenseLabContent(controller, connectedControllers);
+    return endRecording();
+}
+
+void Renderer::outline(SDL_Rect bounds, SDL_Color color) noexcept {
+    if (drawSink_ == nullptr) {
+        setColor(renderer_, color);
+        SDL_RenderDrawRect(renderer_, &bounds);
+        return;
+    }
+    panel({bounds.x, bounds.y, bounds.w, 1}, color);
+    panel({bounds.x, bounds.y + bounds.h - 1, bounds.w, 1}, color);
+    panel({bounds.x, bounds.y + 1, 1, bounds.h - 2}, color);
+    panel({bounds.x + bounds.w - 1, bounds.y + 1, 1, bounds.h - 2}, color);
+}
+
+void Renderer::drawDualSenseLabContent(const input::ControllerSnapshot& controller,
+                                       int connectedControllers) noexcept {
     panel({12, 12, 310, 310}, kPanel);
     panel({330, 12, 298, 310}, kPanel);
     panel({12, 12, 616, 3}, kCyan);
     text(24, 24, "DUALSENSE LAB", 2, kText);
 
     if (controller.connected) {
-        text(24, 48, std::string_view(controller.name.data()).substr(0, 34), 1, kCyan);
+        const std::string_view name(controller.name.data());
+        text(24, 48, {name.data(), std::min<std::size_t>(name.size(), 34)}, 1, kCyan);
         std::array<char, 96> deviceLine{};
         SDL_snprintf(deviceLine.data(), deviceLine.size(), "ID %d  BATTERY %.*s",
                      controller.instanceId, static_cast<int>(input::batteryName(controller.battery).size()),
@@ -1375,10 +1570,14 @@ void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
     const auto stick = [this, &controller](int x, int y, SDL_GameControllerAxis axisX,
                                            SDL_GameControllerAxis axisY) {
         const SDL_Rect bounds{x - 19, y - 19, 38, 38};
-        setColor(renderer_, kMuted);
-        SDL_RenderDrawRect(renderer_, &bounds);
-        SDL_RenderDrawLine(renderer_, x - 19, y, x + 19, y);
-        SDL_RenderDrawLine(renderer_, x, y - 19, x, y + 19);
+        outline(bounds, kMuted);
+        if (drawSink_ != nullptr) {
+            panel({x - 19, y, 39, 1}, kMuted);
+            panel({x, y - 19, 1, 39}, kMuted);
+        } else {
+            SDL_RenderDrawLine(renderer_, x - 19, y, x + 19, y);
+            SDL_RenderDrawLine(renderer_, x, y - 19, x, y + 19);
+        }
         const auto raw = input::normalizeStick(controller.axes[axisX], controller.axes[axisY]);
         const auto value = input::applyRadialDeadZone(raw, controller.deadZone);
         const SDL_Rect dot{x + static_cast<int>(value.x * 15.0F) - 3,
@@ -1431,8 +1630,7 @@ void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
                      controller.touchpadCount, controller.touchpadFingerCount);
         text(344, 144, touchLine.data(), 1, kText);
         const SDL_Rect touchpadBounds{344, 158, 124, 26};
-        setColor(renderer_, kMuted);
-        SDL_RenderDrawRect(renderer_, &touchpadBounds);
+        outline(touchpadBounds, kMuted);
         for (std::size_t index = 0; index < controller.touchSampleCount; ++index) {
             const auto& touch = controller.touches[index];
             if (!touch.active || touch.touchpad != 0) {
@@ -1529,7 +1727,6 @@ void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,
              ? "\x01 RUMBLE  \x02 LED  L3 TRIG  L1 OK  R1 FAIL  \x03 EXPORT  \x04 BACK"
              : "R RUMBLE  L LED  T TRIG  P OK  F FAIL  E EXPORT  ESC BACK",
          1, kMuted);
-    SDL_RenderPresent(renderer_);
 }
 
 } // namespace echo::platform

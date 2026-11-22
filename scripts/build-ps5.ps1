@@ -5,7 +5,8 @@ param(
     [switch]$RestoreDependencies,
     [switch]$StartupDiagnostics,
     [switch]$SkipPs5Keyboard,
-    [switch]$SaveStorageDiagnostics
+    [switch]$SaveStorageDiagnostics,
+    [switch]$Vulkan
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +27,12 @@ if ($SaveStorageDiagnostics) {
         throw "-SaveStorageDiagnostics requires -Target Game -StartupDiagnostics -SkipPs5Keyboard."
     }
     $logs = Join-Path $work "logs\save-storage-diagnostic"
+}
+if ($Vulkan) {
+    if ($Target -ne "Game" -or -not $SkipPs5Keyboard -or $StartupDiagnostics -or $SaveStorageDiagnostics) {
+        throw "-Vulkan requires -Target Game -SkipPs5Keyboard without SDL startup/save diagnostics."
+    }
+    $logs = Join-Path $work "logs\vulkan-game"
 }
 $llvm = Join-Path $deps "llvm-18.1.8"
 $sdk = Join-Path $deps "sdk\ps5-payload-sdk"
@@ -229,7 +236,9 @@ if ($Target -eq "Game") {
         Invoke-Native "sdl-patch" "git" @("-C", $sdlSource, "apply", "--recount", $patch) | Out-Null
     }
     Invoke-Native "sdl-patch-check" "git" @("-C", $sdlSource, "apply", "--recount", "--reverse", "--check", $patch) | Out-Null
-    $gameBuildName = if ($SaveStorageDiagnostics) {
+    $gameBuildName = if ($Vulkan) {
+        "game-vulkan"
+    } elseif ($SaveStorageDiagnostics) {
         "game-save-storage-diagnostic"
     } elseif ($SkipPs5Keyboard -and $StartupDiagnostics) {
         "game-diagnostic-no-keyboard"
@@ -241,22 +250,81 @@ if ($Target -eq "Game") {
         "game"
     }
     $gameBuild = Join-Path $work $gameBuildName
-    Invoke-Native "game-configure" "cmake" @("--fresh", "-S", (Join-Path $root "platform\ps5"), "-B", $gameBuild,
+    $gameSdk = $sdk
+    $gameOptions = @()
+    if ($Vulkan) {
+        $gameSdk = Join-Path $deps "vulkan-ps5\sdk"
+        foreach ($module in @("kernel", "SceLibcInternal", "SceSystemService", "SceVideoOut",
+                              "ScePad", "SceUserService", "SceAudioOut", "SceKeyboard", "SceImeDialog")) {
+            $baseStub = Join-Path $sdk "target\lib\lib$module.so"
+            $gameStub = Join-Path $gameSdk "target\lib\lib$module.so"
+            if (-not (Test-Path -LiteralPath $gameStub -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $baseStub -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $gameStub -Algorithm SHA256).Hash) {
+                throw "PS5 Vulkan SDK import stub does not match the pinned game SDK: $module"
+            }
+        }
+        & (Join-Path $PSScriptRoot "probe-vulkan-radv-link.ps1") -Native -PrepareGame
+        $radvInputs = Join-Path $root "build\vulkan-ps5\radv-import-stubs\game-link-inputs.cmake"
+        if (-not (Test-Path -LiteralPath $radvInputs -PathType Leaf)) {
+            throw "Verified RADV link inputs were not generated."
+        }
+        $mesaSource = Join-Path $deps "vulkan-ps5\mesa-source"
+        $gameOptions += @("-DECHO_PS5_VULKAN=ON", "-DECHO_RADV_LINK_INPUTS=$radvInputs",
+                          "-DECHO_PS5_MESA_SOURCE=$mesaSource")
+        $vulkanManifest = Get-Content -LiteralPath (Join-Path $root "experiments\vulkan3d\dependencies.json") -Raw |
+            ConvertFrom-Json
+        if (-not $env:VULKAN_SDK -or
+            (Split-Path -Leaf $env:VULKAN_SDK.TrimEnd('\')) -ne $vulkanManifest.vulkanSdk.version) {
+            throw "The pinned native Windows Vulkan SDK is required for PS5 shaders."
+        }
+        $glslang = Join-Path $env:VULKAN_SDK "Bin\glslangValidator.exe"
+        $spirvVal = Join-Path $env:VULKAN_SDK "Bin\spirv-val.exe"
+        if (-not (Test-Path -LiteralPath $glslang -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $spirvVal -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $glslang -Algorithm SHA256).Hash -ne $vulkanManifest.vulkanSdk.glslangSha256) {
+            throw "Pinned Vulkan shader compiler or SPIR-V validator is missing or mismatched."
+        }
+        $shaderBuild = Join-Path $gameBuild "shaders"
+        New-Item -ItemType Directory -Force -Path $shaderBuild | Out-Null
+        foreach ($stage in @("vert", "frag")) {
+            $shaderSource = Join-Path $root "experiments\vulkan3d\assets\shaders\scene.$stage"
+            $shaderOutput = Join-Path $shaderBuild "scene.$stage.spv"
+            $shaderArguments = @("-V", "--target-env", "vulkan1.0", "-o", $shaderOutput)
+            if ($stage -eq "frag") { $shaderArguments += "-DECHO_OUTPUT_SRGB=1" }
+            Invoke-Native "shader-$stage" $glslang ($shaderArguments + @($shaderSource)) | Out-Null
+            Invoke-Native "shader-$stage-validate" $spirvVal @("--target-env", "vulkan1.0", $shaderOutput) | Out-Null
+        }
+    }
+    $configureArguments = @("--fresh", "-S", (Join-Path $root "platform\ps5"), "-B", $gameBuild,
         "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_TOOLCHAIN_FILE=$(Join-Path $root 'cmake\ps5-windows.cmake')",
-        "-DLLVM_ROOT=$llvm", "-DPS5_SDK_ROOT=$sdk", "-DBOILERPLATE_SOURCE=$boilerplate", "-DECHO_PS5_GAME=ON",
+        "-DLLVM_ROOT=$llvm", "-DPS5_SDK_ROOT=$gameSdk", "-DBOILERPLATE_SOURCE=$boilerplate", "-DECHO_PS5_GAME=ON",
         "-DSDL_SOURCE=$sdlSource", "-DECHO_PS5_STARTUP_DIAGNOSTICS=$($StartupDiagnostics.IsPresent)",
         "-DECHO_PS5_SAVE_STORAGE_DIAGNOSTICS=$($SaveStorageDiagnostics.IsPresent)",
-        "-DECHO_PS5_NO_KEYBOARD=$($SkipPs5Keyboard.IsPresent)") | Out-Null
+        "-DECHO_PS5_NO_KEYBOARD=$($SkipPs5Keyboard.IsPresent)") + $gameOptions
+    Invoke-Native "game-configure" "cmake" $configureArguments | Out-Null
     Invoke-Native "game-build" "cmake" @("--build", $gameBuild, "--target", "project_echo_ps5",
         "--verbose", "--", "-d", "keeprsp") | Out-Null
     $gameIntermediate = Join-Path $gameBuild "project_echo_ps5.llvm.elf"
     $gameElf = Join-Path $gameBuild "eboot.elf"
-    Invoke-Native "game-readelf" (Join-Path $llvm "bin\llvm-readelf.exe") @("--file-header", "--program-headers",
-        "--dynamic-table", "--dyn-symbols", $gameIntermediate) | Out-Null
-    Invoke-Native "game-convert" $nativeTool @("link", "--in", $gameIntermediate, "--out", $gameElf,
-        "--stub-dir", (Join-Path $sdk "target\lib"), "--module-sdk", "0x02000009",
-        "--companion-sdk", "0x08050001", "--file-name", "eboot.elf") | Out-Null
-    $gameAppName = if ($SaveStorageDiagnostics) {
+    $gameInspection = Invoke-Native "game-readelf" (Join-Path $llvm "bin\llvm-readelf.exe") @("--file-header", "--program-headers",
+        "--dynamic-table", "--dyn-symbols", $gameIntermediate)
+    if ($Vulkan -and ($gameInspection -match '(?m)\bWEAK\s+DEFAULT\s+UND\s+\S+' -or
+        $gameInspection -match '(?m)\bUND\s+(mkstemp|readlink|strcasestr|link|symlink|qsort_s)\s*$')) {
+        throw "PS5 Vulkan ELF has unresolved weak symbols or unsafe imports."
+    }
+    $convertArguments = @("link", "--in", $gameIntermediate, "--out", $gameElf,
+        "--stub-dir", (Join-Path $gameSdk "target\lib"), "--module-sdk", "0x02000009",
+        "--companion-sdk", "0x08050001", "--file-name", "eboot.elf")
+    if ($Vulkan) {
+        foreach ($name in @("libSceAgc.so", "libSceAgcDriver.so")) {
+            $convertArguments += @("--stub", (Join-Path $root "build\vulkan-ps5\radv-import-stubs\$name"))
+        }
+    }
+    Invoke-Native "game-convert" $nativeTool $convertArguments | Out-Null
+    $gameAppName = if ($Vulkan) {
+        "dist\ps5-vulkan\PPSA91007"
+    } elseif ($SaveStorageDiagnostics) {
         "dist\ps5-save-diagnostic\PPSA91007"
     } elseif ($SkipPs5Keyboard -and $StartupDiagnostics) {
         "dist\ps5-diagnostic-no-keyboard\PPSA91007"
@@ -268,8 +336,15 @@ if ($Target -eq "Game") {
         "dist\ps5\PPSA91007"
     }
     $gameApp = Join-Path $root $gameAppName
+    $vulkanMarker = Join-Path $gameApp "licenses\echo-vulkan-game.txt"
+    if ($Vulkan -and (Test-Path -LiteralPath $gameApp) -and
+        (-not (Test-Path -LiteralPath $vulkanMarker -PathType Leaf) -or
+         (Get-Content -LiteralPath $vulkanMarker -Raw).Trim() -ne "PROJECT_ECHO_PS5_VULKAN_V1")) {
+        throw "Refusing to overwrite an unrecognized PS5 Vulkan package: $gameApp"
+    }
     New-Item -ItemType Directory -Force -Path $gameApp, (Join-Path $gameApp "sce_sys"),
         (Join-Path $gameApp "sce_module"), (Join-Path $gameApp "licenses") | Out-Null
+    if ($Vulkan) { [IO.File]::WriteAllText($vulkanMarker, "PROJECT_ECHO_PS5_VULKAN_V1`n") }
     Invoke-Native "game-sign" $nativeTool @("self", "--sign", "--in", $gameElf, "--out",
         (Join-Path $gameApp "eboot.bin"), "--magic", "0x1D3D154F") | Out-Null
     Copy-Item -LiteralPath (Join-Path $runtime "libc-a.prx") -Destination (Join-Path $gameApp "sce_module\libc.prx")
@@ -286,6 +361,37 @@ if ($Target -eq "Game") {
     $packagedAssets = Join-Path $gameApp "assets"
     if (Test-Path -LiteralPath $packagedAssets) { Remove-Item -LiteralPath $packagedAssets -Recurse -Force }
     Copy-Item -LiteralPath (Join-Path $root "assets") -Destination $packagedAssets -Recurse
+    if ($Vulkan) {
+        $shaderAssets = Join-Path $packagedAssets "shaders"
+        New-Item -ItemType Directory -Force -Path $shaderAssets | Out-Null
+        foreach ($stage in @("vert", "frag")) {
+            Copy-Item -LiteralPath (Join-Path $shaderBuild "scene.$stage.spv") -Destination $shaderAssets
+        }
+        Copy-Item -LiteralPath (Join-Path $deps "vulkan-ps5\vulkan-source\LICENSE") -Destination (Join-Path $gameApp "licenses\PS5_Vulkan.txt") -Force
+        Copy-Item -LiteralPath (Join-Path $deps "vulkan-ps5\platform-source\LICENSE") -Destination (Join-Path $gameApp "licenses\PS5_Platform.txt") -Force
+        Copy-Item -LiteralPath (Join-Path $deps "vulkan-ps5\mesa-source\docs\license.rst") -Destination (Join-Path $gameApp "licenses\Mesa-license.rst") -Force
+        Copy-Item -LiteralPath (Join-Path $deps "vulkan-ps5\llvm-source\LICENSE.TXT") -Destination (Join-Path $gameApp "licenses\LLVM.txt") -Force
+        $mesaLicenses = Join-Path $deps "vulkan-ps5\mesa-source\licenses"
+        foreach ($license in Get-ChildItem -LiteralPath $mesaLicenses -Recurse -File) {
+            $relative = $license.FullName.Substring($mesaLicenses.Length).TrimStart('\')
+            $destination = Join-Path $gameApp "licenses\Mesa\$relative"
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+            Copy-Item -LiteralPath $license.FullName -Destination $destination -Force
+        }
+        $provenance = [ordered]@{
+            mesaRevision = $vulkanManifest.ps5Mesa.commit
+            vulkanRevision = $vulkanManifest.ps5Vulkan.commit
+            platformRevision = $vulkanManifest.ps5Platform.commit
+            radvArchiveSha256 = (Get-FileHash -LiteralPath (Join-Path $root "build\vulkan-ps5\radv-target-visibility\src\amd\vulkan\libvulkan_radeon.a") -Algorithm SHA256).Hash
+            ebootSha256 = (Get-FileHash -LiteralPath (Join-Path $gameApp "eboot.bin") -Algorithm SHA256).Hash
+            shaderCompilerSha256 = (Get-FileHash -LiteralPath $glslang -Algorithm SHA256).Hash
+            vertexSpirvSha256 = (Get-FileHash -LiteralPath (Join-Path $shaderAssets "scene.vert.spv") -Algorithm SHA256).Hash
+            fragmentSpirvSha256 = (Get-FileHash -LiteralPath (Join-Path $shaderAssets "scene.frag.spv") -Algorithm SHA256).Hash
+            hardware = "NOT TESTED"
+        }
+        [IO.File]::WriteAllText((Join-Path $gameApp "licenses\build-provenance.json"),
+            ($provenance | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
+    }
     Add-Type -AssemblyName System.Drawing
     $icon = New-Object Drawing.Bitmap(512, 512)
     $graphics = [Drawing.Graphics]::FromImage($icon)
@@ -302,7 +408,7 @@ if ($Target -eq "Game") {
         $graphics.Dispose()
         $icon.Dispose()
     }
-    & (Join-Path $PSScriptRoot "test-ps5-package.ps1") -PackagePath $gameApp -LogDirectory $logs
+    & (Join-Path $PSScriptRoot "test-ps5-package.ps1") -PackagePath $gameApp -LogDirectory $logs -VulkanGame:$Vulkan
     if ($StartupDiagnostics) {
         Write-Host "Diagnostic build: note the last ECHO DIAG notification or retrieve project_echo-startup.log."
         Write-Host "On initialization failure, this build stays open for log collection; close it manually."

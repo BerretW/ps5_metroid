@@ -136,22 +136,6 @@ bool finite(const Mat4& matrix) noexcept {
                        [](float value) { return std::isfinite(value); });
 }
 
-Status spriteUvTransform(std::uint32_t textureWidth, std::uint32_t textureHeight,
-                         SpriteRegion region, Vec4& output) noexcept {
-    if (!textureWidth || !textureHeight || !region.width || !region.height ||
-        region.x > textureWidth || region.width > textureWidth - region.x ||
-        region.y > textureHeight || region.height > textureHeight - region.y) {
-        return {ErrorCode::InvalidArgument, "sprite region", "Region must fit inside the texture."};
-    }
-    const float x = static_cast<float>(region.x) / static_cast<float>(textureWidth);
-    const float y = static_cast<float>(region.y) / static_cast<float>(textureHeight);
-    const float width = static_cast<float>(region.width) / static_cast<float>(textureWidth);
-    const float height = static_cast<float>(region.height) / static_cast<float>(textureHeight);
-    output = {region.flipX ? x + width : x, region.flipY ? y + height : y,
-              region.flipX ? -width : width, region.flipY ? -height : height};
-    return Status::success();
-}
-
 Status lookAt(Vec3 eye, Vec3 target, Vec3 up, Mat4& output) noexcept {
     output = Mat4::identity();
     if (!finite(eye) || !finite(target) || !finite(up)) {

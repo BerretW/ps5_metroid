@@ -47,13 +47,17 @@ add_custom_target(echo_vulkan_assets
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/assets"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/scene.json" "${CMAKE_CURRENT_BINARY_DIR}/assets/scene.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/reactor_sparks.json" "${CMAKE_CURRENT_BINARY_DIR}/assets/reactor_sparks.json"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ECHO_ROOT}/assets/sprites/player.png" "${CMAKE_CURRENT_BINARY_DIR}/assets/player.png")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ECHO_ROOT}/assets/sprites/player.png" "${CMAKE_CURRENT_BINARY_DIR}/assets/player.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${ECHO_ROOT}/assets" "${CMAKE_CURRENT_BINARY_DIR}/assets")
 add_dependencies(echo_vulkan3d echo_vulkan_assets)
 add_executable(echo_vulkan_menu
     src/menu.cpp
     "${ECHO_ROOT}/src/game/game.cpp"
     "${ECHO_ROOT}/src/game/world_layout.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/framework_integration.cpp"
     "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/canvas_assets.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/gpu_canvas.cpp"
     "${ECHO_ROOT}/src/platform/sdl/assets.cpp"
     "${ECHO_ROOT}/src/platform/sdl/stb_image_impl.c"
     "${ECHO_ROOT}/src/input/dualsense_diagnostics.cpp")
@@ -64,6 +68,7 @@ target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan SD
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
     EchoFramework::Cutscenes EchoFramework::World user32)
 add_dependencies(echo_vulkan_menu echo_vulkan_shaders)
+add_dependencies(echo_vulkan_menu echo_vulkan_assets)
 add_executable(echo_rendering_manifest src/export_manifest.cpp)
 target_link_libraries(echo_rendering_manifest PRIVATE EchoFramework::Rendering EchoFramework::VFX)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rendering-manifest.json"
@@ -80,6 +85,17 @@ if(BUILD_TESTING)
     add_executable(echo_gltf_tests tests/gltf_tests.cpp)
     target_link_libraries(echo_gltf_tests PRIVATE EchoFramework::Rendering)
     add_test(NAME echo_rendering_gltf COMMAND echo_gltf_tests)
+    add_executable(echo_ps5_surface_tests tests/ps5_surface_tests.cpp
+        "${ECHO_ROOT}/framework/rendering_vulkan/src/ps5_surface.cpp")
+    target_compile_definitions(echo_ps5_surface_tests PRIVATE ECHO_PS5_VULKAN)
+    target_include_directories(echo_ps5_surface_tests PRIVATE "$ENV{VULKAN_SDK}/Include"
+        "${ECHO_ROOT}/framework/rendering_vulkan/src"
+        "${ECHO_ROOT}/experiments/vulkan3d/ps5/radv")
+    add_test(NAME echo_ps5_surface_adapter COMMAND echo_ps5_surface_tests)
+    add_executable(echo_sdl_controller_no_video_tests tests/sdl_controller_no_video_tests.cpp)
+    target_compile_definitions(echo_sdl_controller_no_video_tests PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(echo_sdl_controller_no_video_tests PRIVATE SDL2-static)
+    add_test(NAME echo_sdl_controller_no_video COMMAND echo_sdl_controller_no_video_tests)
     add_test(NAME echo_vulkan_gpu COMMAND echo_vulkan3d --frames 60 --validation --resize-test --probe
         --capture "${CMAKE_CURRENT_BINARY_DIR}/gpu-frame.ppm")
     set_tests_properties(echo_vulkan_gpu PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
@@ -99,8 +115,43 @@ if(BUILD_TESTING)
         -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_menu.ps1"
         -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/menu-frame.ppm")
     set_tests_properties(echo_vulkan_menu_frame PROPERTIES FIXTURES_REQUIRED echo_menu_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_canvas_texture
+        COMMAND echo_vulkan_menu --frames 1 --validation --canvas-texture-test
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/canvas-texture.ppm")
+    set_tests_properties(echo_vulkan_canvas_texture PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
+        FIXTURES_SETUP echo_canvas_texture_capture)
+    add_test(NAME echo_vulkan_canvas_texture_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_canvas_texture.ps1"
+        -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/canvas-texture.ppm")
+    set_tests_properties(echo_vulkan_canvas_texture_readback PROPERTIES
+        FIXTURES_REQUIRED echo_canvas_texture_capture TIMEOUT 30)
     add_test(NAME echo_vulkan_game_start COMMAND echo_vulkan_menu --game --frames 1 --validation
         --capture "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm")
+    add_test(NAME echo_vulkan_game_sprites COMMAND echo_vulkan_menu --game --sprites --frames 1 --validation
+        --capture "${CMAKE_CURRENT_BINARY_DIR}/game-sprites.ppm")
+    set_tests_properties(echo_vulkan_game_sprites PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_game_sprite_capture)
+    add_test(NAME echo_vulkan_game_sprites_frame
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_game_sprites.ps1"
+        -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/game-sprites.ppm"
+        -FallbackPath "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm")
+    set_tests_properties(echo_vulkan_game_sprites_frame PROPERTIES
+        FIXTURES_REQUIRED "echo_game_sprite_capture;echo_game_capture" TIMEOUT 30)
+    add_test(NAME echo_vulkan_game_data_sprites
+        COMMAND echo_vulkan_menu --game --sprites --data-world --frames 1 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/game-data-sprites.ppm")
+    set_tests_properties(echo_vulkan_game_data_sprites PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_REQUIRED echo_game_capture
+        FIXTURES_SETUP echo_game_data_sprite_capture)
+    add_test(NAME echo_vulkan_game_data_sprites_frame
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_data_world_sprites.ps1"
+        -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/game-data-sprites.ppm"
+        -FallbackPath "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm")
+    set_tests_properties(echo_vulkan_game_data_sprites_frame PROPERTIES
+        FIXTURES_REQUIRED "echo_game_capture;echo_game_data_sprite_capture" TIMEOUT 30)
     add_test(NAME echo_vulkan_game_motion COMMAND echo_vulkan_menu --game --motion-test --frames 60 --validation
         --capture "${CMAKE_CURRENT_BINARY_DIR}/game-motion.ppm")
     set_tests_properties(echo_vulkan_game_start echo_vulkan_game_motion PROPERTIES

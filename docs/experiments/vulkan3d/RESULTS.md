@@ -1,14 +1,22 @@
 # Experiment results
 
 Baseline: `1e90adc6519d8f278f856beaaac7f668287909bd`.
-Work is isolated on `experiment/vulkan-3d`; no merge/push/deployment performed.
+The original experiment was developed separately; the renderer is now also
+connected to an opt-in PS5 game build. No console deployment was performed.
 
 | Acceptance stage | Result |
 | --- | --- |
 | A: genuine Windows GPU rendering | PASS: NVIDIA GeForce RTX 4070, textured cube/floor, depth, lights and presentation |
 | B: reusable initial backend | PASS for SDL-free interfaces, bounded resources, meshes/cameras, materials and alpha sprites; advanced API work remains |
-| C: PS5-compatible linked Vulkan rendering application/package | PARTIAL: isolated RADV first-frame diagnostic STATIC PASS; reusable renderer remains blocked |
-| D: actual PS5 Vulkan rendering | PARTIAL: operator reports a visible cyan clear and moving interactive cube; full scene remains untested |
+| C: PS5-compatible linked Vulkan rendering application/package | STATIC PASS: separate RADV diagnostics and the PROJECT ECHO Vulkan game candidate |
+| D: actual PS5 Vulkan rendering | PARTIAL: operator reports a visible cyan clear and moving interactive cube; the game candidate remains untested |
+
+The latest native Windows regression passed 19/19 tests; the Windows Vulkan
+suite passed 17/17, including real GPU readback, mocked PS5 display selection
+and virtual controller input without SDL video. The separate PS5 SDL and Vulkan
+game packages both passed their static and negative package tests. These Windows
+tests do not establish controller or rendering behavior on PS5. The Vulkan
+candidate and digest are documented in [PS5_BUILD](PS5_BUILD.md#ps5-vulkan-game-candidate).
 
 ## Verified Windows evidence
 
@@ -248,15 +256,15 @@ This is deliberately a link-only missing-driver probe, **not** a complete
 native application, runtime ABI proof, FSELF, package or hardware test.
 `build/vulkan-ps5/compatibility.json` preserves arguments and missing artifacts.
 The separate RADV ICD whole-archive probe resolves those boundaries and produced
-the statically validated instance diagnostic described above. The ordinary
-renderer build still exits explicitly BLOCKED rather than producing a
-success-shaped rendering placeholder.
+the statically validated instance diagnostic described above. The older
+`build-vulkan-ps5.ps1` feasibility mode still exits explicitly; the separate
+`build-ps5.ps1 -Vulkan` path now produces the statically validated game candidate.
 
 The audited primary driver is RADV, not legacy ps5vk. No independently
 obtainable release archive/provenance/checksum was verified. Native Windows
-adaptation has produced host tools, target archive and an instance package,
-but still needs clean-machine host-tool automation, hardware validation of the
-driver libc/import bindings and the new VK_KHR_display/VideoOut diagnostic. The exact pinned
+adaptation has produced host tools, a target archive, diagnostics and the game
+package, but still needs clean-machine host-tool automation and hardware
+validation of the full game's driver libc/import bindings. The exact pinned
 sources, license boundaries, runtime differences and staged integration plan
 are in [VULKAN_COMPATIBILITY](VULKAN_COMPATIBILITY.md) and [PS5_BUILD](PS5_BUILD.md).
 No template implementation or protected sample assets were copied. GPL platform
@@ -270,7 +278,7 @@ It does not establish insufficient GPU memory; no production allocator changed.
 
 ## Remaining work before broader acceptance
 
-No full PROJECT ECHO migration, SDL adapter, full scene authoring schema, GPU
+No runtime-selectable backend, general SDL adapter, full 3D scene authoring schema, GPU
 multi-material submesh submission, normal
 maps/IBL, offscreen target/viewport API, shadows, bloom/blur, instancing, GPU
 timing/compute particles, richer glTF/importer registry, full animation/layers,
@@ -278,8 +286,8 @@ screen flash, camera shake or light events is claimed. VFX is bounded CPU
 simulation rasterized by the GPU. Device loss fails explicitly; automatic
 recovery is not implemented.
 
-PS5 stages require verified driver/runtime artifacts first, a separate native
-presentation adapter and compatible initialization/cleanup, then real ELF/FSELF
-and package/import/license validation. Only afterward can the manual
-[hardware checklist](HARDWARE_TESTS.md) establish stage D. Neither Windows
+The PS5 candidate now has verified driver/runtime inputs, a native presentation
+adapter and ELF/FSELF/package/import checks. Normal cleanup and the combined
+game runtime remain unverified on hardware; only the manual
+[hardware checklist](HARDWARE_TESTS.md) can establish stage D. Neither Windows
 success nor upstream RADV tests prove Echo PS5 hardware support.

@@ -100,14 +100,31 @@ struct SpriteRegion {
     std::uint32_t x{}, y{}, width{}, height{};
     bool flipX{}, flipY{};
 };
-Status spriteUvTransform(std::uint32_t textureWidth, std::uint32_t textureHeight,
-                         SpriteRegion region, Vec4& output) noexcept;
+inline Status spriteUvTransform(std::uint32_t textureWidth, std::uint32_t textureHeight,
+                                SpriteRegion region, Vec4& output) noexcept {
+    if (!textureWidth || !textureHeight || !region.width || !region.height ||
+        region.x > textureWidth || region.width > textureWidth - region.x ||
+        region.y > textureHeight || region.height > textureHeight - region.y) {
+        return {ErrorCode::InvalidArgument, "sprite region", "Region must fit inside the texture."};
+    }
+    const float x = static_cast<float>(region.x) / static_cast<float>(textureWidth);
+    const float y = static_cast<float>(region.y) / static_cast<float>(textureHeight);
+    const float width = static_cast<float>(region.width) / static_cast<float>(textureWidth);
+    const float height = static_cast<float>(region.height) / static_cast<float>(textureHeight);
+    output = {region.flipX ? x + width : x, region.flipY ? y + height : y,
+              region.flipX ? -width : width, region.flipY ? -height : height};
+    return Status::success();
+}
 bool drawBefore(const Draw& a, AlphaMode alphaA, const Draw& b, AlphaMode alphaB) noexcept;
+using RenderLogCallback = void (*)(void* context, std::string_view message) noexcept;
 struct BackendInit {
     void* nativeWindow{};
     std::uint32_t width{1280}, height{720};
     const char* shaderDirectory{};
     bool validation{};
+    std::uint32_t logicalWidth{}, logicalHeight{};
+    RenderLogCallback log{};
+    void* logContext{};
 };
 struct Diagnostics {
     std::uint64_t frames{}, allocatedGpuBytes{};
@@ -121,6 +138,9 @@ public:
     virtual Status initialize(const BackendInit&) noexcept = 0;
     virtual Capabilities capabilities() const noexcept = 0;
     virtual Status createMesh(MeshView, MeshHandle&) noexcept = 0;
+    virtual Status createDynamicMesh(std::size_t vertexCapacity, std::size_t indexCapacity,
+                                     MeshHandle&) noexcept = 0;
+    virtual Status updateDynamicMesh(MeshHandle, MeshView) noexcept = 0;
     virtual Status createTexture(std::uint32_t width, std::uint32_t height,
                                  std::span<const std::byte> rgba, TextureHandle&) noexcept = 0;
     virtual Status createMaterial(const Material&, MaterialHandle&) noexcept = 0;

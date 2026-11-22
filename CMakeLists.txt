@@ -107,6 +107,7 @@ add_executable(project_echo
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(project_echo PRIVATE cxx_std_20)
+target_include_directories(project_echo PRIVATE framework/rendering/include)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
     EchoFramework::Core EchoFramework::Data)
@@ -136,6 +137,7 @@ add_executable(echo_sdl_tests
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
+target_include_directories(echo_sdl_tests PRIVATE framework/rendering/include)
 target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static EchoFramework::Data)

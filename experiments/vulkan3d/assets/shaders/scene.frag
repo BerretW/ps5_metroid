@@ -69,5 +69,11 @@ void main() {
             }
         }
     }
-    outputColor = vec4(lit + draw.emissionMetallic.xyz,base.a);
+    vec3 result = lit + draw.emissionMetallic.xyz;
+#ifdef ECHO_OUTPUT_SRGB
+    result = clamp(result, 0.0, 1.0);
+    result = mix(12.92 * result, 1.055 * pow(result, vec3(1.0 / 2.4)) - 0.055,
+                 greaterThan(result, vec3(0.0031308)));
+#endif
+    outputColor = vec4(result,base.a);
 }

@@ -75,6 +75,9 @@ Copy-Item -LiteralPath (Join-Path $build "echo_vulkan3d.exe"),(Join-Path $build 
 foreach ($asset in @("scene.json","reactor_sparks.json","player.png")) {
     Copy-Item -LiteralPath (Join-Path $build "assets\$asset") -Destination (Join-Path $package "assets\$asset") -Force
 }
+foreach ($directory in @("sprites", "framework", "world")) {
+    Copy-Item -LiteralPath (Join-Path $build "assets\$directory") -Destination (Join-Path $package "assets") -Recurse -Force
+}
 foreach ($shader in @("scene.vert.spv","scene.frag.spv")) {
     Copy-Item -LiteralPath (Join-Path $build "assets\shaders\$shader") -Destination (Join-Path $package "assets\shaders\$shader") -Force
 }

@@ -1,13 +1,26 @@
-find_package(Vulkan 1.1 REQUIRED)
-if(NOT WIN32 OR CMAKE_CROSSCOMPILING)
-    message(FATAL_ERROR "Only the verified native Win32 presentation adapter is implemented. PS5 RADV is blocked; see the experiment compatibility audit.")
+if(PS5 AND ECHO_PS5_VULKAN)
+    if(NOT ECHO_PS5_MESA_SOURCE OR NOT EXISTS "${ECHO_PS5_MESA_SOURCE}/include/vulkan/vulkan.h")
+        message(FATAL_ERROR "The pinned PS5 Mesa Vulkan headers are required.")
+    endif()
+    add_library(echo_framework_rendering_vulkan STATIC
+        src/vulkan_backend.cpp src/ps5_surface.cpp src/ps5_dispatch.cpp)
+    target_compile_definitions(echo_framework_rendering_vulkan PRIVATE ECHO_PS5_VULKAN)
+    target_include_directories(echo_framework_rendering_vulkan PRIVATE
+        "${ECHO_PS5_MESA_SOURCE}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../experiments/vulkan3d/ps5/radv")
+else()
+    find_package(Vulkan 1.1 REQUIRED)
+    if(NOT WIN32 OR CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR "Only native Win32 and the explicit experimental PS5 RADV adapter are supported.")
+    endif()
+    add_library(echo_framework_rendering_vulkan STATIC
+        src/vulkan_backend.cpp src/windows_surface.cpp)
+    target_link_libraries(echo_framework_rendering_vulkan PRIVATE Vulkan::Vulkan)
 endif()
-add_library(echo_framework_rendering_vulkan STATIC
-    src/vulkan_backend.cpp src/windows_surface.cpp)
 add_library(EchoFramework::RenderingVulkan ALIAS echo_framework_rendering_vulkan)
 target_include_directories(echo_framework_rendering_vulkan PUBLIC include)
 target_compile_features(echo_framework_rendering_vulkan PUBLIC cxx_std_20)
-target_link_libraries(echo_framework_rendering_vulkan PUBLIC EchoFramework::Rendering PRIVATE Vulkan::Vulkan)
+target_link_libraries(echo_framework_rendering_vulkan PUBLIC EchoFramework::Rendering)
 if(MSVC)
     target_compile_options(echo_framework_rendering_vulkan PRIVATE /W4 /permissive-)
 endif()

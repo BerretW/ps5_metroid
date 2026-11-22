@@ -13,8 +13,8 @@ public:
     Capabilities capabilities() const noexcept override;
     Status createMesh(MeshView, MeshHandle&) noexcept override;
     Status createDynamicMesh(std::size_t vertexCapacity, std::size_t indexCapacity,
-                             MeshHandle&) noexcept;
-    Status updateDynamicMesh(MeshHandle, MeshView) noexcept;
+                             MeshHandle&) noexcept override;
+    Status updateDynamicMesh(MeshHandle, MeshView) noexcept override;
     Status createTexture(std::uint32_t, std::uint32_t, std::span<const std::byte>,
                          TextureHandle&) noexcept override;
     Status createMaterial(const Material&, MaterialHandle&) noexcept override;

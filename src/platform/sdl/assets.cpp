@@ -34,8 +34,8 @@ unsigned char* readFile(const char* path, int& length) noexcept {
         }
         total += read;
     }
-    SDL_RWclose(file);
-    if (data == nullptr || total != static_cast<std::size_t>(size)) {
+    const int closeResult = SDL_RWclose(file);
+    if (data == nullptr || total != static_cast<std::size_t>(size) || closeResult != 0) {
         SDL_Log("Asset read failed: %s", path);
         SDL_free(data);
         return nullptr;
@@ -63,24 +63,40 @@ bool assetRoot(char* out, std::size_t size) noexcept {
 #endif
 }
 
-SDL_Texture* loadPngTexture(SDL_Renderer* renderer, const char* path) noexcept {
-    if (renderer == nullptr || path == nullptr) {
-        return nullptr;
-    }
+bool loadPngRgba(const char* path, RgbaImage& image) noexcept {
+    freePngRgba(image);
+    if (path == nullptr) return false;
     int length = 0;
     unsigned char* data = readFile(path, length);
-    if (data == nullptr) {
-        return nullptr;
-    }
+    if (data == nullptr) return false;
     int width = 0;
     int height = 0;
     unsigned char* pixels = echo_decode_png_rgba(data, length, &width, &height);
     SDL_free(data);
-    if (pixels == nullptr) {
-        SDL_Log("PNG decode failed: %s", path);
+    if (pixels == nullptr || width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4U >
+            kMaxDecodedPngBytes) {
+        SDL_Log("PNG decode failed or decoded size rejected: %s", path);
+        echo_free_png(pixels);
+        return false;
+    }
+    image = {pixels, width, height};
+    return true;
+}
+
+void freePngRgba(RgbaImage& image) noexcept {
+    echo_free_png(image.pixels);
+    image = {};
+}
+
+SDL_Texture* loadPngTexture(SDL_Renderer* renderer, const char* path) noexcept {
+    if (renderer == nullptr || path == nullptr) {
         return nullptr;
     }
-    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height, 32, width * 4,
+    RgbaImage image{};
+    if (!loadPngRgba(path, image)) return nullptr;
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(image.pixels, image.width,
+                                                              image.height, 32, image.width * 4,
                                                               SDL_PIXELFORMAT_RGBA32);
     SDL_Texture* texture = surface == nullptr ? nullptr : SDL_CreateTextureFromSurface(renderer, surface);
     if (texture == nullptr) {
@@ -89,7 +105,7 @@ SDL_Texture* loadPngTexture(SDL_Renderer* renderer, const char* path) noexcept {
         SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
     }
     SDL_FreeSurface(surface);
-    echo_free_png(pixels);
+    freePngRgba(image);
     return texture;
 }
 

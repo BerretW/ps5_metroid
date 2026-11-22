@@ -3,10 +3,14 @@ param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
     [string]$LogDirectory,
     [switch]$ExperimentalRadv,
-    [switch]$ExperimentalRadvPad
+    [switch]$ExperimentalRadvPad,
+    [switch]$VulkanGame
 )
 $ErrorActionPreference = "Stop"
 if ($ExperimentalRadvPad -and -not $ExperimentalRadv) { throw "-ExperimentalRadvPad requires -ExperimentalRadv." }
+if ($VulkanGame -and ($ExperimentalRadv -or $ExperimentalRadvPad)) {
+    throw "-VulkanGame cannot be combined with experimental probe validation."
+}
 $root = Split-Path -Parent $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $root "dependencies.ps5.json") -Raw | ConvertFrom-Json
 $tool = Join-Path $root "build\ps5\host\ps5-native-tool.exe"
@@ -25,6 +29,28 @@ if ($icon.Length -lt 24 -or [BitConverter]::ToString($icon, 0, 8) -ne "89-50-4E-
 # Game packages carry runtime assets; the Hello World package does not.
 $assetDir = Join-Path $app "assets"
 $assetCount = 0
+if ($VulkanGame -and -not (Test-Path -LiteralPath $assetDir -PathType Container)) {
+    throw "PS5 Vulkan game assets are missing."
+}
+if ($VulkanGame) {
+    if (-not $env:VULKAN_SDK) { throw "VULKAN_SDK is required to validate PS5 shaders." }
+    $spirvVal = Join-Path $env:VULKAN_SDK "Bin\spirv-val.exe"
+    if (-not (Test-Path -LiteralPath $spirvVal -PathType Leaf)) { throw "SPIR-V validator is missing." }
+    foreach ($license in @("PS5_Vulkan.txt", "PS5_Platform.txt", "Mesa-license.rst", "LLVM.txt",
+                           "echo-vulkan-game.txt", "build-provenance.json", "Mesa\MIT")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\$license") -PathType Leaf)) {
+            throw "PS5 Vulkan license or provenance file is missing: $license"
+        }
+    }
+    if ((Get-Content -LiteralPath (Join-Path $app "licenses\echo-vulkan-game.txt") -Raw).Trim() -ne
+        "PROJECT_ECHO_PS5_VULKAN_V1") {
+        throw "Invalid PS5 Vulkan package marker."
+    }
+    $forbiddenStubs = @(Get-ChildItem -LiteralPath $app -Recurse -File | Where-Object {
+        $_.Name -in @("libSceAgc.so", "libSceAgcDriver.so", "libSceAgc.prx", "libSceAgcDriver.prx")
+    })
+    if ($forbiddenStubs.Count -ne 0) { throw "Host-only AGC link stubs must not be packaged." }
+}
 if (Test-Path -LiteralPath $assetDir) {
     foreach ($asset in Get-ChildItem -LiteralPath $assetDir -Recurse -File) {
         if ($asset.Length -gt 4MB) { throw "Asset exceeds the 4 MiB runtime limit: $($asset.Name)" }
@@ -41,6 +67,16 @@ if (Test-Path -LiteralPath $assetDir) {
                 [BitConverter]::ToUInt16($head, 20) -ne 1) {
                 throw "Asset is not a PCM WAV file: $($asset.Name)"
             }
+        } elseif ($VulkanGame -and $asset.Extension -eq ".spv" -and
+                  $asset.FullName -in @((Join-Path $assetDir "shaders\scene.vert.spv"),
+                                        (Join-Path $assetDir "shaders\scene.frag.spv"))) {
+            if ($asset.Length -lt 20 -or $asset.Length -gt 65536 -or $asset.Length % 4 -ne 0 -or
+                $read -lt 8 -or [BitConverter]::ToUInt32($head, 0) -ne 0x07230203 -or
+                [BitConverter]::ToUInt32($head, 4) -ne 0x00010000) {
+                throw "Invalid PS5 Vulkan SPIR-V asset: $($asset.Name)"
+            }
+            & $spirvVal --target-env vulkan1.0 $asset.FullName
+            if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $($asset.Name)" }
         } elseif ($asset.Extension -eq ".json" -and
                   $asset.FullName -eq (Join-Path $assetDir "framework\game.json")) {
             if ($asset.Length -gt 16KB) { throw "Framework game configuration exceeds 16 KiB." }
@@ -272,6 +308,13 @@ if (Test-Path -LiteralPath $assetDir) {
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\game.json") -PathType Leaf)) {
         throw "Packaged framework game configuration is missing."
     }
+    if ($VulkanGame) {
+        foreach ($stage in @("vert", "frag")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $assetDir "shaders\scene.$stage.spv") -PathType Leaf)) {
+                throw "PS5 Vulkan shader is missing: scene.$stage.spv"
+            }
+        }
+    }
     $packagedModules = @((Get-Content -LiteralPath (Join-Path $assetDir "framework\game.json") -Raw |
         ConvertFrom-Json).modules)
     if ($packagedModules -notcontains "echo.world") {
@@ -341,7 +384,7 @@ $neededLibraries = @()
 $knownSystemModules = @("libSceLibcInternal.prx", "libSceSystemService.prx", "libSceVideoOut.prx",
     "libkernel.prx", "libScePad.prx", "libSceUserService.prx", "libSceAudioOut.prx",
     "libSceKeyboard.prx", "libSceImeDialog.prx")
-if ($ExperimentalRadv) {
+if ($ExperimentalRadv -or $VulkanGame) {
     $knownSystemModules += @("libSceAgc.prx", "libSceAgcDriver.prx")
 }
 $param = Get-Content -LiteralPath (Join-Path $app "sce_sys\param.json") -Raw | ConvertFrom-Json
@@ -355,6 +398,13 @@ if ($ExperimentalRadv) {
         ConvertFrom-Json
     if ($param.titleId -ne $experimentalIdentity.titleId -or $param.contentId -ne $experimentalIdentity.contentId) {
         throw "Experimental RADV validation requires the isolated experimental identity."
+    }
+}
+if ($VulkanGame) {
+    $productionIdentity = Get-Content -LiteralPath (Join-Path $root "platform\ps5\sce_sys\param.json") -Raw |
+        ConvertFrom-Json
+    if ($param.titleId -ne $productionIdentity.titleId -or $param.contentId -ne $productionIdentity.contentId) {
+        throw "PS5 Vulkan game must retain the production identity."
     }
 }
 $runtime = Join-Path $app "sce_module\libc.prx"
@@ -443,6 +493,38 @@ foreach ($name in @("eboot.bin", "sce_module\libc.prx")) {
                 throw "Experimental RADV package does not have the expected system-module imports."
             }
         }
+        if ($VulkanGame) {
+            foreach ($module in @("libkernel.prx", "libSceLibcInternal.prx", "libSceVideoOut.prx",
+                                  "libScePad.prx", "libSceUserService.prx", "libSceAudioOut.prx",
+                                  "libSceAgc.prx", "libSceAgcDriver.prx")) {
+                if ($module -notin $neededLibraries) {
+                    throw "PS5 Vulkan game system-module import is missing: $module"
+                }
+            }
+            if ("libSceKeyboard.prx" -in $neededLibraries -or "libSceImeDialog.prx" -in $neededLibraries) {
+                throw "PS5 Vulkan game must not import PS5 keyboard or IME modules."
+            }
+        }
+    }
+}
+if ($VulkanGame) {
+    try {
+        $provenance = Get-Content -LiteralPath (Join-Path $app "licenses\build-provenance.json") -Raw |
+            ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "Invalid PS5 Vulkan build provenance: $($_.Exception.Message)"
+    }
+    $vulkanManifest = Get-Content -LiteralPath (Join-Path $root "experiments\vulkan3d\dependencies.json") -Raw |
+        ConvertFrom-Json
+    if ($provenance.mesaRevision -ne $vulkanManifest.ps5Mesa.commit -or
+        $provenance.vulkanRevision -ne $vulkanManifest.ps5Vulkan.commit -or
+        $provenance.platformRevision -ne $vulkanManifest.ps5Platform.commit -or
+        $provenance.radvArchiveSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $provenance.shaderCompilerSha256 -ne $vulkanManifest.vulkanSdk.glslangSha256 -or
+        $provenance.ebootSha256 -ne (Get-FileHash -LiteralPath (Join-Path $app "eboot.bin") -Algorithm SHA256).Hash -or
+        $provenance.vertexSpirvSha256 -ne (Get-FileHash -LiteralPath (Join-Path $assetDir "shaders\scene.vert.spv") -Algorithm SHA256).Hash -or
+        $provenance.fragmentSpirvSha256 -ne (Get-FileHash -LiteralPath (Join-Path $assetDir "shaders\scene.frag.spv") -Algorithm SHA256).Hash) {
+        throw "PS5 Vulkan package provenance does not match the pinned sources or packaged files."
     }
 }
 $report = [ordered]@{

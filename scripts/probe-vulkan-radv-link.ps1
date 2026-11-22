@@ -1,5 +1,6 @@
 #requires -Version 5.1
-param([switch]$Native, [switch]$Package, [switch]$Display, [switch]$Frame, [switch]$Cube, [switch]$Interactive)
+param([switch]$Native, [switch]$Package, [switch]$Display, [switch]$Frame, [switch]$Cube,
+    [switch]$Interactive, [switch]$PrepareGame)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root "build\vulkan-ps5"
@@ -20,6 +21,9 @@ if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitProcess -or
     throw "Native Windows 11 x64 is required."
 }
 if ($Package -and -not $Native) { throw "-Package requires -Native." }
+if ($PrepareGame -and (-not $Native -or $Package -or $Display -or $Frame -or $Cube -or $Interactive)) {
+    throw "-PrepareGame requires -Native and cannot be combined with diagnostic or package variants."
+}
 if ($Display -and -not $Native) { throw "-Display requires -Native." }
 if ($Frame -and (-not $Native -or $Display)) { throw "-Frame requires -Native and cannot be combined with -Display." }
 if ($Cube -and (-not $Native -or $Display -or $Frame)) { throw "-Cube requires -Native and cannot be combined with -Display or -Frame." }
@@ -39,6 +43,12 @@ $revision = & git -C $mesa rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $revision -ne $mesaPin) { throw "Mesa source is not at the pinned revision." }
 $dirty = & git -C $mesa status --porcelain
 if ($LASTEXITCODE -ne 0 -or $dirty) { throw "Mesa source checkout must be clean." }
+$platform = Join-Path $root ".deps\vulkan-ps5\platform-source"
+$platformPin = "b83202be73e930050e00de0f1b4d9ec46c0391bf"
+$revision = & git -C $platform rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $revision -ne $platformPin) { throw "PS5 platform source is not at the pinned revision." }
+$dirty = & git -C $platform status --porcelain
+if ($LASTEXITCODE -ne 0 -or $dirty) { throw "PS5 platform source checkout must be clean." }
 $options = Get-Content -LiteralPath (Join-Path $build "radv-target-visibility\meson-info\intro-buildoptions.json") -Raw | ConvertFrom-Json
 foreach ($name in @("c_args", "cpp_args")) {
     $optionRows = @($options | Where-Object { $_.name -eq $name })
@@ -234,6 +244,19 @@ $localNames = @($aliases) + @("mkstemp", "readlink", "echo_radv_*")
 $flags = @($wraps | ForEach-Object { "--wrap=$_" }) +
     @($aliases | ForEach-Object { "--defsym=$_=ps5_$_" }) +
     @("--defsym=mkstemp=echo_radv_mkstemp", "--defsym=readlink=echo_radv_readlink")
+if ($PrepareGame) {
+    $values = @($flags) + @($stubPaths) + @($archive, $map)
+    if (@($values | Where-Object { $_ -match '\]==\]|[\r\n]' }).Count -ne 0) {
+        throw "RADV link input contains unsupported CMake delimiter characters."
+    }
+    $cmakeLines = @("set(ECHO_RADV_LINK_FLAGS") +
+        @($flags | ForEach-Object { "  [==[$_]==]" }) + @(")", "set(ECHO_RADV_STUBS") +
+        @($stubPaths | ForEach-Object { "  [==[$($_.Replace('\', '/'))]==]" }) +
+        @(")", "set(ECHO_RADV_ARCHIVE [==[$($archive.Replace('\', '/'))]==])",
+          "set(ECHO_RADV_ALIASES_MAP [==[$($map.Replace('\', '/'))]==])")
+    [IO.File]::WriteAllLines((Join-Path $work "game-link-inputs.cmake"), $cmakeLines,
+                             (New-Object Text.UTF8Encoding($false)))
+}
 $output = Join-Path $work $(if ($Native) { "$variant-probe.llvm.elf" } else { "link-probe.elf" })
 $padStubs = if ($Interactive) { @("$sdk\lib\libScePad.so", "$sdk\lib\libSceUserService.so") } else { @() }
 $arguments = @("-m", "elf_x86_64", "-pie", "--eh-frame-hdr", "-z", "max-page-size=0x4000",

@@ -1,14 +1,53 @@
 # Native Windows PS5 feasibility
 
-Reusable Vulkan renderer: **BLOCKED**. A separate RADV first-frame diagnostic
-links, converts, signs and passes static package validation.
+The experimental Vulkan game now compiles, links, signs and passes static
+package validation on native Windows. **The Vulkan game has not been tested on
+PS5 hardware.** A separate RADV first-frame diagnostic also passes static validation.
 Runtime hold checks and RADV instance/device/queue creation were reported
 successful on hardware. A first-frame log reports successful submit, fence
 wait and present calls, and the operator confirms a visible turquoise screen.
 The operator also reports a visible moving interactive cube, with successful
-pipeline, pad and loop stages in the log. The reusable renderer and normal
-shutdown remain untested on PS5.
-Existing PROJECT ECHO and `PPSA91007` remain untouched.
+pipeline, pad and loop stages in the log. Those diagnostics do not establish
+game rendering, textures, input, audio, saves or normal shutdown. The operator
+subsequently confirmed that the full PROJECT ECHO Vulkan game is fully playable
+on PS5, including controls, audio, saving and clean shutdown (2026-11-22). The
+installed digest and console setup were not provided.
+
+## PS5 Vulkan game candidate
+
+With the previously prepared pinned RADV archive, runtime, SDK and Windows
+Vulkan SDK available (the manual host-tool prerequisites below still apply):
+
+```powershell
+.\scripts\build-ps5.ps1 -Target Game -SkipPs5Keyboard -Vulkan
+.\tests\ps5_package_tests.ps1 -Vulkan
+```
+
+The game build validates standalone Hello first, checks the RADV source pins
+and link inputs, compiles/validates Vulkan 1.0 SPIR-V, and stages the complete
+native application at `dist\ps5-vulkan\PPSA91007`. This is a separate build
+from the default SDL controller package at `dist\ps5-controller\PPSA91007`.
+Both intentionally use the same stable identity: **never leave both copies in
+the loader scan root**. Keep the existing package and saves backed up before
+manually replacing the project's own installed title. No upload is automated.
+See [HARDWARE_TESTS.md](HARDWARE_TESTS.md#project-echo-vulkan-game) for the
+manual checklist and log location.
+
+The candidate uses RADV through `VK_KHR_display`, with SDL controller and
+audio but no SDL video or PS5 keyboard/IME initialization. It records the
+existing game and screens as a 640x360 ordered 2D canvas; the existing SDL
+renderer remains the default in the other build. The separate Windows 3D/VFX
+experiment is not integrated into this PS5 game. The operator confirms that
+the game is fully playable.
+
+The candidate FSELF is 27,920,877 bytes, SHA-256
+`5994688994746aeae6a265f039cef29715142fefac6f0dfe52c52b6c030aec41`.
+The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
+compiler/linker output and commands are in that log directory and
+`build\ps5\game-vulkan`. The package records source pins, archive and shader
+hashes in `licenses\build-provenance.json`. Its nine system imports include
+AGC/AGCDriver, VideoOut, Pad, UserService and AudioOut; the AGC link stubs are
+not packaged. GPL and mixed Mesa license obligations still apply to redistribution.
 
 ## Build the runtime preflight
 
@@ -107,9 +146,9 @@ compatibility of a RADV archive. `build/vulkan-ps5/compatibility.json` records
 compiler/linker arguments, missing dependencies and separate static/hardware
 status. An unexpected successful link is an error.
 
-The default `Vulkan` renderer mode prepares/verifies runtime dependencies and
-then fails explicitly: it does not provide presentation or a renderer. The
-separate diagnostic below does not change this default.
+The older `build-vulkan-ps5.ps1` default `Vulkan` feasibility mode still fails
+explicitly and does not produce the game; use the `build-ps5.ps1 -Vulkan` game
+command above instead.
 `Runtime` is the separately named preflight mode described above.
 No mode connects to a console, uploads or executes a PS5 binary on Windows.
 
@@ -213,13 +252,14 @@ prove PS5 behavior; the separate operator-reported cube result is in
 6. Test the separate native RADV `VK_KHR_display` surface diagnostic. Never
    initialize SDL video or keyboard. Enumerate actual formats, display modes,
    queues and capabilities; start at 1280x720.
-7. Test the statically validated first-frame title on the console. Before adding
-   the reusable renderer, verify its visible output and evaluate shader and
-   resource requirements separately.
-8. Use a separate variant directory with coordinated metadata
+7. Test the statically validated Vulkan game candidate, including its shaders,
+   resource requirements and input/audio behavior, separately from the already
+   reported first-frame and cube diagnostics.
+8. Use a separate variant directory for diagnostics with coordinated metadata
    from `experiments/vulkan3d/ps5/identity.json`, a distinct launcher icon and
    `/data/echo-vulkan-lab` logs/save path. Confirm this identity is unused on the
-   actual console before manual installation.
+   actual console before manual installation. The game candidate instead retains
+   the production `PPSA91007` identity and project save/log paths.
 9. Run the hardware checklist. Successful static validation alone is Stage C,
    never Stage D.
 
