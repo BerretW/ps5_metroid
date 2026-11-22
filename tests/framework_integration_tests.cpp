@@ -87,7 +87,7 @@ int main() {
     }
     check(std::remove(fixturePath) == 0, "quest configuration fixture is removed");
     {
-        constexpr std::string_view shiftedConfig = R"({
+        constexpr std::string_view legacyTransformConfig = R"({
             "game": "echo.project_echo",
             "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
             "technician": {"transform": {"position": [250, 280]}},
@@ -96,26 +96,18 @@ int main() {
                 {"id": "echo:item/maintenance_key", "type": "item"}
             ]
         })";
-        check(writeFixture(shiftedConfig), "shifted engineer configuration is written");
-        auto shifted = std::make_unique<echo::platform::FrameworkIntegration>();
-        echo::Game shiftedGame;
-        check(shifted->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
-                  shifted->configureGame(shiftedGame) &&
-                  shiftedGame.technicianBounds().x == 250.0F &&
-                  !shiftedGame.technicianNearby(),
-              "changing the registered transform changes the engineer's gameplay position");
-        const auto checkpoint = shiftedGame.checkpoint();
-        shiftedGame.start();
-        check(shiftedGame.restore(checkpoint) &&
-                  shiftedGame.technicianBounds().x == 250.0F,
-              "new games and checkpoint restoration retain the configured engineer position");
+        check(writeFixture(legacyTransformConfig), "legacy engineer transform configuration is written");
+        auto legacyTransform = std::make_unique<echo::platform::FrameworkIntegration>();
+        check(legacyTransform->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
+                  echo::framework::ErrorCode::InvalidValue,
+              "a second engineer position in game.json is rejected; echo:object/engineer owns it");
     }
-    check(std::remove(fixturePath) == 0, "shifted configuration fixture is removed");
+    check(std::remove(fixturePath) == 0, "legacy transform fixture is removed");
     {
         const auto configForInteraction = [](std::string_view interaction) {
             std::string json = R"({"game":"echo.project_echo",
                 "modules":["echo.state","echo.narrative.dialogue","echo.project_echo"],
-                "technician":{"transform":{"position":[108,280]},"interaction":)";
+                "technician":{"interaction":)";
             json.append(interaction);
             json += R"(},"resources":[
                 {"id":"echo:dialogue/engineer","type":"dialogue"},
@@ -174,7 +166,7 @@ int main() {
         constexpr std::string_view legacyConfig = R"({
             "game": "echo.project_echo",
             "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
-            "technician": {"transform": {"position": [108, 280]}},
+            "technician": {},
             "resources": [
                 {"id": "echo:dialogue/engineer", "type": "dialogue"},
                 {"id": "echo:item/maintenance_key", "type": "item"}
@@ -188,23 +180,6 @@ int main() {
               "legacy configurations without the component retain the original reach");
     }
     check(std::remove(fixturePath) == 0, "interaction configuration fixture is removed");
-    {
-        constexpr std::string_view unsupportedTransform = R"({
-            "game": "echo.project_echo",
-            "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
-            "technician": {"transform": {"position": [108, 280], "scale": [2, 1]}},
-            "resources": [
-                {"id": "echo:dialogue/engineer", "type": "dialogue"},
-                {"id": "echo:item/maintenance_key", "type": "item"}
-            ]
-        })";
-        check(writeFixture(unsupportedTransform), "unsupported transform fixture is written");
-        auto invalidTransform = std::make_unique<echo::platform::FrameworkIntegration>();
-        check(invalidTransform->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
-                  echo::framework::ErrorCode::InvalidValue,
-              "unsupported engineer transform fields fail rather than being ignored");
-    }
-    check(std::remove(fixturePath) == 0, "unsupported transform fixture is removed");
     {
         constexpr std::string_view unsupportedAction = R"({
             "schemaVersion": 1,
@@ -344,6 +319,11 @@ int main() {
                       loaded->abilityPickup.height == expected.abilityPickup.height &&
                       loaded->propCount > 0,
                   "JSON player start, pickup and decorative props are loaded");
+            check(loaded->engineer.x == 108.0F && loaded->engineer.y == 280.0F &&
+                      loaded->engineer.width == 28.0F && loaded->engineer.height == 40.0F &&
+                      loaded->engineer.x == expected.engineer.x &&
+                      loaded->engineer.y == expected.engineer.y,
+                  "the engineer's spawn position and bounds come from echo:object/engineer");
             const echo::framework::ObjectDefinition* heavy =
                 loaded->enemies[1].archetype;
             check(heavy != nullptr && heavy->id() == "echo:object/enemy_patrol_heavy" &&
@@ -355,7 +335,7 @@ int main() {
         }
     }
     check(game.technicianBounds().x == 108.0F && game.technicianBounds().y == 280.0F,
-          "schema-instantiated transform positions the engineer in the game");
+          "the engineer object's spawn positions her in the game");
     const auto greetingStatus = game.update({.interactPressed = true});
     const auto offerStatus = game.update({.interactPressed = true});
     const auto grantStatus = game.update({.interactPressed = true});

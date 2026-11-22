@@ -103,11 +103,6 @@ framework::Status Game::configureWorld(const WorldLayout& layout) noexcept {
     }
     framework::Status status = validateWorldLayout(layout);
     if (!status) return status;
-    const float landingWidth = layout.rooms[roomIndex(RoomId::LandingBay)].width();
-    if (technician_.x + technician_.width > landingWidth) {
-        return {framework::ErrorCode::InvalidValue, "technician.transform",
-                "The engineer position must fit inside the Landing Bay."};
-    }
     world_ = &layout;
     start();
     return framework::Status::success();
@@ -317,7 +312,7 @@ framework::Status Game::removeAttributeModifier(
 
 framework::Status Game::configureDialogue(
     const framework::DialogueModule& module, framework::GameState& state,
-    Vec2 technicianPosition, float interactionReach,
+    float interactionReach,
     framework::InventoryModule* inventoryModule) noexcept {
     using namespace framework;
     if (dialogueSession_.active()) {
@@ -331,14 +326,6 @@ framework::Status Game::configureDialogue(
     if (inventoryModule != nullptr && !inventoryModule->initialized()) {
         return {ErrorCode::InvalidState, "echo.rpg.inventory",
                 "The inventory module must be initialized before configuring the game."};
-    }
-    if (!std::isfinite(technicianPosition.x) || !std::isfinite(technicianPosition.y) ||
-        technicianPosition.x < 0.0F || technicianPosition.y < 0.0F ||
-        technicianPosition.x > world_->rooms[roomIndex(RoomId::LandingBay)].width() -
-                                   technician_.width ||
-        technicianPosition.y > static_cast<float>(kRoomHeight) - technician_.height) {
-        return {ErrorCode::InvalidValue, "technician.transform",
-                "The engineer position must fit inside the Landing Bay."};
     }
     if (!std::isfinite(interactionReach) || interactionReach < 0.0F ||
         interactionReach > kMaxInteractionReach) {
@@ -383,8 +370,6 @@ framework::Status Game::configureDialogue(
     dialogueModule_ = &module;
     dialogueState_ = &state;
     inventoryModule_ = inventoryModule;
-    technician_.x = technicianPosition.x;
-    technician_.y = technicianPosition.y;
     interactionReach_ = interactionReach;
     return Status::success();
 }
@@ -394,6 +379,7 @@ void Game::start() noexcept {
     equipment_.resetAfterAttributesReset();
     room_ = world_->startRoom;
     player_ = {world_->playerStart, {}, maximumHealth(), 1, true, false};
+    technician_ = world_->engineer;
     for (std::size_t index = 0; index < enemies_.size(); ++index) {
         const EnemySpawn& spawn = world_->enemies[index];
         enemies_[index] = {spawn.room, spawn.bounds, spawn.patrolLeft, spawn.patrolRight,

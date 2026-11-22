@@ -13,12 +13,13 @@
 
 Resource-reference existence is checked only when `validateConfig` or `instantiate` receives a `ContentRegistry`. Without a registry, IDs are syntax-checked but not resolved.
 
-PROJECT ECHO uses the built-in `Transform2D` descriptor to instantiate Mira's `technician.transform` from [game.json](../../assets/framework/game.json). The current game accepts a visible, unscaled, unrotated transform whose position fits inside the Landing Bay; invalid content fails explicitly during startup or game configuration.
+Mira's position is not a component in [game.json](../../assets/framework/game.json): it is the `spawn.position` (and `bounds`) of `echo:object/engineer` in [engineer.json](../../assets/world/objects/engineer.json), like every other world object (see [WORLD.md](WORLD.md)). A legacy `technician.transform` entry is rejected at startup and by the content validators so the position has a single source.
 
 The project also registers `echo.project_echo:component/dialogue_interaction`. Its
 `horizontalReach` is a finite number from 0 to 128 logical pixels, defaulting to
 52. It expands the engineer's interaction rectangle horizontally; vertical
-reach is unchanged. The component depends on `Transform2D`. The optional
+reach is unchanged. The descriptor declares a `Transform2D` dependency for
+editors; at runtime the position comes from the engineer object. The optional
 `technician.interaction` object is validated using this schema before it is
 applied to the SDL-free game; older configurations without it retain the same
 52-pixel reach. It is configuration, not saved gameplay state: new games and

@@ -98,6 +98,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     layout.doorCount = 2;
     layout.startRoom = RoomId::LandingBay;
     layout.playerStart = {42.0F, kLayoutFloorY};
+    layout.engineer = {108.0F, 280.0F, 28.0F, 40.0F};
     layout.abilityRoom = RoomId::ResearchLab;
     layout.abilityPickup = {690.0F, kLayoutFloorY + 2.0F, 20.0F, 24.0F};
     return layout;
@@ -333,6 +334,10 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         collides(start, player)) {
         return invalid("world.player", "The player must start inside the Landing Bay.");
     }
+    if (!fitsRoom(layout.engineer, start) || collides(start, layout.engineer)) {
+        return invalid("echo:object/engineer",
+                       "The engineer's spawn must place her inside the Landing Bay.");
+    }
     if (layout.abilityRoom >= RoomId::Count ||
         !fitsRoom(layout.abilityPickup,
                   layout.rooms[static_cast<std::size_t>(layout.abilityRoom)])) {
@@ -461,6 +466,8 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
     }
     layout.startRoom = RoomId::LandingBay;
     layout.playerStart = {archetypes.player->spawnX(), archetypes.player->spawnY()};
+    layout.engineer = {archetypes.engineer->spawnX(), archetypes.engineer->spawnY(),
+                       archetypes.engineer->width(), archetypes.engineer->height()};
     const Status status = validateWorldLayout(layout);
     if (!status) return status;
     output = layout;

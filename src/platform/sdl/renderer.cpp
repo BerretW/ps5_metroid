@@ -572,8 +572,10 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         const int x = static_cast<int>(technician.x - cameraX);
         const int y = static_cast<int>(technician.y);
         const bool talking = game.dialogueActive();
+        const bool facingLeft = world.archetypes.engineer != nullptr &&
+                                world.archetypes.engineer->facing() == framework::Facing::Left;
         if (!drawObject(world.archetypes.engineer, talking ? "talk" : "idle", ticks,
-                        technician, cameraX, false)) {
+                        technician, cameraX, facingLeft)) {
             panel({x + 4, y + 12, 20, 28}, SDL_Color{45, 122, 129, 255});
             panel({x + 6, y + 1, 16, 15}, SDL_Color{190, 166, 132, 255});
             panel({x + 7, y, 14, 5}, SDL_Color{55, 53, 65, 255});

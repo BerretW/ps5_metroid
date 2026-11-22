@@ -76,9 +76,6 @@
     ]
   },
   "technician": {
-    "transform": {
-      "position": [108, 280]
-    },
     "interaction": {
       "horizontalReach": 52
     }

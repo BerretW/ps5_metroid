@@ -410,6 +410,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return {framework::ErrorCode::InvalidValue, "technician",
                 "Game configuration requires the engineer's component settings."};
     }
+    if (technician.find("transform").valid()) {
+        return {framework::ErrorCode::InvalidValue, "technician.transform",
+                "The engineer's position belongs to echo:object/engineer spawn data."};
+    }
     framework::ComponentTypeRegistry componentTypes{};
     status = framework::registerCoreComponentTypes(componentTypes);
     if (!status) {
@@ -420,17 +424,6 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return status;
     }
     framework::ComponentInstance component{};
-    status = componentTypes.instantiate(
-        "echo:component/transform2d", technician.find("transform"), component, &content);
-    if (!status) {
-        return {status.code, "technician.transform", status.detail};
-    }
-    framework::Transform2DComponent transform{};
-    if (!component.read(transform) || !transform.visible || transform.scaleX != 1.0F ||
-        transform.scaleY != 1.0F || transform.rotationDegrees != 0.0F) {
-        return {framework::ErrorCode::InvalidValue, "technician.transform",
-                "The engineer requires a visible, unscaled, unrotated transform."};
-    }
     DialogueInteractionComponent interaction{};
     const framework::JsonValue interactionConfig = technician.find("interaction");
     if (interactionConfig.valid()) {
@@ -473,7 +466,6 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return status;
     }
     dialogueDocument_ = std::move(dialogue);
-    technicianPosition_ = {transform.x, transform.y};
     technicianInteractionReach_ = interaction.horizontalReach;
 
     status = modules_.add(stateModule_, stateSelected);
@@ -556,8 +548,7 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
         if (!status) return status;
     }
     status = game.configureDialogue(
-        dialogueModule_, stateModule_.state,
-        {technicianPosition_[0], technicianPosition_[1]}, technicianInteractionReach_,
+        dialogueModule_, stateModule_.state, technicianInteractionReach_,
         inventoryModule_.initialized() ? &inventoryModule_ : nullptr);
     if (!status) return status;
     if (abilitiesModule_.initialized()) {

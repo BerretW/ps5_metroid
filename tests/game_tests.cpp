@@ -61,7 +61,7 @@ public:
         bool withEquipment = false) noexcept {
         if (!status_) return status_;
         echo::framework::Status status =
-            game.configureDialogue(module_, state_, {108.0F, 280.0F}, reach);
+            game.configureDialogue(module_, state_, reach);
         if (!status || !withEquipment) return status;
         status = game.configureAttributes(attributesModule_);
         return status ? game.configureEquipment(equipmentModule_) : status;
@@ -323,6 +323,27 @@ void testDataDrivenWorldLayout() {
     static echo::WorldLayout weakEnemy = echo::defaultWorldLayout();
     weakEnemy.enemies[0].health = 0;
     check(!rejected.configureWorld(weakEnemy), "enemy spawns outside the save contract are rejected");
+
+    static echo::WorldLayout movedEngineer = echo::defaultWorldLayout();
+    movedEngineer.engineer.x = 400.0F;
+    echo::Game moved;
+    check(static_cast<bool>(moved.configureWorld(movedEngineer)) &&
+              moved.technicianBounds().x == 400.0F && moved.technicianBounds().y == 280.0F &&
+              !moved.technicianNearby(),
+          "the engineer object's spawn position moves her in the game");
+    const echo::GameCheckpoint movedCheckpoint = moved.checkpoint();
+    moved.start();
+    check(moved.technicianBounds().x == 400.0F && moved.restore(movedCheckpoint) &&
+              moved.technicianBounds().x == 400.0F,
+          "new games and checkpoints keep the engineer's configured spawn");
+    static echo::WorldLayout outsideEngineer = echo::defaultWorldLayout();
+    outsideEngineer.engineer.x = 1270.0F;
+    check(!rejected.configureWorld(outsideEngineer),
+          "an engineer spawn outside the Landing Bay is rejected");
+    static echo::WorldLayout buriedEngineer = echo::defaultWorldLayout();
+    buriedEngineer.engineer.y = 300.0F;
+    check(!rejected.configureWorld(buriedEngineer),
+          "an engineer spawn inside solid tiles is rejected");
 }
 
 void testTechnicianDialogueAndInventory() {

@@ -100,6 +100,11 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'out-of-range component'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.technician | Add-Member -NotePropertyName transform -NotePropertyValue ([pscustomobject]@{ position = @(108, 280) })
+    $path = Write-JsonFixture 'duplicate-engineer-position.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'engineer position outside the engineer object'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.resources = @($config.resources | Where-Object {
         $_.id -ne 'echo:item/maintenance_key'
     })

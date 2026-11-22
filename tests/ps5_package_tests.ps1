@@ -215,6 +215,22 @@ try {
     Remove-Item -LiteralPath $worldManifest -Force
     Expect-Rejection "Packaged world manifest is missing"
     [IO.File]::WriteAllBytes($worldManifest, $originalManifest)
+    $engineerObject = Join-Path $fixture "assets\world\objects\engineer.json"
+    $originalEngineer = [IO.File]::ReadAllBytes($engineerObject)
+    $engineerJson = [Text.Encoding]::UTF8.GetString($originalEngineer) | ConvertFrom-Json
+    $engineerJson.PSObject.Properties.Remove("spawn")
+    [IO.File]::WriteAllText($engineerObject, ($engineerJson | ConvertTo-Json -Depth 8),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "echo:object/engineer has no spawn position"
+    [IO.File]::WriteAllBytes($engineerObject, $originalEngineer)
+    $gameConfigPath = Join-Path $fixture "assets\framework\game.json"
+    $originalGameConfig = [IO.File]::ReadAllBytes($gameConfigPath)
+    $gameJson = [Text.Encoding]::UTF8.GetString($originalGameConfig) | ConvertFrom-Json
+    $gameJson.technician | Add-Member -NotePropertyName transform -NotePropertyValue ([pscustomobject]@{ position = @(108, 280) })
+    [IO.File]::WriteAllText($gameConfigPath, ($gameJson | ConvertTo-Json -Depth 12),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "the engineer position belongs to echo:object/engineer"
+    [IO.File]::WriteAllBytes($gameConfigPath, $originalGameConfig)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -248,4 +264,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."

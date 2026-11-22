@@ -92,8 +92,12 @@ and rejects layouts the simulation cannot represent:
 - Doors and triggers use `target`, `arrive` and optional `requiresItem`.
 - Exactly one pickup; `player`, `engineer`, `projectile_player`,
   `projectile_enemy` and `loot_crate` objects must exist.
-- The engineer's position still comes from `framework/game.json`
-  (`technician.transform`); the `engineer` object supplies visuals only.
+- The engineer's `spawn.position`, `spawn.facing` and `bounds` in
+  `objects/engineer.json` (or inherited from its parent) place and orient her in
+  the Landing Bay; the spawn must fit the room and not overlap solid tiles.
+  `framework/game.json` holds only her `technician.interaction` reach and
+  rejects a legacy `technician.transform`. To try it, change the engineer's
+  `spawn.position` (for example `[400, 280]`) or `facing` and restart.
 
 If the selected `echo.world` data fails to load or validate, startup logs the
 error and exits instead of silently running different content. The built-in
@@ -112,11 +116,12 @@ flips.
 
 - `framework/tests/world_tests.cpp`: inheritance, merge rules, cycles, limits
   and malformed data.
-- `tests/game_tests.cpp`: a wider custom room and rejected invalid layouts.
+- `tests/game_tests.cpp`: a wider custom room, a moved engineer spawn and
+  rejected invalid layouts.
 - `tests/framework_integration_tests.cpp`: shipped JSON equals the built-in
-  layout.
+  layout, including the engineer spawn.
 - `tests/sdl_renderer_tests.cpp`: offscreen sheet loading and tile drawing.
-- `scripts/test-ps5-package.ps1`: packaged manifest, IDs and sprite
-  references.
+- `scripts/test-ps5-package.ps1`: packaged manifest, IDs, sprite references
+  and the engineer's object-owned spawn.
 
 None of these checks prove rendering or loading on PS5 hardware.

@@ -104,7 +104,6 @@ private:
     framework_detail::UnlockListener unlockListener_{};
     framework::Subscription unlockSubscription_{};
     framework::AbilityModule abilitiesModule_{kProjectAbilityDefinitions};
-    std::array<float, 2> technicianPosition_{};
     float technicianInteractionReach_{kDefaultInteractionReach};
     bool initialized_{};
 };

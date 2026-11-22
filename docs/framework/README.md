@@ -15,7 +15,7 @@ Echo Framework is a statically composed C++20 foundation. PROJECT ECHO remains t
 - An optional bounded inventory module with a versioned item catalog and deterministic compact or stable-slot stacks. PROJECT ECHO uses a 20-slot backpack, four separate equipment slots and one physical active-item stack.
 - An optional bounded attributes module with fixed-capacity definitions and modifiers; PROJECT ECHO uses it for player health, movement, jumping, and healing.
 - An optional bounded equipment module with slot-checked loadouts and attribute modifiers; PROJECT ECHO integrates Mira's Kinetic Coil as a persistent suit upgrade.
-- Headless examples and PROJECT ECHO integrations for ability unlock, Mira's dialogue, and her configured transform.
+- Headless examples and PROJECT ECHO integrations for ability unlock, Mira's dialogue, and her object-configured spawn.
 
 Dialogue, inventory, attributes, and equipment are optional reusable modules. Combat, reusable abilities, quests, and world systems remain future work; do not add placeholders. Register only module implementations that the executable links. Runtime JSON may select registered modules, but cannot load code.
 

@@ -57,8 +57,7 @@ if (Test-Path -LiteralPath $assetDir) {
                 @($gameConfig.modules) -notcontains "echo.narrative.cutscenes" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
                 -not ($gameConfig.resources -is [array]) -or
-                -not ($gameConfig.technician.transform.position -is [array]) -or
-                $gameConfig.technician.transform.position.Count -ne 2 -or
+                $null -eq $gameConfig.technician -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:ability/echo_step" -and $_.type -eq "ability"
                 }).Count -ne 1 -or
@@ -81,6 +80,9 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq "echo:item/scrap" -and $_.type -eq "item"
                 }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
+            if (@($gameConfig.technician.PSObject.Properties.Name) -contains "transform") {
+                throw "Invalid framework game configuration: the engineer position belongs to echo:object/engineer."
             }
             $mainQuest = @($gameConfig.quests.quests | Where-Object {
                 $_.id -eq "echo:quest/main_route"
@@ -282,6 +284,7 @@ if (Test-Path -LiteralPath $assetDir) {
     if (@($worldManifest.rooms) -notcontains $worldManifest.startRoom) {
         throw "Invalid world data: the start room is not listed."
     }
+    $worldObjects = @{}
     foreach ($entry in $worldEntries) {
         if ($entry.id -notmatch '^echo:(object|room)/([a-z0-9_]{1,40})$') {
             throw "Invalid world data: unsupported content ID $($entry.id)."
@@ -294,6 +297,7 @@ if (Test-Path -LiteralPath $assetDir) {
         if ($content.id -ne $entry.id) {
             throw "Invalid world data: $($entry.id) file declares $($content.id)."
         }
+        if ($entry.folder -eq "objects") { $worldObjects[$entry.id] = $content }
         $sheets = @()
         if ($content.sprite -and $content.sprite.sheet) { $sheets += $content.sprite.sheet }
         foreach ($tileset in @($content.tilesets)) {
@@ -305,6 +309,20 @@ if (Test-Path -LiteralPath $assetDir) {
                 throw "Invalid world data: $($entry.id) references missing sprite sheet $sheet."
             }
         }
+    }
+    # The engineer's start position is owned by her object (directly or inherited).
+    $engineerSpawn = $null
+    $current = $worldObjects["echo:object/engineer"]
+    for ($depth = 0; $null -ne $current -and $depth -le 8; $depth++) {
+        if ($current.spawn -and $null -ne $current.spawn.position) {
+            $engineerSpawn = @($current.spawn.position)
+            break
+        }
+        if (-not $current.parent) { break }
+        $current = $worldObjects[[string]$current.parent]
+    }
+    if ($null -eq $engineerSpawn -or $engineerSpawn.Count -ne 2) {
+        throw "Invalid world data: echo:object/engineer has no spawn position."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\engineer.json") -PathType Leaf)) {
         throw "Packaged engineer dialogue is missing."

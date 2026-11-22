@@ -24,8 +24,8 @@ using namespace echo::framework;
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
 constexpr std::array<std::string_view, 6> kGameConfigFields{
     "game", "modules", "technician", "resources", "quests", "cutscenes"};
-constexpr std::array<std::string_view, 2> kTechnicianFields{
-    "transform", "interaction"};
+// The engineer's position belongs to echo:object/engineer spawn data.
+constexpr std::array<std::string_view, 1> kTechnicianFields{"interaction"};
 constexpr std::array<std::string_view, 5> kResourceFields{
     "id", "type", "optional", "dependsOn", "optionalDependencies"};
 constexpr std::array<std::string_view, 2> kComponentFields{
@@ -500,25 +500,9 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
 
     const JsonValue technician = root.find("technician");
-    static constexpr std::array<std::string_view, 2> technicianFields{
-        "transform", "interaction"};
-    status = validateObjectFields(technician, technicianFields, "technician");
+    status = validateObjectFields(technician, kTechnicianFields, "technician");
     if (!status) return status;
     ComponentInstance instance{};
-    status = components.instantiate("echo:component/transform2d",
-                                    technician.find("transform"), instance,
-                                    &resources);
-    if (!status) return {status.code, "technician.transform", status.detail};
-    Transform2DComponent transform{};
-    if (!instance.read(transform) || !transform.visible ||
-        transform.scaleX != 1.0F || transform.scaleY != 1.0F ||
-        transform.rotationDegrees != 0.0F ||
-        transform.x < 0.0F || transform.y < 0.0F ||
-        transform.x > static_cast<float>(echo::kRoomWidth - 28) ||
-        transform.y > static_cast<float>(echo::kRoomHeight - 40)) {
-        return {ErrorCode::InvalidValue, "technician.transform",
-                "The technician requires a visible, unscaled, unrotated transform inside the Landing Bay."};
-    }
     const JsonValue interaction = technician.find("interaction");
     if (interaction.valid()) {
         status = components.instantiate(echo::kDialogueInteractionComponentId,

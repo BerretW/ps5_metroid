@@ -203,6 +203,8 @@ struct WorldLayout {
     std::size_t propCount{};
     RoomId startRoom{RoomId::LandingBay};
     Vec2 playerStart{};
+    // The engineer stands in the start room; position and size come from her object.
+    Rect engineer{};
     RoomId abilityRoom{RoomId::ResearchLab};
     Rect abilityPickup{};
     WorldArchetypes archetypes{};
@@ -296,7 +298,6 @@ public:
     [[nodiscard]] float roomWidth() const noexcept { return currentRoom().width(); }
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
-        Vec2 technicianPosition,
         float interactionReach = kDefaultInteractionReach,
         framework::InventoryModule* inventoryModule = nullptr) noexcept;
     [[nodiscard]] framework::Status configureAttributes(
@@ -438,7 +439,7 @@ private:
     Inventory inventory_{};
     std::array<ItemStack, kEquipmentSlotCount> equipmentItems_{};
     ItemStack activeItem_{};
-    Rect technician_{108.0F, 280.0F, 28.0F, 40.0F};
+    Rect technician_{};
     float interactionReach_{kDefaultInteractionReach};
     const framework::DialogueModule* dialogueModule_{};
     framework::GameState* dialogueState_{};

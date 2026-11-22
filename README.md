@@ -66,7 +66,7 @@ Talk to Engineer Mira in the Landing Bay, use left/right to choose a response, a
 
 `src/game/` contains the deterministic, shared gameplay simulation. `src/platform/sdl/` handles the window, input, rendering, menus, HUD and audio; `src/input/` contains reusable diagnostics math and report serialization. The Windows application and headless tests link the same game library; PS5 uses the same gameplay code with a native SDL backend and a separate application toolchain/package. See [architecture](docs/ARCHITECTURE.md), [controls](docs/CONTROLS.md), and [development notes](docs/DEVELOPMENT.md).
 
-`framework/core/` is a reusable SDL-free static library, `framework/data/` adds the pinned yyjson wrapper, content registry and save codec, and `framework/narrative/` supplies the dialogue module. The game adapter loads Mira's dialogue and transform from `assets/framework/`, while `echo::Game` remains authoritative for gameplay. See [framework architecture](docs/framework/ARCHITECTURE.md), [dialogue format](docs/framework/NARRATIVE.md), and the [headless example](framework/examples/core_demo/).
+`framework/core/` is a reusable SDL-free static library, `framework/data/` adds the pinned yyjson wrapper, content registry and save codec, and `framework/narrative/` supplies the dialogue module. The game adapter loads Mira's dialogue and interaction reach from `assets/framework/`, and her position from `assets/world/objects/engineer.json`, while `echo::Game` remains authoritative for gameplay. See [framework architecture](docs/framework/ARCHITECTURE.md), [dialogue format](docs/framework/NARRATIVE.md), and the [headless example](framework/examples/core_demo/).
 
 ## Repository map
 
