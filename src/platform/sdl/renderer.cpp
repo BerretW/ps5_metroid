@@ -156,6 +156,16 @@ bool Renderer::windowToLogical(int windowX, int windowY, float& x, float& y) con
     return std::isfinite(x) && std::isfinite(y);
 }
 
+void Renderer::setMouseAim(bool active, float logicalX, float logicalY) noexcept {
+    mouseAimPoint_ = {std::clamp(logicalX, 0.0F, 639.0F), std::clamp(logicalY, 0.0F, 359.0F)};
+    if (active == mouseAim_) return;
+    mouseAim_ = active;
+#ifndef __PROSPERO__
+    if (window_ != nullptr) SDL_SetWindowGrab(window_, active ? SDL_TRUE : SDL_FALSE);
+    SDL_ShowCursor(active ? SDL_DISABLE : SDL_ENABLE);
+#endif
+}
+
 bool Renderer::applyDisplayMode(DisplayMode mode) noexcept {
 #ifdef __PROSPERO__
     (void)mode;
@@ -930,7 +940,15 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
         }
         }
     }
-    if (!paused) {
+    if (!paused && mouseAim_) {
+        const int reticleX = static_cast<int>(std::lround(mouseAimPoint_.x));
+        const int reticleY = static_cast<int>(std::lround(mouseAimPoint_.y));
+        panel({reticleX - 7, reticleY - 1, 5, 2}, kOrange);
+        panel({reticleX + 3, reticleY - 1, 5, 2}, kOrange);
+        panel({reticleX - 1, reticleY - 7, 2, 5}, kOrange);
+        panel({reticleX - 1, reticleY + 3, 2, 5}, kOrange);
+        panel({reticleX - 1, reticleY - 1, 2, 2}, kText);
+    } else if (!paused) {
         const float screenAimX = player.aim.x - player.aim.y;
         const float screenAimY = (player.aim.x + player.aim.y) * 0.5F;
         const float length = std::sqrt(screenAimX * screenAimX + screenAimY * screenAimY);

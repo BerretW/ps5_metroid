@@ -38,6 +38,9 @@ public:
     static constexpr float kIsometricAimOriginY = 182.0F;
     // Converts window pixels (e.g. the mouse) to the 640x360 logical view.
     bool windowToLogical(int windowX, int windowY, float& x, float& y) const noexcept;
+    // While mouse-aiming, confines and hides the system cursor and draws the isometric
+    // crosshair at the logical cursor position. No-op for the cursor on PS5.
+    void setMouseAim(bool active, float logicalX, float logicalY) noexcept;
     // Loads PNG sprites from `assetDirectory` (trailing separator required).
     // Missing sprites keep the built-in rectangle art. Returns the number loaded.
     int loadSprites(const char* assetDirectory) noexcept;
@@ -88,6 +91,8 @@ private:
     std::array<SDL_Texture*, static_cast<int>(Sprite::Count)> sprites_{};
     std::array<WorldSheet, kMaxWorldSheets> worldSheets_{};
     int worldSheetCount_{};
+    bool mouseAim_{};
+    SDL_FPoint mouseAimPoint_{};
 };
 
 } // namespace echo::platform

@@ -815,6 +815,7 @@ int main(int, char**) {
     bool mouseFireHeld = false;
     int mouseWindowX = 0;
     int mouseWindowY = 0;
+    bool windowFocused = true;
     echo::platform::InventoryMenu inventoryMenu{};
     std::array<char, 128> inventoryMessage{};
     bool gameSessionActive = false;
@@ -1537,6 +1538,14 @@ int main(int, char**) {
                 }
             }
 
+            if (event.type == SDL_WINDOWEVENT) {
+                if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    windowFocused = false;
+                    mouseFireHeld = false;
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                    windowFocused = true;
+                }
+            }
             if (event.type == SDL_MOUSEMOTION) {
                 mouseAimActive = true;
                 mouseWindowX = event.motion.x;
@@ -1963,6 +1972,16 @@ int main(int, char**) {
             diagnosticCheckpoint("ECHO DIAG 11: before first frame render");
         }
 #endif
+        {
+            const bool captureMouse = screen == Screen::Playing && !paused && !showMap &&
+                                      windowFocused && mouseAimActive && game.isometric();
+            float cursorX = 0.0F;
+            float cursorY = 0.0F;
+            if (captureMouse) {
+                (void)renderer.windowToLogical(mouseWindowX, mouseWindowY, cursorX, cursorY);
+            }
+            renderer.setMouseAim(captureMouse, cursorX, cursorY);
+        }
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection, continueAvailable);
         } else if (screen == Screen::DualSenseLab) {
