@@ -5,5 +5,5 @@
   "titleName": "PROJECT ECHO Vulkan Lab",
   "saveRoot": "/data/echo-vulkan-lab",
   "startupLog": "/data/echo-vulkan-lab/startup.log",
-  "status": "Reserved experiment identity, not an installable package"
+  "status": "RADV instance diagnostic statically packaged; PS5 Vulkan hardware and rendering not tested"
 }

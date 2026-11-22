@@ -1,7 +1,97 @@
 # Native Windows PS5 feasibility
 
-Status: **BLOCKED**. There is no PS5 Vulkan executable, FSELF or installable
-experiment directory. Existing PROJECT ECHO remains untouched.
+Reusable Vulkan renderer: **BLOCKED**. A separate RADV first-frame diagnostic
+links, converts, signs and passes static package validation.
+Runtime hold checks and RADV instance/device/queue creation were reported
+successful on hardware. A first-frame log reports successful submit, fence
+wait and present calls, and the operator confirms a visible turquoise screen.
+The operator also reports a visible moving interactive cube, with successful
+pipeline, pad and loop stages in the log. The reusable renderer and normal
+shutdown remain untested on PS5.
+Existing PROJECT ECHO and `PPSA91007` remain untouched.
+
+## Build the runtime preflight
+
+Restore the production native toolchain first if it is not already available:
+
+```powershell
+.\scripts\build-ps5.ps1 -Target Hello -RestoreDependencies
+.\scripts\doctor.ps1 -Target PS5
+.\scripts\build-vulkan-ps5.ps1 -Target Dependencies -RestoreDependencies
+.\scripts\build-vulkan-ps5.ps1 -Target Runtime
+```
+
+`Dependencies` builds the pinned platform and LLVM 18.1.8 compiler-rt builtins
+using Windows Clang/LLD/CMake/Ninja. It retains the SDK v0.42 libc++/libc++abi/
+libunwind binaries, just as the pinned upstream platform bootstrap does. All
+members of all five runtime archives are inspected for ELF64, little-endian,
+x86-64 relocatable format. The weak ELF `__emutls_get_address` definition is
+required; Windows COFF builtins are never substituted.
+
+The fork's tracked FreeBSD header symlinks are materialized from their pinned
+Git targets without administrator privileges. Their resolution rejects cycles
+and escapes from the source include tree. Neither original SDK nor upstream
+source checkouts are modified. Target assembly also explicitly selects PS5.
+
+`Runtime` validates standalone Hello first, links the full C++ runtime with
+unwind boundaries, then uses the existing native converter and FSELF signer.
+Static C++ ABI definitions are localized rather than published as unsupported
+application exports. `__assert` binds to the real platform `ps5___assert`, never
+a dummy assertion. Linker scripts/maps are tracked as relink dependencies.
+
+Outputs:
+
+```text
+build/vulkan-ps5/runtime-probe/echo_vulkan_runtime.llvm.elf
+build/vulkan-ps5/runtime-probe/eboot.elf
+dist/vulkan-experiment/PPSA91008/
+  eboot.bin
+  sce_sys/param.json
+  sce_sys/icon0.png
+  sce_module/libc.prx
+  licenses/
+```
+
+The generic static validator verifies title/content identity, imports, 16 KiB
+segments, runtime companion and FSELF integrity. The only system modules are
+`libkernel.prx` and `libSceLibcInternal.prx`; no SDL/keyboard/IME/GPU module is
+imported. Native commands and compiler/linker output are retained under
+`build/vulkan-ps5/logs`; `PPSA91008-validation.json` is the static report.
+`native-build-history.log` retains actual compiler/linker output across rebuilds,
+while individual stage stdout/stderr files describe their most recent invocation.
+`licenses/build-provenance.json` retains runtime archive hashes and source pins.
+`build/vulkan-ps5/compatibility.json` describes the most recent script mode and
+can be replaced by a subsequent probe; it is not the persistent package report.
+
+Copy only the **`PPSA91008` application directory itself** into Kraken Mount's
+configured scan root (normally `/data/homebrew`), so the console path is
+`/data/homebrew/PPSA91008`. Kraken Mount also scans one directory below a scan
+root, but does not recursively search arbitrary nesting. Do not copy the
+enclosing `dist/vulkan-experiment` directory: that makes the title too deep to
+discover. Confirm `PPSA91008` is unused before manual copying. This is a native application, not a `payload_main` binary
+or proof of compatibility with an arbitrary ELF sender. The probe has no
+visible frame; a short black screen/exit is not success evidence. Retrieve
+`/data/echo-vulkan-lab/startup.log` and follow
+[HARDWARE_TESTS.md](HARDWARE_TESTS.md). Each launch replaces this log.
+The title metadata is emitted as UTF-8 **without a BOM**: Kraken Mount parses
+`sce_sys/param.json` directly as JSON bytes, and PowerShell 5.1's
+`Set-Content -Encoding UTF8` adds a BOM that causes its scanner to reject the
+folder silently from the library view.
+
+The probe touches/frees 8 MiB of direct heap, tests C++ allocation/library locale,
+two default direct-memory pthread stacks, independent emulated TLS and stack
+release accounting. It rejects any recorded private-libc allocator fallback.
+Cached stacks may remain intentionally; a virtual heap reservation is not a
+physical-memory measurement. Even a successful runtime log will not establish
+Vulkan support or explain the original 1080p software-renderer failure.
+
+For comparison with the observed post-callback exit crash, build the separately
+staged `-Target Runtime -RuntimeHold` variant. It remains in-process after
+successful checks, records a heartbeat every five seconds and must be closed
+manually. This follows the pinned boilerplate demo's approach but does not fix
+or validate normal CRT exit. See [HARDWARE_TESTS.md](HARDWARE_TESTS.md).
+
+## Missing-driver diagnostic
 
 ```powershell
 .\scripts\build-vulkan-ps5.ps1 -Probe
@@ -17,9 +107,92 @@ compatibility of a RADV archive. `build/vulkan-ps5/compatibility.json` records
 compiler/linker arguments, missing dependencies and separate static/hardware
 status. An unexpected successful link is an error.
 
-Without `-Probe`, the script fails explicitly and writes the blocker report.
-It never invokes the production PS5 build, packages an incomplete title, changes
-console files or connects to a console.
+The default `Vulkan` renderer mode prepares/verifies runtime dependencies and
+then fails explicitly: it does not provide presentation or a renderer. The
+separate diagnostic below does not change this default.
+`Runtime` is the separately named preflight mode described above.
+No mode connects to a console, uploads or executes a PS5 binary on Windows.
+
+## RADV instance diagnostic
+
+With the previously built pinned Mesa host tools, target cross file, runtime
+archives, Hello converter and runtime-hold package already present:
+
+```powershell
+.\scripts\build-vulkan-radv-archive.ps1
+.\scripts\probe-vulkan-radv-link.ps1 -Native -Package
+.\scripts\probe-vulkan-radv-link.ps1 -Native -Display -Package
+.\scripts\probe-vulkan-radv-link.ps1 -Native -Frame -Package
+.\scripts\probe-vulkan-radv-link.ps1 -Native -Cube -Package
+.\scripts\probe-vulkan-radv-link.ps1 -Native -Interactive -Package
+.\tests\vulkan_ps5_radv_tests.ps1
+.\tests\vulkan_ps5_radv_tests.ps1 -Cube
+.\tests\vulkan_ps5_radv_tests.ps1 -Interactive
+```
+
+These commands rebuild the target archive in a separate directory and create
+`dist/vulkan-experiment/ps5-radv-instance/PPSA91008`. They require the clean
+pinned PS5_Vulkan source at `.deps/vulkan-ps5/vulkan-source`; host-tool
+restoration and the cross file are still manual prerequisites, so this is not
+yet a clean-machine build. Compiler/linker commands and archive inspections are
+in `build/vulkan-ps5/logs/radv-visibility-build.log` and
+`build/vulkan-ps5/logs/radv-instance-link.log`. The static package report is
+`build/vulkan-ps5/logs/radv-instance/PPSA91008-validation.json`.
+
+The diagnostic obtains `vkCreateInstance` through the RADV ICD, creates an
+instance, enumerates the physical-device count, destroys the instance and holds
+with five-second heartbeats. It opens no SDL window and renders no frame.
+It imports `libSceAgc`, `libSceAgcDriver`, `libkernel`,
+`libSceLibcInternal` and `libSceVideoOut` as system modules; AGC `.so` files
+are host link-only stubs and must never be copied to the console. No runtime
+availability is inferred from those imports. See
+[HARDWARE_TESTS.md](HARDWARE_TESTS.md) for the manual test and log location.
+
+The separately staged `dist/vulkan-experiment/ps5-radv-display/PPSA91008`
+variant checks display/swapchain extensions, retrieves the physical-device
+properties and graphics queue, enumerates displays and modes, creates a logical
+device and gets its queue, then destroys the device and instance. It reports the
+smallest available mode at least 1280x720, preferring a refresh nearest 60 Hz
+for equal dimensions. It creates no surface or swapchain and renders no frame.
+Its log is `/data/echo-vulkan-lab/radv-display.log`; its static report is
+`build/vulkan-ps5/logs/radv-display/PPSA91008-validation.json`. Do not install
+two variants of the shared `PPSA91008` identity at once.
+
+The independently staged first-frame variant is
+`dist/vulkan-experiment/ps5-radv-frame/PPSA91008`. It checks plane, surface,
+swapchain and FIFO support and attempts one cyan clear and presentation without
+SDL or shaders. Its log is `/data/echo-vulkan-lab/radv-frame.log`; native
+compiler/linker output is `build/vulkan-ps5/logs/radv-frame-link.log` and the
+static report is `build/vulkan-ps5/logs/radv-frame/PPSA91008-validation.json`.
+On successful present, or an uncertain acquire/submit/present outcome, it keeps
+resources alive and waits for manual close. This is diagnostic behavior, not
+validated normal shutdown. See [HARDWARE_TESTS.md](HARDWARE_TESTS.md).
+
+The `-Cube` variant independently stages
+`dist/vulkan-experiment/ps5-radv-cube/PPSA91008`, retaining the confirmed
+first-frame package. It requires the Windows Vulkan SDK identified by
+`VULKAN_SDK`; the compiler is checked against the manifest SHA-256. GLSL is
+compiled to Vulkan 1.0 SPIR-V, validated using `spirv-val`, embedded in the
+binary and recorded in provenance. Its command log and static report are under
+`build/vulkan-ps5/logs/radv-cube*`; the console log is
+`/data/echo-vulkan-lab/radv-cube.log`. The `-Cube` test option additionally
+requires a Windows Vulkan GPU and the shader header generated by this build.
+The static cube uses fixed face order without a depth buffer or animation.
+As with the first-frame test, resources are retained for manual close.
+
+The `-Interactive` variant is separately staged at
+`dist/vulkan-experiment/ps5-radv-cube-input/PPSA91008`. It checks the pinned
+SDL source revision and uses its PS5 pad declarations, without initializing
+SDL video or keyboard. It imports the system `libScePad.prx` and
+`libSceUserService.prx` in addition to the five RADV modules; explicit
+`-ExperimentalRadv -ExperimentalRadvPad` validation checks this exact set
+without changing production or non-pad RADV acceptance. The SDL license and
+header/compiler/SPIR-V hashes are included in provenance. The log is
+`/data/echo-vulkan-lab/radv-cube-input.log`. The `-Interactive` test option
+includes the cube tests, controller/loop mocks and two Windows GPU rotation
+readbacks; build the variant before running it. These host tests alone do not
+prove PS5 behavior; the separate operator-reported cube result is in
+[HARDWARE_TESTS.md](HARDWARE_TESTS.md).
 
 ## Reproducible adaptation sequence
 
@@ -28,23 +201,22 @@ console files or connects to a console.
 2. Prefer a published RADV archive only when its source/SDK pins, full dependency
    set, license terms and independently measured SHA-256 can be verified.
    None was available at audit time.
-3. Otherwise port the small build orchestration to PowerShell. Keep Meson's
-   build description; use native Windows Ninja/Python/Mako and cross-file
-   compiler paths. Build matching native `mesa_clc`/`vtn_bindgen2` dependencies
-   before configuring target Mesa with `radv-winsys=ps5`, `mesa-clc=system`.
-4. Build and inspect ELF builtins, libc++, libc++abi, libunwind and the pinned
-   platform library. Inventory archive members and undefined symbols with the
-   existing Windows `llvm-ar`/`llvm-nm`/`llvm-readelf`. Do not link COFF objects.
-5. Resolve heap-domain, thread-stack, emulated TLS and libc rebinding with the
-   native `_start` runtime. Preserve localized symbols and unwind data. No
-   allocator fallback should be mistaken for proof that the combined runtime works.
-6. Implement a separate native RADV `VK_KHR_display` surface adapter. Never
+3. Native host tools are still built manually; the separate target archive,
+   diagnostic link and package now have PowerShell orchestration. Complete
+   clean-machine host-tool restoration before calling the full build reproducible.
+4. Runtime archives and native preflight linkage are now statically verified.
+   Continue inventorying driver archive members and undefined symbols with
+   Windows `llvm-ar`/`llvm-nm`/`llvm-readelf`; do not link COFF target objects.
+5. Manually test the native preflight's heap/thread/TLS checks, then audit the
+   additional libc rebinding required by actual RADV objects. Locale/C++ linkage
+   alone does not establish every driver runtime requirement.
+6. Test the separate native RADV `VK_KHR_display` surface diagnostic. Never
    initialize SDL video or keyboard. Enumerate actual formats, display modes,
    queues and capabilities; start at 1280x720.
-7. Link a minimal Vulkan title before adding the reusable renderer; validate
-   imports, 16 KiB load segments, converter records, FSELF integrity, shader
-   assets and notices.
-8. Package only in `dist/vulkan-experiment/PPSA91008`, using coordinated metadata
+7. Test the statically validated first-frame title on the console. Before adding
+   the reusable renderer, verify its visible output and evaluate shader and
+   resource requirements separately.
+8. Use a separate variant directory with coordinated metadata
    from `experiments/vulkan3d/ps5/identity.json`, a distinct launcher icon and
    `/data/echo-vulkan-lab` logs/save path. Confirm this identity is unused on the
    actual console before manual installation.

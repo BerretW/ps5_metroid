@@ -1,9 +1,12 @@
 #requires -Version 5.1
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [string]$LogDirectory
+    [string]$LogDirectory,
+    [switch]$ExperimentalRadv,
+    [switch]$ExperimentalRadvPad
 )
 $ErrorActionPreference = "Stop"
+if ($ExperimentalRadvPad -and -not $ExperimentalRadv) { throw "-ExperimentalRadvPad requires -ExperimentalRadv." }
 $root = Split-Path -Parent $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $root "dependencies.ps5.json") -Raw | ConvertFrom-Json
 $tool = Join-Path $root "build\ps5\host\ps5-native-tool.exe"
@@ -338,11 +341,21 @@ $neededLibraries = @()
 $knownSystemModules = @("libSceLibcInternal.prx", "libSceSystemService.prx", "libSceVideoOut.prx",
     "libkernel.prx", "libScePad.prx", "libSceUserService.prx", "libSceAudioOut.prx",
     "libSceKeyboard.prx", "libSceImeDialog.prx")
+if ($ExperimentalRadv) {
+    $knownSystemModules += @("libSceAgc.prx", "libSceAgcDriver.prx")
+}
 $param = Get-Content -LiteralPath (Join-Path $app "sce_sys\param.json") -Raw | ConvertFrom-Json
 if ($param.titleId -notmatch '^PPSA[0-9]{5}$' -or (Split-Path -Leaf $app) -ne $param.titleId -or
     $param.contentId -notmatch ("^[A-Z]{2}[0-9]{4}-" + $param.titleId + "_00-[A-Z0-9]{16}$") -or
     -not $param.localizedParameters.'en-US'.titleName) {
     throw "Invalid title identity or metadata."
+}
+if ($ExperimentalRadv) {
+    $experimentalIdentity = Get-Content -LiteralPath (Join-Path $root "experiments\vulkan3d\ps5\identity.json") -Raw |
+        ConvertFrom-Json
+    if ($param.titleId -ne $experimentalIdentity.titleId -or $param.contentId -ne $experimentalIdentity.contentId) {
+        throw "Experimental RADV validation requires the isolated experimental identity."
+    }
 }
 $runtime = Join-Path $app "sce_module\libc.prx"
 if ((Get-FileHash -LiteralPath $runtime -Algorithm SHA256).Hash -ne $manifest.runtime.signedSha256 -or
@@ -420,6 +433,15 @@ foreach ($name in @("eboot.bin", "sce_module\libc.prx")) {
         }
         if ("libSceLibcInternal.prx" -notin $neededLibraries -or "libkernel.prx" -notin $neededLibraries) {
             throw "Expected native system runtime imports are missing."
+        }
+        if ($ExperimentalRadv) {
+            $expected = @("libkernel.prx", "libSceLibcInternal.prx", "libSceVideoOut.prx",
+                "libSceAgc.prx", "libSceAgcDriver.prx")
+            if ($ExperimentalRadvPad) { $expected += @("libScePad.prx", "libSceUserService.prx") }
+            if ($neededLibraries.Count -ne $expected.Count -or
+                @($expected | Where-Object { $_ -notin $neededLibraries }).Count -ne 0) {
+                throw "Experimental RADV package does not have the expected system-module imports."
+            }
         }
     }
 }

@@ -1,0 +1,12 @@
+diff --git a/src/compiler/clc/mesa_clc.c b/src/compiler/clc/mesa_clc.c
+--- a/src/compiler/clc/mesa_clc.c
++++ b/src/compiler/clc/mesa_clc.c
+@@ -177,7 +177,7 @@ main(int argc, char **argv)
+       return 1;
+    }
+ 
+-   FILE *fp = fopen(outfile, "w");
++   FILE *fp = fopen(outfile, "wb");
+    fwrite(final_spirv.data, final_spirv.size, 1, fp);
+    fclose(fp);
+ 

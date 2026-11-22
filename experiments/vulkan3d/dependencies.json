@@ -9,17 +9,57 @@
   "ps5Vulkan": {
     "url": "https://github.com/mihawk-99/PS5_Vulkan",
     "commit": "7f492b4c6f67a4e8c8c67a4272cfeef22abea9cc",
-    "usage": "Research only; no code or archive imported"
+    "usage": "Pinned upstream link-only AGC import stubs and RADV runtime/link recipe; restored into an isolated source cache"
   },
   "ps5Mesa": {
     "url": "https://github.com/mihawk-99/PS5_Mesa",
     "commit": "1ba9874f478657ccf6da72ce55f0260164cc0bd0",
-    "usage": "RADV build script pin, not README revision; no compatible artifact acquired"
+    "usage": "RADV build script pin, not README revision; manually cross-built experimental ELF archive, runtime compatibility unverified"
   },
   "ps5Platform": {
     "url": "https://github.com/mihawk-99/PS5_PayloadSDK",
     "commit": "b83202be73e930050e00de0f1b4d9ec46c0391bf",
-    "usage": "PS5_Vulkan bootstrap pin; not interchangeable with production SDK"
+    "usage": "PS5_Vulkan bootstrap pin; GPL platform built only in the isolated PS5 experiment over the identical verified SDK v0.42 binaries"
+  },
+  "compilerRt": {
+    "url": "https://github.com/llvm/llvm-project.git",
+    "commit": "3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff",
+    "version": "18.1.8",
+    "license": "Apache-2.0 WITH LLVM-exception",
+    "usage": "Native Windows cross-build of ELF builtins including pthread-based emulated TLS; never use Windows COFF builtins"
+  },
+  "mesaHostPython": {
+    "requirements": "experiments/vulkan3d/ps5/host-requirements.txt",
+    "python": "3.14 x64",
+    "usage": "Isolated Windows Mesa host tools; binary wheels only, pinned SHA-256, no global package changes"
+  },
+  "hostPkgconf": {
+    "version": "3.0.7.post0",
+    "wheel": "pkgconf-3.0.7.post0-py3-none-win_amd64.whl",
+    "sha256": "e7906bb5ec1d0d074e397466075a8545f1c50cb11710768644f222ba8acebc7f",
+    "usage": "Windows pkgconf executable extracted from the wheel without installing its incorrectly tagged Python metadata"
+  },
+  "spirvLlvmTranslator": {
+    "url": "https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git",
+    "tag": "v18.1.4",
+    "commit": "242df2cb83e2322b456990fb0ca3e30bd9209ed0",
+    "usage": "Native host SPIR-V/LLVM translator for LLVM 18.1; target is not a Windows library"
+  },
+  "spirvTools": {
+    "url": "https://github.com/KhronosGroup/SPIRV-Tools.git",
+    "tag": "v2024.4",
+    "commit": "4d2f0b40bfe290dea6c6904dafdf7fd8328ba346",
+    "usage": "Native host Mesa compiler dependency"
+  },
+  "spirvHeaders": {
+    "url": "https://github.com/KhronosGroup/SPIRV-Headers.git",
+    "commit": "3f17b2af6784bfa2c5aa5dbb8e0e74a607dd8b3b",
+    "usage": "Native SPIRV-Tools headers pinned by the selected SPIRV-Tools DEPS file"
+  },
+  "spirvTranslatorHeaders": {
+    "url": "https://github.com/KhronosGroup/SPIRV-Headers.git",
+    "commit": "1c6bb2743599e6eb6f37b2969acc0aef812e32e3",
+    "usage": "Native translator headers pinned by its spirv-headers-tag.conf"
   },
   "template": {
     "url": "https://github.com/mihawk-99/PS5_VulkanTemplate",

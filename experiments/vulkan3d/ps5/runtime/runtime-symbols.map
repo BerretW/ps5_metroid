@@ -1,0 +1,20 @@
+{
+    local:
+        _Z*;
+        __dso_handle;
+        __emutls*;
+        __cxa*;
+        __gxx*;
+        __dynamic_cast;
+        _Unwind*;
+        ps5_*;
+        __wrap_*;
+        newlocale; freelocale; strtod_l; strtof_l; localeconv_l;
+        strtoll_l; strtoull_l; strtold_l; snprintf_l; sscanf_l; asprintf_l;
+        strcoll_l; strxfrm_l; strftime_l; wcscoll_l; wcsxfrm_l;
+        btowc_l; wctob_l; iswctype_l; mbrlen_l; mbrtowc_l; mbsrtowcs_l;
+        mbsnrtowcs_l; wcrtomb_l; wcsnrtombs_l; mbtowc_l;
+        ___mb_cur_max_l; ___runetype_l; ___tolower_l; ___toupper_l;
+        __runes_for_locale; catopen; catgets; catclose; __cxa_thread_atexit_impl;
+        __assert;
+};
