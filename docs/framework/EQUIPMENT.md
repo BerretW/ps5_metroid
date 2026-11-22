@@ -27,7 +27,7 @@ compatible slot, otherwise it enters the 20-slot backpack. Inventory transfers
 allow unequipping/re-equipping the Coil, remove/apply its modifier atomically,
 and clamp current horizontal speed when the bonus is removed.
 
-Autosave format 5 stores equipment physically outside the backpack. Restore
+Autosave format 6 stores equipment physically outside the backpack. Restore
 reconstructs modifiers only from equipped slots; legacy format 1/2 checkpoints
 move their backpack Coil to Body. The HUD displays `COIL ON` when equipped and
 `COIL OFF` when unequipped; owning it in either compartment hides the repeat dialogue

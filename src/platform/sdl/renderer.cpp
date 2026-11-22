@@ -527,8 +527,10 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     const framework::QuestProgress quest = game.questProgress();
     if (quest.total != 0) {
         text(12, 54, "OBJECTIVE", 1, kMuted);
-        text(76, 54, quest.completed == quest.total ? "MISSION COMPLETE" : quest.objective,
-             1, kCyan);
+        const std::string_view status =
+            quest.completed != quest.total ? quest.objective :
+            game.questRewardClaimed() ? "MISSION COMPLETE" : "REWARD NEEDS BAG SPACE";
+        text(76, 54, status, 1, kCyan);
     }
     if (!paused && !game.dialogueActive() && activeItem.item != ItemId::None) {
         text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
@@ -542,6 +544,20 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     if (game.accessBlocked()) {
         panel({188, 274, 264, 42}, SDL_Color{4, 10, 17, 230});
         text(211, 290, "LAB DOOR NEEDS ACCESS KEY", 1, kOrange);
+    }
+    if (quest.choiceRequired) {
+        panel({122, 258, 396, 62}, SDL_Color{4, 10, 17, 242});
+        text(142, 267, "CHOOSE A ROUTE", 1, kCyan);
+        for (std::size_t index = 0; index < quest.choices.size(); ++index) {
+            const int y = 282 + static_cast<int>(index) * 12;
+            if (index == game.questChoiceSelection()) panel({142, y, 4, 7}, kCyan);
+            text(154, y, quest.choices[index].label.data(), 1, kText);
+        }
+        text(142, 306,
+             controls_ == ControlScheme::PlayStation
+                 ? "LEFT / RIGHT SELECT   CROSS CONFIRM"
+                 : "LEFT / RIGHT SELECT   INTERACT CONFIRM",
+             1, kMuted);
     }
     if (game.technicianNearby() && !game.dialogueActive()) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
@@ -617,6 +633,19 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(195, 199, controls_ == ControlScheme::PlayStation ? "\x01 RESUME  \x04 MENU" : "ENTER RESUME  ESC MENU", 1, kMuted);
         text(245, 224, controls_ == ControlScheme::PlayStation
                           ? "L1 INVENTORY" : "I INVENTORY", 1, kCyan);
+    }
+    if (game.cutsceneActive()) {
+        panel({64, 210, 512, 106}, SDL_Color{4, 10, 17, 244});
+        panel({64, 210, 512, 3}, kCyan);
+        std::array<char, 24> cardNumber{};
+        std::snprintf(cardNumber.data(), cardNumber.size(), "SIGNAL %u/%u",
+                      static_cast<unsigned>(game.cutsceneCardIndex() + 1),
+                      static_cast<unsigned>(game.cutsceneCardCount()));
+        text(82, 220, cardNumber.data(), 1, kMuted);
+        text(82, 240, game.cutsceneSpeaker(), 1, kCyan);
+        text(82, 260, game.cutsceneText(), 1, kText);
+        text(82, 298, controls_ == ControlScheme::PlayStation
+                          ? "\x03 CONTINUE" : interactKey, 1, kMuted);
     }
     SDL_RenderPresent(renderer_);
 }

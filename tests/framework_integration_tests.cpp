@@ -71,7 +71,9 @@ int main() {
         for (const auto& [original, replacement] : {
                  std::pair<std::string_view, std::string_view>{
                      "echo:fact/echo_step", "echo:fact/unknown"},
-                 {"GET THE KEY FROM THE ENGINEER", "INVALID?"}}) {
+                 {"echo:item/shield_cell", "echo:item/unknown"},
+                 {"GET THE KEY FROM THE ENGINEER", "INVALID?"},
+                 {"FIND THE SOURCE BEFORE THE SIGNAL FADES", "INVALID?"}}) {
             std::string invalid = source;
             const std::size_t position = invalid.find(original);
             check(position != std::string::npos, "quest fixture field exists");
@@ -80,7 +82,7 @@ int main() {
             check(writeFixture(invalid), "invalid quest configuration is written");
             auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
             check(!integration->initialize(fixturePath, dialoguePath, itemCatalogPath),
-                  "runtime rejects unsupported quest facts and display glyphs");
+                  "runtime rejects unsupported quest or cutscene content");
         }
     }
     check(std::remove(fixturePath) == 0, "quest configuration fixture is removed");
@@ -296,6 +298,10 @@ int main() {
     if (!grantStatus) std::cerr << grantStatus.detail << '\n';
     check(game.update({.interactPressed = true}) && !game.dialogueActive(),
           "the initial key-offer conversation can be closed");
+    check(static_cast<bool>(game.update({.moveX = 1})) &&
+              static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.questBranch() == 2,
+          "the integrated quest route is selected before further dialogue");
     check(integration->notifyEchoStepUnlocked(), "ability unlock is mirrored through an action");
     check(integration->unlockEventCount() == 1,
           "ability transition publishes one typed framework event");

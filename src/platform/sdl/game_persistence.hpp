@@ -84,6 +84,9 @@ inline framework::Status encodeGameCheckpoint(const Game& game,
     if (const Status next = setBoolean("player.echo_step_unlocked", checkpoint.abilityCollected);
         !next) return next;
     if (const Status next = setBoolean("game.completed", checkpoint.completed); !next) return next;
+    if (const Status next = setInteger("quest.branch", checkpoint.questBranch); !next) return next;
+    if (const Status next = setBoolean("quest.reward_claimed",
+                                       checkpoint.questRewardClaimed); !next) return next;
     if (const Status next = setInteger("game.deaths", checkpoint.deaths); !next) return next;
     if (const Status next = setInteger("inventory.count",
                                        static_cast<std::int64_t>(checkpoint.inventory.count)); !next) return next;
@@ -177,6 +180,7 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
     std::int64_t facing{};
     std::int64_t deaths{};
     std::int64_t inventoryCount{};
+    std::int64_t questBranch{};
     StateValue layoutValue{};
     const bool hasLayout = static_cast<bool>(get("inventory.layout", layoutValue));
     if (hasLayout &&
@@ -200,7 +204,9 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         !getBoolean("player.echo_step_unlocked", echoStepUnlocked) ||
         !getInteger("inventory.count", inventoryCount) || inventoryCount < 0 ||
         inventoryCount > static_cast<std::int64_t>(hasLayout ? Inventory::kCapacity : 8) ||
-        !getBoolean("game.completed", candidate.completed)) {
+        !getBoolean("game.completed", candidate.completed) ||
+        !getInteger("quest.branch", questBranch) || questBranch < 0 || questBranch > 2 ||
+        !getBoolean("quest.reward_claimed", candidate.questRewardClaimed)) {
         return {ErrorCode::CorruptData, "autosave",
                 "Autosave is missing required gameplay state or has invalid field types."};
     }
@@ -208,6 +214,12 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
     candidate.playerHealth = static_cast<int>(health);
     candidate.playerFacing = static_cast<int>(facing);
     candidate.deaths = static_cast<int>(deaths);
+    candidate.questBranch = static_cast<std::uint8_t>(questBranch);
+    if (candidate.questRewardClaimed &&
+        (candidate.questBranch == 0 || !candidate.completed)) {
+        return {ErrorCode::CorruptData, "quest.reward_claimed",
+                "A claimed quest reward requires a completed selected route."};
+    }
     for (std::size_t index = 0; index < candidate.enemyHealth.size(); ++index) {
         const std::string_view key = game_persistence_detail::kEnemyKeys[index];
         constexpr std::array<int, kEnemyCount> maximumHealth{2, 3, 3, 6, 4};
@@ -318,6 +330,11 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         return {ErrorCode::CorruptData, "inventory",
                 "Autosave inventory slots are malformed."};
     }
+    if (candidate.questBranch != 0 &&
+        !candidate.inventory.contains(ItemId::MaintenanceKey)) {
+        return {ErrorCode::CorruptData, "quest.branch",
+                "A selected quest route requires the maintenance key."};
+    }
     for (std::size_t index = 0; index < kEquipmentSlotCount; ++index) {
         std::int64_t item{};
         std::int64_t quantity{};
@@ -388,7 +405,7 @@ inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
                                       framework::GameState& candidate,
                                       void*) noexcept {
     using namespace framework;
-    if (fromVersion < 1 || fromVersion > 4) return false;
+    if (fromVersion < 1 || fromVersion > 5) return false;
     if (fromVersion == 1) {
         const Status countStatus = candidate.set(
             {StateScope::Global, {}, "inventory.count"}, StateValue::fromInteger(1));
@@ -421,20 +438,26 @@ inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
             return false;
         }
     }
-    constexpr std::array<int, 3> newHealth{3, 6, 4};
-    for (std::size_t index = 2; index < kEnemyCount; ++index) {
-        if (!candidate.set({StateScope::Global, {}, game_persistence_detail::kEnemyKeys[index]},
-                           StateValue::fromInteger(newHealth[index - 2]))) return false;
+    if (fromVersion < 5) {
+        constexpr std::array<int, 3> newHealth{3, 6, 4};
+        for (std::size_t index = 2; index < kEnemyCount; ++index) {
+            if (!candidate.set({StateScope::Global, {}, game_persistence_detail::kEnemyKeys[index]},
+                               StateValue::fromInteger(newHealth[index - 2]))) return false;
+        }
+        for (std::size_t index = 0; index < 10; ++index) {
+            if (!candidate.set({StateScope::Global, {}, game_persistence_detail::kExtraLootActiveKeys[index]},
+                               StateValue::fromBoolean(false)) ||
+                !candidate.set({StateScope::Global, {}, game_persistence_detail::kExtraLootXKeys[index]},
+                               StateValue::fromNumber(0))) return false;
+        }
+        for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
+            if (!candidate.set({StateScope::Global, {}, key}, StateValue::fromNumber(0))) return false;
+        }
     }
-    for (std::size_t index = 0; index < 10; ++index) {
-        if (!candidate.set({StateScope::Global, {}, game_persistence_detail::kExtraLootActiveKeys[index]},
-                           StateValue::fromBoolean(false)) ||
-            !candidate.set({StateScope::Global, {}, game_persistence_detail::kExtraLootXKeys[index]},
-                           StateValue::fromNumber(0))) return false;
-    }
-    for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
-        if (!candidate.set({StateScope::Global, {}, key}, StateValue::fromNumber(0))) return false;
-    }
+    if (!candidate.set({StateScope::Global, {}, "quest.branch"},
+                       StateValue::fromInteger(0)) ||
+        !candidate.set({StateScope::Global, {}, "quest.reward_claimed"},
+                       StateValue::fromBoolean(false))) return false;
     return true;
 }
 

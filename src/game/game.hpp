@@ -5,9 +5,11 @@
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
+#include "echo/framework/cutscenes.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
 #include "game/project_quests.hpp"
+#include "game/project_cutscenes.hpp"
 
 #include <array>
 #include <cstddef>
@@ -174,6 +176,8 @@ struct GameCheckpoint {
     bool hasDoubleJump{};
     bool abilityCollected{};
     bool completed{};
+    std::uint8_t questBranch{};
+    bool questRewardClaimed{};
 };
 
 class Game {
@@ -193,7 +197,14 @@ public:
         const framework::EquipmentModule& module) noexcept;
     [[nodiscard]] framework::Status configureQuests(
         const framework::QuestModule& module) noexcept;
+    [[nodiscard]] framework::Status configureCutscenes(
+        const framework::CutsceneModule& module) noexcept;
     [[nodiscard]] framework::QuestProgress questProgress() const noexcept;
+    [[nodiscard]] std::uint8_t questBranch() const noexcept { return questBranch_; }
+    [[nodiscard]] bool questRewardClaimed() const noexcept { return questRewardClaimed_; }
+    [[nodiscard]] std::size_t questChoiceSelection() const noexcept {
+        return questChoiceSelection_;
+    }
     [[nodiscard]] framework::Status addAttributeModifier(
         std::string_view id, std::string_view source, std::int32_t amount) noexcept;
     [[nodiscard]] framework::Status removeAttributeModifier(
@@ -231,6 +242,15 @@ public:
     [[nodiscard]] Rect technicianBounds() const noexcept;
     [[nodiscard]] bool technicianNearby() const noexcept;
     [[nodiscard]] bool dialogueActive() const noexcept { return dialogueSession_.active(); }
+    [[nodiscard]] bool cutsceneActive() const noexcept { return cutscenePlayer_.active(); }
+    [[nodiscard]] std::string_view cutsceneSpeaker() const noexcept;
+    [[nodiscard]] std::string_view cutsceneText() const noexcept;
+    [[nodiscard]] std::size_t cutsceneCardIndex() const noexcept {
+        return cutscenePlayer_.currentIndex();
+    }
+    [[nodiscard]] std::size_t cutsceneCardCount() const noexcept {
+        return cutscenePlayer_.cardCount();
+    }
     [[nodiscard]] std::string_view dialogueSpeaker() const noexcept { return dialogueLine_.speaker; }
     [[nodiscard]] std::string_view dialogueText() const noexcept { return dialogueLine_.text; }
     [[nodiscard]] std::size_t dialogueChoiceCount() const noexcept { return dialogueChoiceCount_; }
@@ -266,6 +286,7 @@ private:
     [[nodiscard]] framework::Status syncDialogueState() noexcept;
     [[nodiscard]] framework::Status refreshDialogue() noexcept;
     [[nodiscard]] framework::Status updateDialogue(const Input& input) noexcept;
+    [[nodiscard]] framework::Status claimQuestRewardIfReady() noexcept;
     [[nodiscard]] bool hasAbility(std::string_view id) const noexcept;
     [[nodiscard]] static framework::ActionResult grantDialogueItem(
         void* context, const framework::ActionRequest& request) noexcept;
@@ -298,6 +319,10 @@ private:
     bool gateBlocked_{};
     bool accessBlocked_{};
     bool completed_{};
+    std::uint8_t questBranch_{};
+    bool questRewardClaimed_{};
+    std::size_t questChoiceSelection_{};
+    int questChoiceDirection_{};
     int deaths_{};
     Inventory inventory_{};
     std::array<ItemStack, kEquipmentSlotCount> equipmentItems_{};
@@ -322,6 +347,8 @@ private:
     const framework::EquipmentModule* equipmentModule_{};
     framework::EquipmentLoadout<4> equipment_{};
     const framework::QuestDefinition* mainQuest_{};
+    const framework::CutsceneDefinition* centralCutscene_{};
+    framework::CutscenePlayer cutscenePlayer_{};
 };
 
 } // namespace echo

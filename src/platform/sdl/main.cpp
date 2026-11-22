@@ -125,7 +125,7 @@ using Bindings = echo::platform::Bindings;
 
 constexpr std::string_view kGameId = "echo.project_echo";
 constexpr std::string_view kAutosaveSlot = "autosave";
-constexpr std::uint32_t kSaveFormatVersion = 5;
+constexpr std::uint32_t kSaveFormatVersion = 6;
 constexpr std::string_view kSettingsGameId = "echo.project_echo.settings";
 constexpr std::string_view kSettingsSlot = "settings";
 constexpr std::uint32_t kSettingsFormatVersion = 1;
@@ -432,6 +432,8 @@ struct SoundState {
     bool hasMaintenanceKey{};
     bool gateBlocked{};
     bool completed{};
+    std::uint8_t questBranch{};
+    bool questRewardClaimed{};
 };
 
 SoundState captureSoundState(const echo::Game& game) noexcept {
@@ -466,6 +468,8 @@ SoundState captureSoundState(const echo::Game& game) noexcept {
     }
     state.gateBlocked = game.gateBlocked();
     state.completed = game.completed();
+    state.questBranch = game.questBranch();
+    state.questRewardClaimed = game.questRewardClaimed();
     return state;
 }
 
@@ -1846,7 +1850,9 @@ int main(int, char**) {
                 after.itemCounts != before.itemCounts ||
                 after.inventorySlots != before.inventorySlots ||
                 after.activeLoot != before.activeLoot ||
-                after.completed != before.completed) {
+                after.completed != before.completed ||
+                after.questBranch != before.questBranch ||
+                after.questRewardClaimed != before.questRewardClaimed) {
                 (void)saveCurrentGame();
             }
             pendingJump = false;

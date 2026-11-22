@@ -19,9 +19,10 @@ namespace {
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
 constexpr std::array<std::string_view, 2> kProjectDependencies{
     "echo.state", "echo.narrative.dialogue"};
-constexpr std::array<std::string_view, 5> kProjectOptionalModules{
-    "echo.rpg.abilities", "echo.rpg.attributes",
-    "echo.rpg.equipment", "echo.rpg.inventory", "echo.rpg.quests"};
+constexpr std::array<std::string_view, 6> kProjectOptionalModules{
+    "echo.narrative.cutscenes", "echo.rpg.abilities",
+    "echo.rpg.attributes", "echo.rpg.equipment",
+    "echo.rpg.inventory", "echo.rpg.quests"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
 constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
@@ -150,7 +151,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     std::string_view gameId;
     const framework::JsonValue moduleList = root.find("modules");
     if (!root.isObject() || !root.find("game").string(gameId) ||
-        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 8) {
+        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 9) {
         return {framework::ErrorCode::InvalidValue, configPath,
                 "Configuration requires game echo.project_echo and a bounded modules array."};
     }
@@ -162,6 +163,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     bool equipmentSelected = false;
     bool abilitiesSelected = false;
     bool questsSelected = false;
+    bool cutscenesSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
         if (!moduleList.at(index).string(moduleId)) {
@@ -171,7 +173,8 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         if (moduleId != "echo.state" && moduleId != "echo.narrative.dialogue" &&
             moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory" &&
             moduleId != "echo.rpg.attributes" && moduleId != "echo.rpg.equipment" &&
-            moduleId != "echo.rpg.abilities" && moduleId != "echo.rpg.quests") {
+            moduleId != "echo.rpg.abilities" && moduleId != "echo.rpg.quests" &&
+            moduleId != "echo.narrative.cutscenes") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
@@ -183,6 +186,8 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         equipmentSelected = equipmentSelected || moduleId == "echo.rpg.equipment";
         abilitiesSelected = abilitiesSelected || moduleId == "echo.rpg.abilities";
         questsSelected = questsSelected || moduleId == "echo.rpg.quests";
+        cutscenesSelected = cutscenesSelected ||
+                            moduleId == "echo.narrative.cutscenes";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
             (void)moduleList.at(previous).string(previousId);
@@ -208,6 +213,36 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                             "Quest objective does not fit the game's bitmap font."};
                 }
             }
+            if (!quest.branchPrompt().empty() &&
+                !supportsBitmapText(quest.branchPrompt(), 48)) {
+                return {framework::ErrorCode::InvalidValue, "quests.branch.prompt",
+                        "Quest branch prompt does not fit the game's bitmap font."};
+            }
+            for (const framework::QuestBranch& branch : quest.branches()) {
+                if (!supportsBitmapText(branch.label.data(), 48) ||
+                    !supportsBitmapText(branch.objective.data(), 48)) {
+                    return {framework::ErrorCode::InvalidValue, "quests.branch.text",
+                            "Quest branch text does not fit the game's bitmap font."};
+                }
+            }
+        }
+    }
+    if (cutscenesSelected) {
+        status = cutsceneModule_.load(root.find("cutscenes"));
+        if (!status) return status;
+        const framework::Status projectStatus =
+            validateProjectCutscenes(cutsceneModule_);
+        if (!projectStatus) return projectStatus;
+        for (const framework::CutsceneDefinition& scene : cutsceneModule_.definitions()) {
+            for (const framework::CutsceneCard& card : scene.cards()) {
+                if (!supportsBitmapText(card.speaker.data(), 32) ||
+                    !supportsBitmapText(card.text.data(), 72) ||
+                    !supportsBitmapText(card.speakerCs.data(), 32) ||
+                    !supportsBitmapText(card.textCs.data(), 72)) {
+                    return {framework::ErrorCode::InvalidValue, "cutscenes.card",
+                            "Cutscene text does not fit the localized bitmap font layout."};
+                }
+            }
         }
     }
     if (inventorySelected) {
@@ -228,6 +263,16 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     status = framework::loadResourceManifest(root, content);
     if (!status) {
         return {status.code, "resources", status.detail};
+    }
+    if (cutscenesSelected) {
+        framework::ResourceInfo cutsceneResource{};
+        status = content.find("echo:cutscene/central_signal", cutsceneResource);
+        if (!status || cutsceneResource.type != framework::ResourceType::Cutscene ||
+            cutsceneResource.optional) {
+            return {framework::ErrorCode::MissingDependency,
+                    "echo:cutscene/central_signal",
+                    "The Central Chamber cutscene must be a required cutscene resource."};
+        }
     }
     framework::ResourceInfo dialogueResource{};
     status = content.find("echo:dialogue/engineer", dialogueResource);
@@ -380,6 +425,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
+    status = modules_.add(cutsceneModule_, cutscenesSelected);
+    if (!status) {
+        return status;
+    }
     framework::ModuleContext context{this};
     status = modules_.initializeAll(context);
     if (!status) {
@@ -423,6 +472,10 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     }
     if (questModule_.initialized()) {
         status = game.configureQuests(questModule_);
+        if (!status) return status;
+    }
+    if (cutsceneModule_.initialized()) {
+        status = game.configureCutscenes(cutsceneModule_);
         if (!status) return status;
     }
     if (attributesModule_.initialized()) {

@@ -6,6 +6,7 @@
 #include "echo/framework/attributes.hpp"
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/quests.hpp"
+#include "echo/framework/cutscenes.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
 
@@ -82,6 +83,7 @@ private:
     framework::AttributesModule attributesModule_{};
     framework::EquipmentModule equipmentModule_{};
     framework::QuestModule questModule_{};
+    framework::CutsceneModule cutsceneModule_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};

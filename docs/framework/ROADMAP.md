@@ -26,7 +26,7 @@ The generic host editor has a manifest discovery/selection mode with manifest-ba
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 
-The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. The bounded attributes module drives max health, movement speed, jump impulse, and Health Cell healing. The equipment module adds bounded slot loadouts and is integrated as Mira's persistent Kinetic Coil Body upgrade; equipped checkpoint slots are the source of truth for its modifiers. The abilities module validates compiled definitions and tracks Echo Step ownership, which the shared simulation uses for double jump and central-gate access. The first quest milestone evaluates ordered JSON objectives against authoritative game facts and displays the current goal. Branching quests, rewards, cutscenes, reusable combat/AI and world/map systems, and genre examples remain future work. Host-tool and headless results do not imply PS5 hardware verification.
+The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. The bounded attributes module drives max health, movement speed, jump impulse, and Health Cell healing. The equipment module adds bounded slot loadouts and is integrated as Mira's persistent Kinetic Coil Body upgrade; equipped checkpoint slots are the source of truth for its modifiers. The abilities module validates compiled definitions and tracks Echo Step ownership, which the shared simulation uses for double jump and central-gate access. Branched quests evaluate authoritative facts, persist the route, and grant bounded rewards once inventory space is available. The cutscene module presents localized data-driven cards, pausing simulation until the player advances them; PROJECT ECHO uses it for the Central Chamber signal. Quest acceptance, independent journals, cutscene timelines, reusable combat/AI and world/map systems, and genre examples remain future work. Host-tool and headless results do not imply PS5 hardware verification.
 
 The slot-inventory refinement adds 20 stable backpack slots, separate
 Head/Body/Weapon/Accessory slots and one physical active consumable stack.
@@ -39,11 +39,14 @@ Autosave format 4 preserves every compartment and loot state, explicitly
 migrating formats 1–3. Windows tests and native PS5 static package validation
 pass; this gameplay revision still needs a manual console run.
 Autosave format 5 subsequently added the three new enemy states, their drops and
-temporary item effects, with migration from formats 1–4. The quest milestone
-derives its progress from existing checkpoint fields and does not change that format.
+temporary item effects, with migration from formats 1–4. Autosave format 6
+persists the selected main-quest route and its idempotent reward claim, migrating
+formats 1–5 explicitly. The bounded branch module drives a coil-recovery or
+sentry-defeat route in PROJECT ECHO; a full backpack delays the reward until
+space is available.
 
 The operator confirmed on 2026-11-20 that the controller-only framework build launches and runs on PS5, reported the PS5 save-provider diagnostic passing on 2026-11-21, and later confirmed gameplay autosaving and settings persistence work on the integrated build. These are operator-reported results; keyboard rebinding itself has not been tested on PS5.
 
 On 2026-11-21, the operator also confirmed an earlier controller package works on PS5. The subsequent schema and dialogue integration requires a separate console test.
 
-PROJECT ECHO uses bounded dialogue, inventory, attributes, equipment, abilities and basic ordered-quest modules, with the shared `echo::Game` still authoritative for gameplay progression and applying player attributes and ability effects. Full quests and cutscenes, reusable combat/AI, physics, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.
+PROJECT ECHO uses bounded dialogue, inventory, attributes, equipment, abilities, branched-quest and linear-cutscene modules, with the shared `echo::Game` still authoritative for gameplay progression and applying player attributes and ability effects. Quest acceptance, independent journals, timeline cutscenes, reusable combat/AI, physics, tile maps, camera, animation, audio, and UI modules remain future work; do not add empty placeholders.

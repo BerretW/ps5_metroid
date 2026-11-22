@@ -8,10 +8,11 @@
     "echo.rpg.equipment",
     "echo.rpg.inventory",
     "echo.rpg.quests",
+    "echo.narrative.cutscenes",
     "echo.project_echo"
   ],
   "quests": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "quests": [
       {
         "id": "echo:quest/main_route",
@@ -19,6 +20,56 @@
           {"id": "key", "fact": "echo:fact/maintenance_key", "text": "GET THE KEY FROM THE ENGINEER"},
           {"id": "ability", "fact": "echo:fact/echo_step", "text": "FIND ECHO STEP IN THE LAB"},
           {"id": "exit", "fact": "echo:fact/exit_reached", "text": "REACH THE CENTRAL CHAMBER EXIT"}
+        ],
+        "branch": {
+          "after": 1,
+          "prompt": "CHOOSE A ROUTE",
+          "choices": [
+            {
+              "id": "coil",
+              "label": "RECOVER THE KINETIC COIL",
+              "fact": "echo:fact/kinetic_coil",
+              "objective": "ACQUIRE THE KINETIC COIL",
+              "rewardItem": "echo:item/shield_cell",
+              "rewardQuantity": 1
+            },
+            {
+              "id": "sentry",
+              "label": "DEFEAT THE LAB SENTRY",
+              "fact": "echo:fact/sentry_defeated",
+              "objective": "DEFEAT THE LAB SENTRY",
+              "rewardItem": "echo:item/med_kit",
+              "rewardQuantity": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "cutscenes": {
+    "schemaVersion": 1,
+    "cutscenes": [
+      {
+        "id": "echo:cutscene/central_signal",
+        "cards": [
+          {
+            "speaker": "UNKNOWN SIGNAL",
+            "speakerCs": "NEZNAMY SIGNAL",
+            "text": "STATION COMMAND THE REACTOR IS STABLE AGAIN",
+            "textCs": "VELENI STANICE REAKTOR JE ZNOVU STABILNI"
+          },
+          {
+            "speaker": "MIRA",
+            "speakerCs": "MIRA",
+            "text": "THAT TRANSMISSION CAME FROM DEEPER INSIDE",
+            "textCs": "TO VYSILANI PRISLO Z HLOUBI STANICE"
+          },
+          {
+            "speaker": "UNKNOWN SIGNAL",
+            "speakerCs": "NEZNAMY SIGNAL",
+            "text": "FIND THE SOURCE BEFORE THE SIGNAL FADES",
+            "textCs": "NAJDI ZDROJ NEZ SIGNAL ZMIZI"
+          }
         ]
       }
     ]
@@ -71,6 +122,10 @@
         "echo:item/health_cell",
         "echo:item/kinetic_coil"
       ]
+    },
+    {
+      "id": "echo:cutscene/central_signal",
+      "type": "cutscene"
     },
     {
       "id": "echo:sprite/player",

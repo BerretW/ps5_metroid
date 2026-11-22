@@ -792,25 +792,35 @@ void testAbilityGateAndBacktracking() {
     echo::framework::JsonDocument document{};
     echo::framework::JsonError error{};
     echo::framework::QuestModule quests{};
+    echo::framework::CutsceneModule cutscenes{};
     check(echo::framework::JsonDocument::parse(config.data(), config.size(), document, error) &&
-              quests.load(document.root().find("quests")) && quests.initialize(moduleContext),
-          "project quest content loads and initializes");
+              quests.load(document.root().find("quests")) && quests.initialize(moduleContext) &&
+              cutscenes.load(document.root().find("cutscenes")) &&
+              cutscenes.initialize(moduleContext),
+          "project quest and cutscene content loads and initializes");
     echo::Game game;
     check(static_cast<bool>(fixture.bind(game)) && game.configureAbilities(abilities) &&
-              game.configureQuests(quests),
-          "progression game binds dialogue, abilities and quests");
+              game.configureQuests(quests) && game.configureCutscenes(cutscenes),
+          "progression game binds dialogue, abilities, quests and cutscenes");
     check(game.questProgress().completed == 0 &&
               game.questProgress().objective == "GET THE KEY FROM THE ENGINEER",
           "a new game displays the key objective");
     talkToTechnician(game);
     check(game.questProgress().completed == 1 &&
-              game.questProgress().objective == "FIND ECHO STEP IN THE LAB",
-          "receiving the key advances the quest");
+              game.questProgress().choiceRequired &&
+              game.questProgress().choices.size() == 2,
+          "receiving the key opens the bounded route choice");
     auto progression = game.checkpoint();
     progression.enemyHealth[2] = 0;
     progression.enemyHealth[3] = 0;
     progression.enemyHealth[4] = 0;
     check(game.restore(progression), "progression fixture isolates the original route");
+    check(static_cast<bool>(game.update({.moveX = 1})) &&
+              static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.questBranch() == 2 &&
+              game.questProgress().completed == 2 &&
+              game.questProgress().objective == "FIND ECHO STEP IN THE LAB",
+          "the sentry route advances once its branch-specific fact is true");
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "progression reaches maintenance");
     check(moveUntilRoom(game, echo::RoomId::PowerStation, 1), "power station is reachable before the upgrade");
     step(game, {.moveX = 1}, 500);
@@ -825,7 +835,7 @@ void testAbilityGateAndBacktracking() {
     step(game, {.moveX = 1}, 350);
     check(game.abilityCollected(), "laboratory collectible unlocks double jump");
     check(game.player().hasDoubleJump, "ability is available to the player");
-    check(game.questProgress().completed == 2 &&
+    check(game.questProgress().completed == 3 &&
               game.questProgress().objective == "REACH THE CENTRAL CHAMBER EXIT",
           "unlocking Echo Step advances the quest");
     const echo::GameCheckpoint abilityCheckpoint = game.checkpoint();
@@ -833,7 +843,8 @@ void testAbilityGateAndBacktracking() {
     check(restored.configureAbilities(abilities) && restored.configureQuests(quests) &&
               restored.restore(abilityCheckpoint) &&
               restored.abilityCollected() && restored.player().hasDoubleJump &&
-              restored.questProgress().completed == 2,
+              restored.questProgress().completed == 3 &&
+              restored.questBranch() == 2,
           "checkpoint restore rebuilds ability ownership and quest progress");
 
     step(game, {.jumpPressed = true, .jumpHeld = true});
@@ -855,14 +866,66 @@ void testAbilityGateAndBacktracking() {
     check(moveUntilRoom(game, echo::RoomId::PowerStation, 1), "player returns through maintenance");
     step(game, {.moveX = 1}, 500);
     check(game.roomId() == echo::RoomId::CentralChamber, "double jump unlocks the central passage");
+    check(game.cutsceneActive() && game.cutsceneCardCount() == 3 &&
+              game.cutsceneCardIndex() == 0 &&
+              game.cutsceneSpeaker() == "UNKNOWN SIGNAL",
+          "entering Central Chamber starts the localized signal cutscene");
+    const float sceneStartX = game.player().position.x;
+    step(game, {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true}, 8);
+    check(game.player().position.x == sceneStartX && game.cutsceneCardIndex() == 0,
+          "gameplay remains fixed while a cutscene card is displayed");
+    check(static_cast<bool>(game.setDialogueLanguage(
+              echo::framework::DialogueLanguage::Czech)) &&
+              game.cutsceneSpeaker() == "NEZNAMY SIGNAL",
+          "cutscene speaker follows the configured Czech language");
+    check(static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.cutsceneCardIndex() == 1 &&
+              game.cutsceneText() == "TO VYSILANI PRISLO Z HLOUBI STANICE",
+          "the cutscene advances one card using the selected translation");
+    check(static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.cutsceneCardIndex() == 2 &&
+              static_cast<bool>(game.update({.interactPressed = true})) &&
+              !game.cutsceneActive(),
+          "the final interaction closes the cutscene and releases gameplay");
+    check(static_cast<bool>(game.setDialogueLanguage(
+              echo::framework::DialogueLanguage::English)),
+          "cutscene test restores the default language");
+    auto fullBag = game.checkpoint();
+    fullBag.inventory.clear();
+    check(fullBag.inventory.add(echo::ItemId::MaintenanceKey) &&
+              fullBag.inventory.add(echo::ItemId::HealthCell, 3, 57) &&
+              game.restore(fullBag),
+          "quest reward fixture fills every backpack slot without losing the key");
     step(game, {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true}, 700);
-    check(game.completed() && game.questProgress().completed == 3 &&
-              game.questProgress().objective.empty(),
-          "reaching the exit completes the main quest");
-    check(restored.restore(game.checkpoint()) && restored.questProgress().completed == 3,
-          "completed quest remains complete after restoring its checkpoint");
+    check(game.completed() && game.questProgress().completed == 4 &&
+              game.questProgress().objective.empty() && !game.questRewardClaimed() &&
+              game.itemQuantity(echo::ItemId::MedKit) == 0,
+          "a completed route leaves its reward pending when the backpack is full");
+    check(game.moveInventorySlot(1, echo::Game::kActiveItemSlot) &&
+              static_cast<bool>(game.update({})) && game.questRewardClaimed() &&
+              game.itemQuantity(echo::ItemId::MedKit) == 1 &&
+              static_cast<bool>(game.update({})) &&
+              game.itemQuantity(echo::ItemId::MedKit) == 1,
+          "freeing one slot claims the reward once and retries are idempotent");
+    check(restored.restore(game.checkpoint()) && restored.questProgress().completed == 4 &&
+              restored.questRewardClaimed() && restored.itemQuantity(echo::ItemId::MedKit) == 1,
+          "completed route and claimed reward persist through checkpoint restore");
     restored.start();
     check(restored.questProgress().completed == 0, "starting over resets derived quest progress");
+
+    echo::Game coilRoute;
+    check(coilRoute.configureAbilities(abilities) && coilRoute.configureQuests(quests),
+          "alternate route fixture configures gameplay modules");
+    auto coilCheckpoint = coilRoute.checkpoint();
+    check(coilCheckpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+              coilCheckpoint.inventory.add(echo::ItemId::KineticCoil) &&
+              coilRoute.restore(coilCheckpoint) &&
+              coilRoute.questProgress().choiceRequired &&
+              static_cast<bool>(coilRoute.update({.interactPressed = true})) &&
+              coilRoute.questBranch() == 1 &&
+              coilRoute.questProgress().completed == 2 &&
+              coilRoute.questProgress().objective == "FIND ECHO STEP IN THE LAB",
+          "the coil route is independently selectable and checks its own fact");
 }
 
 } // namespace

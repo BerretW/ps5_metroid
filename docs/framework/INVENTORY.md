@@ -100,13 +100,14 @@ and are collected by touching them. Scrap stacks to 99; if the backpack has no
 room, the drop remains in the world until space is freed. The HUD shows the
 carried Scrap total, and the normal pickup sound plays when it is collected.
 
-Autosave format 5 retains inventory layout 2: all 20 slot pairs (including
-holes), four equipment pairs and the active stack. Formats 1–3 migrate explicitly:
+Autosave format 6 retains inventory layout 2: all 20 slot pairs (including
+holes), four equipment pairs and the active stack. Formats 1–5 migrate explicitly:
 legacy keys remain in their bag positions, the Coil moves to Body, and the first
 Health Cell stack moves to Active. Format 1 still receives the Maintenance Key
 for its previously unlocked route. Formats 1–3 initialize loot records empty so
 old defeated enemies do not grant retroactive drops. Legacy missing quantities
-default to one; new-layout fields are mandatory. See [save system](SAVE_SYSTEM.md).
+default to one; new-layout fields are mandatory. Format 6 also persists the
+selected quest route and reward claim. See [save system](SAVE_SYSTEM.md).
 
 Format 5 adds three enemy health values, ten individual drops and the remaining
 durations of the speed, jump and shield effects. Format 4's existing Scrap

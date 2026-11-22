@@ -1,0 +1,11 @@
+add_library(echo_framework_cutscenes STATIC src/cutscenes.cpp)
+add_library(EchoFramework::Cutscenes ALIAS echo_framework_cutscenes)
+target_include_directories(echo_framework_cutscenes PUBLIC include)
+target_compile_features(echo_framework_cutscenes PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_cutscenes PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_cutscenes PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_cutscenes PRIVATE -Wall -Wextra -Wpedantic)
+endif()

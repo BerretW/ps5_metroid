@@ -107,6 +107,10 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     check(checkpoint.inventory.add(echo::ItemId::HealthCell, 3, 2) &&
               game.restore(checkpoint),
           "checkpoint fixture adds a stack of catalogued health cells");
+    check(static_cast<bool>(game.update({.moveX = 1})) &&
+              static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.questBranch() == 2,
+          "checkpoint fixture selects and persists the sentry quest route");
     GameState saved{};
     check(static_cast<bool>(echo::platform::encodeGameCheckpoint(game, saved)),
           "game checkpoint encodes to framework state");
@@ -114,8 +118,32 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     check(static_cast<bool>(echo::platform::decodeGameCheckpoint(saved, restored)) &&
               restored.inventory.contains(echo::ItemId::MaintenanceKey) &&
               restored.inventory.quantity(echo::ItemId::HealthCell) == 2 &&
-              game.restore(restored) && game.questProgress().completed == 1,
-          "current checkpoint round-trip preserves inventory and derived quest progress");
+              restored.questBranch == 2 && game.restore(restored) &&
+              game.questProgress().completed == 1 && game.questBranch() == 2,
+          "current checkpoint round-trip preserves inventory, quest route and progress");
+    echo::Game claimedGame;
+    auto claimedCheckpoint = claimedGame.checkpoint();
+    claimedCheckpoint.room = echo::RoomId::CentralChamber;
+    claimedCheckpoint.playerPosition = {100.0F, 292.0F};
+    claimedCheckpoint.hasDoubleJump = true;
+    claimedCheckpoint.abilityCollected = true;
+    claimedCheckpoint.completed = true;
+    claimedCheckpoint.enemyHealth[4] = 0;
+    claimedCheckpoint.questBranch = 2;
+    claimedCheckpoint.questRewardClaimed = true;
+    claimedCheckpoint.inventory.clear();
+    GameState claimedState{};
+    check(static_cast<bool>(integration.configureGame(claimedGame)) &&
+              claimedCheckpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+              claimedCheckpoint.inventory.add(echo::ItemId::MedKit, 3, 1) &&
+              claimedGame.restore(claimedCheckpoint) &&
+              echo::platform::encodeGameCheckpoint(claimedGame, claimedState) &&
+              echo::platform::decodeGameCheckpoint(claimedState, restored) &&
+              restored.questBranch == 2 && restored.questRewardClaimed &&
+              restored.completed && restored.inventory.quantity(echo::ItemId::MedKit) == 1 &&
+              claimedGame.restore(restored) && claimedGame.update({}) &&
+              claimedGame.itemQuantity(echo::ItemId::MedKit) == 1,
+          "format six preserves a claimed route reward without granting it twice");
 
     GameState legacyInventory = saved;
     check(legacyInventory.erase({StateScope::Global, {}, "inventory.layout"}) &&
@@ -200,6 +228,16 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
               echo::framework::ErrorCode::CorruptData &&
               unchanged.playerHealth == 3 && unchanged.inventory.count == 0,
           "checkpoint decoder rejects invalid quantities without partial output");
+    GameState invalidQuest = saved;
+    check(invalidQuest.set({StateScope::Global, {}, "quest.branch"},
+                           StateValue::fromInteger(3)) &&
+              !echo::platform::decodeGameCheckpoint(invalidQuest, unchanged),
+          "checkpoint decoder rejects an unlisted quest branch");
+    invalidQuest = saved;
+    check(invalidQuest.set({StateScope::Global, {}, "quest.reward_claimed"},
+                           StateValue::fromBoolean(true)) &&
+              !echo::platform::decodeGameCheckpoint(invalidQuest, unchanged),
+          "checkpoint decoder rejects a premature quest reward claim");
     auto badGear = std::make_unique<GameState>(saved);
     check(badGear->set({StateScope::Global, {}, "equipment.head"},
                       StateValue::fromInteger(static_cast<int>(echo::ItemId::HealthCell))) &&
@@ -223,25 +261,30 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     auto oldState = std::make_unique<GameState>();
     auto decodedState = std::make_unique<GameState>();
     auto buffer = std::make_unique<std::array<char, echo::framework::kMaxSaveBytes>>();
-    for (const std::uint32_t version : {1U, 2U, 3U, 4U}) {
+    for (const std::uint32_t version : {1U, 2U, 3U, 4U, 5U}) {
         const GameState& versionState = version >= 3 ? saved : legacyInventory;
         check(static_cast<bool>(oldState->replaceValues(versionState)),
               "legacy save fixture copies its state");
-        for (std::size_t index = 2; index < echo::kEnemyCount; ++index) {
-            check(oldState->erase({StateScope::Global, {},
-                                  echo::platform::game_persistence_detail::kEnemyKeys[index]}),
-                  "old save excludes new enemies");
-        }
-        for (std::size_t index = 0; index < 10; ++index) {
-            check(oldState->erase({StateScope::Global, {},
-                                  echo::platform::game_persistence_detail::kExtraLootActiveKeys[index]}) &&
-                      oldState->erase({StateScope::Global, {},
-                                  echo::platform::game_persistence_detail::kExtraLootXKeys[index]}),
-                  "old save excludes new drops");
-        }
-        for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
-            check(oldState->erase({StateScope::Global, {}, key}),
-                  "old save excludes new effects");
+        check(oldState->erase({StateScope::Global, {}, "quest.branch"}) &&
+                  oldState->erase({StateScope::Global, {}, "quest.reward_claimed"}),
+              "pre-branch saves exclude quest route and reward claims");
+        if (version < 5) {
+            for (std::size_t index = 2; index < echo::kEnemyCount; ++index) {
+                check(oldState->erase({StateScope::Global, {},
+                                      echo::platform::game_persistence_detail::kEnemyKeys[index]}),
+                      "old save excludes new enemies");
+            }
+            for (std::size_t index = 0; index < 10; ++index) {
+                check(oldState->erase({StateScope::Global, {},
+                                      echo::platform::game_persistence_detail::kExtraLootActiveKeys[index]}) &&
+                          oldState->erase({StateScope::Global, {},
+                                      echo::platform::game_persistence_detail::kExtraLootXKeys[index]}),
+                      "old save excludes new drops");
+            }
+            for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
+                check(oldState->erase({StateScope::Global, {}, key}),
+                      "old save excludes new effects");
+            }
         }
         if (version == 1) {
             check(oldState->erase({StateScope::Global, {}, "inventory.count"}),
@@ -282,18 +325,20 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
                   "echo.project_echo", version, saveModules, *oldState,
                   buffer->data(), buffer->size(), written) &&
                   echo::framework::SaveCodec::decode(
-                  buffer->data(), written, "echo.project_echo", 5, saveModules,
+                  buffer->data(), written, "echo.project_echo", 6, saveModules,
                   *decodedState, header, &echo::platform::migrateGameCheckpointSave) &&
-                  header.formatVersion == 5 &&
+                  header.formatVersion == 6 &&
                   echo::platform::decodeGameCheckpoint(*decodedState, restored) &&
                   game.restore(restored) && game.hasItem(echo::ItemId::MaintenanceKey) &&
                   game.questProgress().completed == 1 &&
+                  game.questBranch() == 0 &&
                   ((version == 1 && !game.lootDrops()[0].active) ||
                    (version == 2 &&
                     game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2) ||
                    (version == 3 && !game.lootDrops()[0].active) ||
-                   (version == 4 && game.lootDrops()[0].active)),
-              "version-one through four saves preserve derived quest progress through the codec");
+                   (version == 4 && game.lootDrops()[0].active) ||
+                   (version == 5 && game.lootDrops()[0].active)),
+              "version-one through five saves migrate route fields and preserve prior progress");
     }
 
     GameState migrated{};
@@ -307,7 +352,8 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
               migratedItem.integer == static_cast<std::int64_t>(echo::ItemId::MaintenanceKey),
           "legacy saves receive the key to preserve their previously unlocked route");
     check(echo::platform::migrateGameCheckpointSave(3, migrated, nullptr) &&
-              !echo::platform::migrateGameCheckpointSave(5, migrated, nullptr),
+              echo::platform::migrateGameCheckpointSave(5, migrated, nullptr) &&
+              !echo::platform::migrateGameCheckpointSave(6, migrated, nullptr),
           "unknown future save versions are not migrated");
     GameState versionFour = saved;
     echo::GameCheckpoint oldDrop{};
@@ -318,6 +364,9 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
               oldDrop.enemyHealth[2] == 3 && oldDrop.enemyHealth[3] == 6 &&
               oldDrop.enemyHealth[4] == 4,
           "version four preserves existing loot and adds the new enemies");
+    check(static_cast<bool>(game.update({.interactPressed = true})) &&
+              game.questBranch() == 1,
+          "the migrated save fixture selects a quest route before resuming gameplay");
     auto newDrop = game.checkpoint();
     newDrop.enemyHealth[2] = 0;
     newDrop.lootDrops[2] = {
@@ -424,6 +473,29 @@ int main() {
               "PlayStation gameplay hints do not expose keyboard bindings");
         check(padHint != keyboardHint, "platform selection changes the gameplay prompts");
 
+        echo::Game cutsceneGame;
+        check(static_cast<bool>(integration.configureGame(cutsceneGame)),
+              "cutscene render game binds loaded framework content");
+        auto cutsceneCheckpoint = cutsceneGame.checkpoint();
+        cutsceneCheckpoint.room = echo::RoomId::PowerStation;
+        cutsceneCheckpoint.playerPosition = {
+            static_cast<float>(echo::kRoomWidth) - 20.0F, 292.0F};
+        cutsceneCheckpoint.hasDoubleJump = true;
+        cutsceneCheckpoint.abilityCollected = true;
+        check(cutsceneCheckpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+                  cutsceneGame.restore(cutsceneCheckpoint) &&
+                  static_cast<bool>(cutsceneGame.update({.interactPressed = true})) &&
+                  static_cast<bool>(cutsceneGame.update({.moveX = 1})) &&
+                  cutsceneGame.cutsceneActive(),
+              "entering Central Chamber starts a cutscene for offscreen rendering");
+        keyboard.drawGame(cutsceneGame, false, false, "SPACE", "J", "E");
+        const auto firstCutsceneCard = capture(keyboardWindow, {64, 210, 512, 106});
+        check(static_cast<bool>(cutsceneGame.update({.interactPressed = true})),
+              "cutscene input advances the displayed card");
+        keyboard.drawGame(cutsceneGame, false, false, "SPACE", "J", "E");
+        check(firstCutsceneCard != capture(keyboardWindow, {64, 210, 512, 106}),
+              "offscreen renderer updates the cutscene card");
+
         echo::Game dialogueGame;
         check(static_cast<bool>(integration.configureGame(dialogueGame)),
               "renderer game binds loaded dialogue content");
@@ -471,6 +543,16 @@ int main() {
         const auto keyInventory = capture(keyboardWindow, {206, 12, 152, 38});
         check(emptyInventory != keyInventory,
               "inventory HUD updates when the maintenance key is acquired");
+        check(static_cast<bool>(dialogueGame.update({.interactPressed = true})) &&
+                  !dialogueGame.dialogueActive(),
+              "engineer dialogue closes before the quest route choice is shown");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        const auto firstRouteChoice = capture(keyboardWindow, {122, 258, 396, 62});
+        check(static_cast<bool>(dialogueGame.update({.moveX = 1})),
+              "quest route selection navigates offscreen");
+        keyboard.drawGame(dialogueGame, false, false, "SPACE", "J", "E");
+        check(firstRouteChoice != capture(keyboardWindow, {122, 258, 396, 62}),
+              "the selected quest route is rendered distinctly");
         echo::GameCheckpoint healthCellCheckpoint = dialogueGame.checkpoint();
         healthCellCheckpoint.playerHealth = 4;
         check(healthCellCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 2) &&

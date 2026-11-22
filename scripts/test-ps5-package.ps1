@@ -54,6 +54,7 @@ if (Test-Path -LiteralPath $assetDir) {
                 @($gameConfig.modules) -notcontains "echo.rpg.equipment" -or
                 @($gameConfig.modules) -notcontains "echo.rpg.inventory" -or
                 @($gameConfig.modules) -notcontains "echo.rpg.quests" -or
+                @($gameConfig.modules) -notcontains "echo.narrative.cutscenes" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
                 -not ($gameConfig.resources -is [array]) -or
                 -not ($gameConfig.technician.transform.position -is [array]) -or
@@ -63,6 +64,9 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:dialogue/engineer" -and $_.type -eq "dialogue"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:cutscene/central_signal" -and $_.type -eq "cutscene"
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:item/maintenance_key" -and $_.type -eq "item"
@@ -81,7 +85,7 @@ if (Test-Path -LiteralPath $assetDir) {
             $mainQuest = @($gameConfig.quests.quests | Where-Object {
                 $_.id -eq "echo:quest/main_route"
             })
-            if ($gameConfig.quests.schemaVersion -ne 1 -or $mainQuest.Count -ne 1 -or
+            if ($gameConfig.quests.schemaVersion -ne 2 -or $mainQuest.Count -ne 1 -or
                 @($mainQuest[0].objectives).Count -ne 3) {
                 throw "Invalid framework game configuration: main quest is missing."
             }
@@ -90,6 +94,35 @@ if (Test-Path -LiteralPath $assetDir) {
                 if (@($mainQuest[0].objectives | Where-Object { $_.fact -eq $fact }).Count -ne 1) {
                     throw "Invalid framework game configuration: main quest fact is missing."
                 }
+            }
+            $branch = $mainQuest[0].branch
+            if ($null -eq $branch -or $branch.after -ne 1 -or
+                [string]::IsNullOrWhiteSpace($branch.prompt) -or $branch.prompt.Length -gt 48 -or
+                @($branch.choices).Count -ne 2) {
+                throw "Invalid framework game configuration: main quest routes are missing."
+            }
+            foreach ($expectedRoute in @(
+                @{ id = "coil"; fact = "echo:fact/kinetic_coil"; reward = "echo:item/shield_cell" },
+                @{ id = "sentry"; fact = "echo:fact/sentry_defeated"; reward = "echo:item/med_kit" }
+            )) {
+                $route = @($branch.choices | Where-Object { $_.id -eq $expectedRoute.id })
+                if ($route.Count -ne 1 -or $route[0].fact -ne $expectedRoute.fact -or
+                    $route[0].rewardItem -ne $expectedRoute.reward -or
+                    $route[0].rewardQuantity -ne 1 -or
+                    [string]::IsNullOrWhiteSpace($route[0].label) -or
+                    $route[0].label.Length -gt 48 -or
+                    [string]::IsNullOrWhiteSpace($route[0].objective) -or
+                    $route[0].objective.Length -gt 48) {
+                    throw "Invalid framework game configuration: main quest route is missing."
+                }
+            }
+            $centralCutscene = @($gameConfig.cutscenes.cutscenes | Where-Object {
+                $_.id -eq "echo:cutscene/central_signal"
+            })
+            if ($gameConfig.cutscenes.schemaVersion -ne 1 -or
+                $centralCutscene.Count -ne 1 -or
+                @($centralCutscene[0].cards).Count -ne 3) {
+                throw "Invalid framework game configuration: Central Chamber cutscene is missing."
             }
             foreach ($id in @("jump_visor", "vital_vest", "power_barrel", "sprint_module",
                               "med_patch", "med_kit", "shield_cell", "speed_charge",

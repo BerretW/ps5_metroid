@@ -70,6 +70,31 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest glyph'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.choices[0].label = 'INVALID?'
+    $path = Write-JsonFixture 'invalid-quest-branch-text.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest branch glyph'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.choices[0].label = 'A' * 49
+    $path = Write-JsonFixture 'oversized-quest-branch-label.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'oversized quest branch label'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.choices[0].rewardItem = 'echo:item/not_in_catalog'
+    $path = Write-JsonFixture 'invalid-quest-reward.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest reward'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.cutscenes.cutscenes[0].cards[0].text = 'INVALID?'
+    $path = Write-JsonFixture 'invalid-cutscene-text.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unsupported cutscene glyph'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.cutscenes.cutscenes[0].cards = @($config.cutscenes.cutscenes[0].cards | Select-Object -First 2)
+    $path = Write-JsonFixture 'incomplete-cutscene.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'incomplete Central Chamber cutscene'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.technician.interaction.horizontalReach = 129
     $path = Write-JsonFixture 'invalid-component.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'out-of-range component'
@@ -87,6 +112,13 @@ try {
     })
     $path = Write-JsonFixture 'missing-ability-resource.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'missing ability resource'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.resources = @($config.resources | Where-Object {
+        $_.id -ne 'echo:cutscene/central_signal'
+    })
+    $path = Write-JsonFixture 'missing-cutscene-resource.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'missing cutscene resource dependency'
 
     $dialogueData = Get-Content -LiteralPath $Dialogue -Raw | ConvertFrom-Json
     $dialogueData.id = 'echo:dialogue/not_engineer'
@@ -150,12 +182,19 @@ try {
     $path = Write-JsonFixture 'missing-jump-visor.json' $itemData
     Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing new loot definition' $path
 
+    $itemData = Get-Content -LiteralPath $ItemCatalog -Raw | ConvertFrom-Json
+    $itemData.items = @($itemData.items | Where-Object {
+        $_.id -ne 'echo:item/shield_cell'
+    })
+    $path = Write-JsonFixture 'missing-quest-reward.json' $itemData
+    Invoke-Validator $GameConfig $Dialogue $Manifest $false 'missing quest reward definition' $path
+
     $oversizedPath = Join-Path $testDirectory 'oversized-game.json'
     [System.IO.File]::WriteAllText($oversizedPath, (' ' * 16385), $encoding)
     $createdFiles.Add($oversizedPath)
     Invoke-Validator $oversizedPath $Dialogue $Manifest $false 'oversized game config'
 
-    Write-Output 'Project content validator accepted valid content and rejected 17 invalid cases.'
+    Write-Output 'Project content validator accepted valid content and rejected 25 invalid cases.'
 }
 finally {
     foreach ($path in $createdFiles) {

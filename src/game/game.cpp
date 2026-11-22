@@ -216,18 +216,101 @@ framework::Status Game::configureQuests(const framework::QuestModule& module) no
     }
     const framework::Status status = validateProjectQuest(module);
     if (!status) return status;
+    for (const framework::QuestBranch& branch :
+         module.find(kMainQuestId)->branches()) {
+        const ProjectItemMapping* reward = findProjectItem(branch.rewardItem.data());
+        if (reward == nullptr || reward->maxStack < branch.rewardQuantity) {
+            return {framework::ErrorCode::MissingDependency, branch.rewardItem.data(),
+                    "Quest rewards must match a supported project inventory item."};
+        }
+        if (inventoryModule_ != nullptr) {
+            const framework::ItemDefinition* catalogItem =
+                inventoryModule_->catalog().find(branch.rewardItem.data());
+            if (catalogItem == nullptr || catalogItem->key != reward->key ||
+                catalogItem->maxStack != reward->maxStack) {
+                return {framework::ErrorCode::MissingDependency, branch.rewardItem.data(),
+                        "Quest rewards must match the compiled inventory catalog."};
+            }
+        }
+    }
     mainQuest_ = module.find(kMainQuestId);
     return framework::Status::success();
 }
 
 framework::QuestProgress Game::questProgress() const noexcept {
     if (mainQuest_ == nullptr) return {};
-    std::array<std::string_view, kMainQuestFacts.size()> facts{};
+    std::array<std::string_view, kMainQuestFacts.size() +
+                                 kMainQuestBranchFacts.size()> facts{};
     std::size_t count{};
     if (hasItem(ItemId::MaintenanceKey)) facts[count++] = kMainQuestFacts[0];
     if (abilityCollected()) facts[count++] = kMainQuestFacts[1];
     if (completed_) facts[count++] = kMainQuestFacts[2];
-    return framework::evaluateQuest(*mainQuest_, {facts.data(), count});
+    if (hasItem(ItemId::KineticCoil)) facts[count++] = kMainQuestBranchFacts[0];
+    if (!enemies_[4].alive) facts[count++] = kMainQuestBranchFacts[1];
+    const std::string_view branch =
+        questBranch_ == 1 ? kMainQuestBranchIds[0] :
+        questBranch_ == 2 ? kMainQuestBranchIds[1] : std::string_view{};
+    return framework::evaluateQuest(*mainQuest_, {facts.data(), count}, branch);
+}
+
+framework::Status Game::claimQuestRewardIfReady() noexcept {
+    if (mainQuest_ == nullptr || questBranch_ == 0 || questRewardClaimed_) {
+        return framework::Status::success();
+    }
+    const framework::QuestProgress progress = questProgress();
+    if (progress.completed != progress.total) return framework::Status::success();
+    const std::string_view branchId = kMainQuestBranchIds[questBranch_ - 1];
+    const framework::QuestBranch* branch = mainQuest_->branch(branchId);
+    if (branch == nullptr) {
+        return {framework::ErrorCode::InvalidState, "quest.branch",
+                "The saved quest route is not present in the configured quest."};
+    }
+    const ProjectItemMapping* reward = findProjectItem(branch->rewardItem.data());
+    if (reward == nullptr) {
+        return {framework::ErrorCode::MissingDependency, branch->rewardItem.data(),
+                "The quest reward is not a supported project inventory item."};
+    }
+    if (inventoryModule_ != nullptr) {
+        const framework::ItemDefinition* catalogItem =
+            inventoryModule_->catalog().find(branch->rewardItem.data());
+        if (catalogItem == nullptr || catalogItem->key != reward->key ||
+            catalogItem->maxStack != reward->maxStack) {
+            return {framework::ErrorCode::MissingDependency, branch->rewardItem.data(),
+                    "The quest reward no longer matches the inventory catalog."};
+        }
+    }
+    if (inventory_.add(reward->id, reward->maxStack, branch->rewardQuantity)) {
+        questRewardClaimed_ = true;
+    }
+    return framework::Status::success();
+}
+
+framework::Status Game::configureCutscenes(
+    const framework::CutsceneModule& module) noexcept {
+    if (!module.initialized() || centralCutscene_ != nullptr) {
+        return {framework::ErrorCode::InvalidState, "echo.narrative.cutscenes",
+                "The cutscene module must be initialized and configured only once."};
+    }
+    const framework::Status status = validateProjectCutscenes(module);
+    if (!status) return status;
+    centralCutscene_ = module.find(kCentralSignalCutsceneId);
+    return framework::Status::success();
+}
+
+std::string_view Game::cutsceneSpeaker() const noexcept {
+    const framework::CutsceneCard* card = cutscenePlayer_.currentCard();
+    if (card == nullptr) return {};
+    return dialogueLanguage_ == framework::DialogueLanguage::Czech
+               ? std::string_view(card->speakerCs.data())
+               : std::string_view(card->speaker.data());
+}
+
+std::string_view Game::cutsceneText() const noexcept {
+    const framework::CutsceneCard* card = cutscenePlayer_.currentCard();
+    if (card == nullptr) return {};
+    return dialogueLanguage_ == framework::DialogueLanguage::Czech
+               ? std::string_view(card->textCs.data())
+               : std::string_view(card->text.data());
 }
 
 framework::Status Game::addAttributeModifier(
@@ -366,7 +449,11 @@ void Game::start() noexcept {
     gateBlocked_ = false;
     accessBlocked_ = false;
     completed_ = false;
+    questBranch_ = 0;
+    questRewardClaimed_ = false;
+    questChoiceSelection_ = 0;
     dialogueSession_.reset();
+    cutscenePlayer_.reset();
     dialogueLine_ = {};
     dialogueChoices_.fill({});
     dialogueChoiceCount_ = 0;
@@ -389,6 +476,8 @@ GameCheckpoint Game::checkpoint() const noexcept {
     result.hasDoubleJump = player_.hasDoubleJump;
     result.abilityCollected = abilityCollected_;
     result.completed = completed_;
+    result.questBranch = questBranch_;
+    result.questRewardClaimed = questRewardClaimed_;
     result.deaths = deaths_;
     result.inventory = inventory_;
     result.equipment = equipmentItems_;
@@ -419,6 +508,12 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
         checkpointValue.deaths < 0 ||
         checkpointValue.hasDoubleJump != checkpointValue.abilityCollected ||
+        checkpointValue.questBranch > kMainQuestBranchIds.size() ||
+        (checkpointValue.questBranch != 0 &&
+         (mainQuest_ == nullptr ||
+          !checkpointValue.inventory.contains(ItemId::MaintenanceKey))) ||
+        (checkpointValue.questRewardClaimed &&
+         (checkpointValue.questBranch == 0 || !checkpointValue.completed)) ||
         (checkpointValue.room == RoomId::CentralChamber &&
          !checkpointValue.hasDoubleJump) ||
         ((checkpointValue.room == RoomId::ResearchLab ||
@@ -540,6 +635,9 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     restored.abilityCollected_ = checkpointValue.abilityCollected;
     restored.player_.hasDoubleJump = restored.hasAbility(kEchoStepAbilityId);
     restored.completed_ = checkpointValue.completed;
+    restored.questBranch_ = checkpointValue.questBranch;
+    restored.questRewardClaimed_ = checkpointValue.questRewardClaimed;
+    restored.questChoiceSelection_ = 0;
     restored.deaths_ = checkpointValue.deaths;
     for (std::size_t enemy = 0; enemy < restored.enemies_.size(); ++enemy) {
         restored.enemies_[enemy].health = checkpointValue.enemyHealth[enemy];
@@ -648,15 +746,46 @@ bool Game::overlapsHazard(const Rect& bounds) const noexcept {
 
 framework::Status Game::update(const Input& input, float deltaSeconds) noexcept {
     if (completed_) {
-        return framework::Status::success();
+        return claimQuestRewardIfReady();
     }
 
     const float dt = std::clamp(deltaSeconds, 0.0F, 0.05F);
     gateBlocked_ = false;
     accessBlocked_ = false;
+    if (cutscenePlayer_.active()) {
+        if (input.interactPressed) cutscenePlayer_.advance();
+        return framework::Status::success();
+    }
     if (dialogueSession_.active()) {
         return updateDialogue(input);
     }
+    const framework::QuestProgress quest = questProgress();
+    if (quest.choiceRequired) {
+        if (input.moveX != 0 && questChoiceDirection_ == 0 && !quest.choices.empty()) {
+            const std::size_t count = quest.choices.size();
+            questChoiceSelection_ = input.moveX > 0
+                ? (questChoiceSelection_ + 1) % count
+                : (questChoiceSelection_ + count - 1) % count;
+        }
+        questChoiceDirection_ = input.moveX;
+        if (input.interactPressed && !quest.choices.empty()) {
+            const framework::QuestBranch& selected = quest.choices[questChoiceSelection_];
+            const std::size_t branchIndex = static_cast<std::size_t>(
+                std::find(kMainQuestBranchIds.begin(), kMainQuestBranchIds.end(),
+                          std::string_view(selected.id.data())) -
+                kMainQuestBranchIds.begin());
+            if (branchIndex >= kMainQuestBranchIds.size()) {
+                return {framework::ErrorCode::InvalidState, "quest.branch",
+                        "The selected quest route is not supported by the game."};
+            }
+            questBranch_ = static_cast<std::uint8_t>(branchIndex + 1);
+            questChoiceSelection_ = branchIndex;
+            questChoiceDirection_ = 0;
+            return claimQuestRewardIfReady();
+        }
+        return framework::Status::success();
+    }
+    questChoiceDirection_ = 0;
     if (input.useItemPressed) {
         const framework::Status status = useActiveItem();
         if (!status) return status;
@@ -742,7 +871,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
         }
     }
     resolveRoomEdges();
-    return framework::Status::success();
+    return claimQuestRewardIfReady();
 }
 
 void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
@@ -1423,6 +1552,9 @@ void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     player_.onGround = true;
     coyoteTimer_ = kCoyoteSeconds;
     doubleJumpUsed_ = false;
+    if (destination == RoomId::CentralChamber && centralCutscene_ != nullptr) {
+        cutscenePlayer_.start(*centralCutscene_);
+    }
 }
 
 void Game::damagePlayer() noexcept {

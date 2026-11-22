@@ -1,5 +1,6 @@
 #include "capability_manifest_input.hpp"
 #include "echo/framework/abilities.hpp"
+#include "echo/framework/cutscenes.hpp"
 #include "echo/framework/attributes.hpp"
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/narrative.hpp"
@@ -20,8 +21,8 @@ namespace {
 using namespace echo::framework;
 
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
-constexpr std::array<std::string_view, 5> kGameConfigFields{
-    "game", "modules", "technician", "resources", "quests"};
+constexpr std::array<std::string_view, 6> kGameConfigFields{
+    "game", "modules", "technician", "resources", "quests", "cutscenes"};
 constexpr std::array<std::string_view, 2> kTechnicianFields{
     "transform", "interaction"};
 constexpr std::array<std::string_view, 5> kResourceFields{
@@ -339,7 +340,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateGameConfig(
     JsonValue root, const ComponentTypeRegistry& components,
-    const std::array<CapabilityManifestFragment, 8>& fragments,
+    const std::array<CapabilityManifestFragment, 9>& fragments,
     const CapabilityManifestFragment& project,
     const ItemCatalog& itemCatalog,
     ContentRegistry& resources) noexcept {
@@ -352,11 +353,11 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
 
     const JsonValue modules = root.find("modules");
-    if (!modules.isArray() || modules.size() == 0 || modules.size() > 8) {
+    if (!modules.isArray() || modules.size() == 0 || modules.size() > 9) {
         return {ErrorCode::InvalidValue, "modules",
                 "Game configuration requires a bounded non-empty module list."};
     }
-    std::array<std::string_view, 8> selected{};
+    std::array<std::string_view, 9> selected{};
     for (std::size_t index = 0; index < modules.size(); ++index) {
         if (!modules.at(index).string(selected[index]) ||
             findCompiledModule(fragments, selected[index]) == nullptr) {
@@ -375,6 +376,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
           std::string_view{"echo.narrative.dialogue"},
           std::string_view{"echo.rpg.abilities"},
           std::string_view{"echo.rpg.quests"},
+          std::string_view{"echo.narrative.cutscenes"},
           std::string_view{"echo.project_echo"}}) {
         if (std::find(selected.begin(), selected.begin() +
                           static_cast<std::ptrdiff_t>(modules.size()),
@@ -401,6 +403,36 @@ constexpr std::array<std::string_view, 2> kComponentFields{
             if (!echo::platform::supportsBitmapText(objective.text.data(), 48)) {
                 return {ErrorCode::InvalidValue, "quests.objective.text",
                         "Quest objective does not fit the game's bitmap font."};
+            }
+        }
+        if (!quest.branchPrompt().empty() &&
+            !echo::platform::supportsBitmapText(quest.branchPrompt(), 48)) {
+            return {ErrorCode::InvalidValue, "quests.branch.prompt",
+                    "Quest branch prompt does not fit the game's bitmap font."};
+        }
+        for (const QuestBranch& branch : quest.branches()) {
+            const ItemDefinition* reward = itemCatalog.find(branch.rewardItem.data());
+            if (reward == nullptr || branch.rewardQuantity > reward->maxStack ||
+                !echo::platform::supportsBitmapText(branch.label.data(), 48) ||
+                !echo::platform::supportsBitmapText(branch.objective.data(), 48)) {
+                return {ErrorCode::InvalidValue, "quests.branch",
+                        "Quest branch text or reward does not match the game catalog."};
+            }
+        }
+    }
+    CutsceneModule cutsceneModule{};
+    status = cutsceneModule.load(root.find("cutscenes"));
+    if (!status) return status;
+    status = echo::validateProjectCutscenes(cutsceneModule);
+    if (!status) return status;
+    for (const CutsceneDefinition& cutscene : cutsceneModule.definitions()) {
+        for (const CutsceneCard& card : cutscene.cards()) {
+            if (!echo::platform::supportsBitmapText(card.speaker.data(), 32) ||
+                !echo::platform::supportsBitmapText(card.text.data(), 72) ||
+                !echo::platform::supportsBitmapText(card.speakerCs.data(), 32) ||
+                !echo::platform::supportsBitmapText(card.textCs.data(), 72)) {
+                return {ErrorCode::InvalidValue, "cutscenes.card",
+                        "Cutscene text does not fit the localized bitmap font layout."};
             }
         }
     }
@@ -452,6 +484,9 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
     status = requireResource(resources, "echo:dialogue/engineer",
                              ResourceType::Dialogue);
+    if (!status) return status;
+    status = requireResource(resources, "echo:cutscene/central_signal",
+                             ResourceType::Cutscene);
     if (!status) return status;
     for (std::size_t index = 0; index < itemCatalog.size(); ++index) {
         const ItemDefinition* item = itemCatalog.at(index);
@@ -529,7 +564,7 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    const std::array<CapabilityManifestFragment, 8> fragments{{
+    const std::array<CapabilityManifestFragment, 9> fragments{{
         frameworkCapabilityManifestFragment(),
         narrativeCapabilityManifestFragment(),
         inventoryCapabilityManifestFragment(),
@@ -537,6 +572,7 @@ int main(int argc, char** argv) {
         equipmentCapabilityManifestFragment(),
         abilitiesCapabilityManifestFragment(),
         questsCapabilityManifestFragment(),
+        cutscenesCapabilityManifestFragment(),
         echo::projectCapabilityManifestFragment(),
     }};
     const CapabilityManifestFragment project =

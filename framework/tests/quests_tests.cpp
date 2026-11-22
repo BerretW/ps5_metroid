@@ -49,6 +49,39 @@ int main() {
     progress = evaluateQuest(*quest, facts);
     check(progress.completed == 2 && progress.objective.empty(), "all facts complete the quest");
 
+    QuestModule branchModule{};
+    auto branchDocument = parse(R"({"schemaVersion":2,"quests":[
+      {"id":"echo:quest/branch","objectives":[
+        {"id":"first","fact":"echo:fact/a","text":"FIRST"},
+        {"id":"last","fact":"echo:fact/b","text":"LAST"}],
+       "branch":{"after":1,"prompt":"CHOOSE",
+        "choices":[
+          {"id":"coil","label":"COIL","fact":"echo:fact/coil","objective":"GET COIL","rewardItem":"echo:item/shield_cell","rewardQuantity":1},
+          {"id":"sentry","label":"SENTRY","fact":"echo:fact/sentry","objective":"DEFEAT SENTRY","rewardItem":"echo:item/med_kit","rewardQuantity":1}]}}]})");
+    check(static_cast<bool>(branchModule.load(branchDocument.root())),
+          "bounded branched quest and branch rewards load");
+    const QuestDefinition* branched = branchModule.find("echo:quest/branch");
+    check(branched != nullptr, "branched quest remains available after loading");
+    if (branched != nullptr) {
+        const std::array<std::string_view, 1> firstFact{"echo:fact/a"};
+        progress = evaluateQuest(*branched, firstFact);
+        check(progress.completed == 1 && progress.choiceRequired &&
+                  progress.choices.size() == 2 && progress.objective == "CHOOSE",
+              "the quest pauses for an explicit bounded branch choice");
+        progress = evaluateQuest(*branched, firstFact, "coil");
+        check(progress.completed == 1 && !progress.choiceRequired &&
+                  progress.objective == "GET COIL",
+              "selected route waits for its branch-specific fact");
+        const std::array<std::string_view, 3> coilFacts{
+            "echo:fact/a", "echo:fact/coil", "echo:fact/b"};
+        progress = evaluateQuest(*branched, coilFacts, "coil");
+        check(progress.completed == 3 && progress.total == 3 &&
+                  progress.objective.empty(),
+              "the selected branch completes before the shared final objective");
+        check(!isValidQuestBranch(*branched, "unknown"),
+              "branch lookup rejects an unlisted route");
+    }
+
     for (std::string_view invalid : {
              R"({"schemaVersion":2,"quests":[]})",
              R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[]}]})",
@@ -57,7 +90,10 @@ int main() {
              R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"bad","text":"A"}]}]})",
              R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKL"}]}]})",
              R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A"},{"id":"b","fact":"echo:fact/b","text":"B"},{"id":"c","fact":"echo:fact/c","text":"C"},{"id":"d","fact":"echo:fact/d","text":"D"},{"id":"e","fact":"echo:fact/e","text":"E"},{"id":"f","fact":"echo:fact/f","text":"F"},{"id":"g","fact":"echo:fact/g","text":"G"},{"id":"h","fact":"echo:fact/h","text":"H"},{"id":"i","fact":"echo:fact/i","text":"I"}]}]})",
-             R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A","extra":0}]}]})"}) {
+             R"({"schemaVersion":1,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A","extra":0}]}]})",
+             R"({"schemaVersion":2,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A"},{"id":"b","fact":"echo:fact/b","text":"B"}],"branch":{"after":0,"prompt":"CHOOSE","choices":[{"id":"a","label":"A","fact":"echo:fact/c","objective":"C","rewardItem":"echo:item/med_kit","rewardQuantity":1},{"id":"b","label":"B","fact":"echo:fact/d","objective":"D","rewardItem":"echo:item/med_kit","rewardQuantity":1}]}}]})",
+             R"({"schemaVersion":2,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A"},{"id":"b","fact":"echo:fact/b","text":"B"}],"branch":{"after":1,"prompt":"CHOOSE","choices":[{"id":"a","label":"A","fact":"echo:fact/c","objective":"C","rewardItem":"echo:item/med_kit","rewardQuantity":1},{"id":"b","label":"B","fact":"echo:fact/c","objective":"D","rewardItem":"echo:item/med_kit","rewardQuantity":1}]}}]})",
+             R"({"schemaVersion":2,"quests":[{"id":"echo:quest/x","objectives":[{"id":"a","fact":"echo:fact/a","text":"A"},{"id":"b","fact":"echo:fact/b","text":"B"}],"branch":{"after":1,"prompt":"CHOOSE","choices":[{"id":"a","label":"A","fact":"echo:fact/c","objective":"C","rewardItem":"echo:item/med_kit","rewardQuantity":1}]}}]})"}) {
         auto document = parse(invalid);
         check(!module.load(document.root()), "malformed quest definitions are rejected");
         check(module.find("echo:quest/test") != nullptr, "failed load preserves the catalog");

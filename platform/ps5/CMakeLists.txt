@@ -90,5 +90,6 @@ if(ECHO_PS5_GAME)
         EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
         EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
         EchoFramework::Abilities EchoFramework::Quests
+        EchoFramework::Cutscenes
         --end-group --as-needed ${stubs})
 endif()

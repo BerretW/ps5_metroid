@@ -14,6 +14,9 @@
 #ifdef ECHO_MANIFEST_HAS_QUESTS
 #include "echo/framework/quests.hpp"
 #endif
+#ifdef ECHO_MANIFEST_HAS_CUTSCENES
+#include "echo/framework/cutscenes.hpp"
+#endif
 #ifdef ECHO_PROJECT_COMPONENTS
 #include "game/project_components.hpp"
 #endif
@@ -43,7 +46,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    std::array<echo::framework::CapabilityManifestFragment, 8> fragments{{
+    std::array<echo::framework::CapabilityManifestFragment, 9> fragments{{
         echo::framework::frameworkCapabilityManifestFragment(),
     }};
 #ifdef ECHO_MANIFEST_HAS_NARRATIVE
@@ -66,6 +69,9 @@ int main(int argc, char** argv) {
 #endif
 #ifdef ECHO_MANIFEST_HAS_QUESTS
     fragments[fragmentCount++] = echo::framework::questsCapabilityManifestFragment();
+#endif
+#ifdef ECHO_MANIFEST_HAS_CUTSCENES
+    fragments[fragmentCount++] = echo::framework::cutscenesCapabilityManifestFragment();
 #endif
 #ifdef ECHO_PROJECT_COMPONENTS
     fragments[fragmentCount++] = echo::projectCapabilityManifestFragment();
