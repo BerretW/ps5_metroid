@@ -4,6 +4,8 @@
 | --- | --- | --- | --- |
 | Move | Left/Right arrows or A/D | Left stick or D-pad | Left stick or D-pad |
 | Move up/down (isometric rooms only) | Up/Down arrows; W/S when not bound to an action | Left stick or D-pad up/down | Left stick or D-pad up/down |
+| Aim (isometric rooms only) | Mouse | Right stick | Right stick |
+| Fire while aiming (isometric rooms only) | Left mouse button | R2 | R2 |
 | Jump / double jump | Space (configurable) | A | Cross × |
 | Fire | J (configurable) | X | Square □ |
 | Interact / advance dialogue / use door | E (configurable) | Y | Triangle △ |
@@ -26,7 +28,7 @@ Options lets you select EN or CS for Mira's dialogue with left/right (D-pad left
 
 Windows Options has a DISPLAY row: left/right cycles 1280X720 window, 1920X1080 window and desktop FULLSCREEN, applies it immediately and saves it. The game keeps its 640x360 logical view with integer scaling, so larger modes show the same picture larger. Settings saved before this option default to 1280x720. PS5 has no DISPLAY row and always creates a display-sized fullscreen window.
 
-The Landing Bay's west exit leads to the isometric Cargo Hold, drawn Diablo 2-style with a 2:1 diamond grid. There is no gravity or jump: the stick, D-pad or arrows walk in eight screen directions, and Fire shoots along the last movement direction. Crates in front of the player become translucent. Stalkers chase you on sight; the floor pools hurt but can be crossed. Leave through the east doorway to return to the side-view Landing Bay.
+The Landing Bay's west exit leads to the isometric Cargo Hold, drawn Diablo 2-style with a 2:1 diamond grid. There is no gravity or jump: the stick, D-pad or arrows walk in eight screen directions, and Fire shoots along the aim. Aiming is twin-stick: the mouse (Windows) or right stick aims independently of movement, and an orange crosshair shows the direction. Moving the mouse selects mouse aim until a controller button or the right stick takes over; with the right stick released and no mouse aim, shots follow the last movement direction. The usual Fire key/button still works, plus the left mouse button and R2. Crates in front of the player become translucent. Stalkers chase you on sight; the floor pools hurt but can be crossed. Leave through the east doorway to return to the side-view Landing Bay.
 
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
 

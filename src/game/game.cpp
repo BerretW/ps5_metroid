@@ -955,6 +955,15 @@ void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcep
         player_.aim = direction;
         if (screenX != 0) player_.facing = screenX;
     }
+    // Inverse projection of a screen direction onto the grid plane.
+    if (std::isfinite(input.aimX) && std::isfinite(input.aimY)) {
+        const Vec2 aim{input.aimY + input.aimX * 0.5F, input.aimY - input.aimX * 0.5F};
+        const float aimLength = std::sqrt(aim.x * aim.x + aim.y * aim.y);
+        if (aimLength > 0.001F) {
+            player_.aim = {aim.x / aimLength, aim.y / aimLength};
+            if (input.aimX != 0.0F) player_.facing = input.aimX > 0.0F ? 1 : -1;
+        }
+    }
     player_.velocity = {direction.x * playerSpeed, direction.y * playerSpeed};
     player_.onGround = true;
     jumpBufferTimer_ = 0.0F;

@@ -810,6 +810,11 @@ int main(int, char**) {
     bool pendingInteract = false;
     bool pendingUseItem = false;
     bool pendingPause = false;
+    // Mouse aim stays active after motion until a controller takes over.
+    bool mouseAimActive = false;
+    bool mouseFireHeld = false;
+    int mouseWindowX = 0;
+    int mouseWindowY = 0;
     echo::platform::InventoryMenu inventoryMenu{};
     std::array<char, 128> inventoryMessage{};
     bool gameSessionActive = false;
@@ -1532,7 +1537,22 @@ int main(int, char**) {
                 }
             }
 
+            if (event.type == SDL_MOUSEMOTION) {
+                mouseAimActive = true;
+                mouseWindowX = event.motion.x;
+                mouseWindowY = event.motion.y;
+            } else if ((event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) &&
+                       event.button.button == SDL_BUTTON_LEFT) {
+                mouseFireHeld = event.type == SDL_MOUSEBUTTONDOWN;
+                if (mouseFireHeld) {
+                    mouseAimActive = true;
+                    mouseWindowX = event.button.x;
+                    mouseWindowY = event.button.y;
+                }
+            }
+
             if (event.type == SDL_CONTROLLERBUTTONDOWN) {
+                mouseAimActive = false;
                 const SDL_GameControllerButton button =
                     static_cast<SDL_GameControllerButton>(event.cbutton.button);
                 if (screen == Screen::MainMenu) {
@@ -1847,6 +1867,18 @@ int main(int, char**) {
                         (isDown(SDLK_UP) || unboundDown(SDLK_w) ? 1 : 0);
             bool jumpHeld = isDown(bindings.jump);
             bool shootHeld = isDown(bindings.shoot);
+            const bool isometricRoom = game.isometric();
+            float aimX = 0.0F;
+            float aimY = 0.0F;
+            if (isometricRoom && mouseAimActive) {
+                float logicalX = 0.0F;
+                float logicalY = 0.0F;
+                if (renderer.windowToLogical(mouseWindowX, mouseWindowY, logicalX, logicalY)) {
+                    aimX = logicalX - echo::platform::Renderer::kIsometricAimOriginX;
+                    aimY = logicalY - echo::platform::Renderer::kIsometricAimOriginY;
+                }
+                shootHeld = shootHeld || mouseFireHeld;
+            }
             if (controller != nullptr) {
                 const Sint16 axis = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
                 moveX += axis > 8000 ? 1 : axis < -8000 ? -1 : 0;
@@ -1858,6 +1890,18 @@ int main(int, char**) {
                          (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0 ? 1 : 0);
                 jumpHeld = jumpHeld || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0;
                 shootHeld = shootHeld || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_X) != 0;
+                if (isometricRoom) {
+                    const int stickX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX);
+                    const int stickY = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY);
+                    constexpr int kAimDeadzone = 9000;
+                    if (stickX * stickX + stickY * stickY > kAimDeadzone * kAimDeadzone) {
+                        mouseAimActive = false;
+                        aimX = static_cast<float>(stickX);
+                        aimY = static_cast<float>(stickY);
+                    }
+                    shootHeld = shootHeld ||
+                                SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000;
+                }
             }
 
             const echo::Input input{
@@ -1868,6 +1912,8 @@ int main(int, char**) {
                 .shootHeld = shootHeld,
                 .interactPressed = pendingInteract,
                 .useItemPressed = pendingUseItem,
+                .aimX = aimX,
+                .aimY = aimY,
             };
             const SoundState before = captureSoundState(game);
             const echo::framework::Status gameplayStatus = game.update(input);

@@ -748,6 +748,25 @@ void testIsometricCargoHold() {
                                    [](const echo::Projectile& projectile) { return projectile.active; });
     check(shot != shooter.projectiles().end() && shot->velocityX < 0.0F && shot->velocityY < 0.0F,
           "isometric shots travel along the diagonal aim");
+
+    echo::Game twinStick;
+    check(static_cast<bool>(twinStick.configureWorld(calm)) && twinStick.restore(entry),
+          "twin-stick fixture restores");
+    const float strafeStartX = twinStick.player().position.x;
+    step(twinStick, {.moveX = -1, .aimX = 64.0F}, 10);
+    step(twinStick, {.moveX = -1, .shootHeld = true, .aimX = 64.0F, .aimY = 0.0F});
+    const auto aimedShot = std::find_if(twinStick.projectiles().begin(), twinStick.projectiles().end(),
+                                        [](const echo::Projectile& projectile) { return projectile.active; });
+    check(twinStick.player().position.x < strafeStartX && aimedShot != twinStick.projectiles().end() &&
+              aimedShot->velocityX > 0.0F && aimedShot->velocityY < 0.0F &&
+              std::abs(aimedShot->velocityX + aimedShot->velocityY) < 1.0F,
+          "screen-east aim fires east while the player walks west");
+    step(twinStick, {.moveY = 1}, 2);
+    check(twinStick.player().aim.x > 0.0F && twinStick.player().aim.y > 0.0F,
+          "without an aim device the aim follows movement again");
+    step(twinStick, {.aimX = std::numeric_limits<float>::quiet_NaN(), .aimY = 1.0F});
+    check(std::isfinite(twinStick.player().aim.x) && std::isfinite(twinStick.player().aim.y),
+          "non-finite aim input is ignored");
 }
 
 void testNewEnemyBehaviorsAndItems() {

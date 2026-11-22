@@ -33,6 +33,11 @@ public:
 #endif
     }
     static constexpr int kDisplayOption = 5;
+    // Logical-screen point isometric shots leave from; the camera keeps the player centred.
+    static constexpr float kIsometricAimOriginX = 320.0F;
+    static constexpr float kIsometricAimOriginY = 182.0F;
+    // Converts window pixels (e.g. the mouse) to the 640x360 logical view.
+    bool windowToLogical(int windowX, int windowY, float& x, float& y) const noexcept;
     // Loads PNG sprites from `assetDirectory` (trailing separator required).
     // Missing sprites keep the built-in rectangle art. Returns the number loaded.
     int loadSprites(const char* assetDirectory) noexcept;

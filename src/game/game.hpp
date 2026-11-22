@@ -71,6 +71,10 @@ struct Input {
     bool shootHeld{};
     bool interactPressed{};
     bool useItemPressed{};
+    // Screen-space aim (x right, y down; any length) from the mouse or right stick.
+    // Isometric rooms shoot along it; zero falls back to the movement direction.
+    float aimX{};
+    float aimY{};
 };
 
 struct Player {

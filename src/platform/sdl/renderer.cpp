@@ -150,6 +150,12 @@ void Renderer::releaseSprites() noexcept {
     }
 }
 
+bool Renderer::windowToLogical(int windowX, int windowY, float& x, float& y) const noexcept {
+    if (renderer_ == nullptr) return false;
+    SDL_RenderWindowToLogical(renderer_, windowX, windowY, &x, &y);
+    return std::isfinite(x) && std::isfinite(y);
+}
+
 bool Renderer::applyDisplayMode(DisplayMode mode) noexcept {
 #ifdef __PROSPERO__
     (void)mode;
@@ -922,6 +928,21 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             }
             break;
         }
+        }
+    }
+    if (!paused) {
+        const float screenAimX = player.aim.x - player.aim.y;
+        const float screenAimY = (player.aim.x + player.aim.y) * 0.5F;
+        const float length = std::sqrt(screenAimX * screenAimX + screenAimY * screenAimY);
+        if (length > 0.001F) {
+            const int reticleX = static_cast<int>(std::lround(
+                Renderer::kIsometricAimOriginX + screenAimX / length * 34.0F));
+            const int reticleY = static_cast<int>(std::lround(
+                Renderer::kIsometricAimOriginY + screenAimY / length * 34.0F));
+            panel({reticleX - 4, reticleY - 1, 3, 2}, kOrange);
+            panel({reticleX + 2, reticleY - 1, 3, 2}, kOrange);
+            panel({reticleX - 1, reticleY - 4, 2, 3}, kOrange);
+            panel({reticleX - 1, reticleY + 2, 2, 3}, kOrange);
         }
     }
 }
