@@ -10,6 +10,7 @@
 namespace echo::framework {
 
 inline constexpr std::size_t kMaxJsonBytes = 1024 * 1024;
+inline constexpr std::size_t kMaxAssetJsonBytes = 16 * 1024 * 1024;
 inline constexpr std::size_t kMaxSaveBytes = 64 * 1024;
 
 struct JsonError {
@@ -55,10 +56,15 @@ public:
 
     [[nodiscard]] static Status parse(const char* data, std::size_t size,
                                       JsonDocument& output, JsonError& error) noexcept;
+    [[nodiscard]] static Status parseAsset(const char* data, std::size_t size,
+                                           JsonDocument& output, JsonError& error) noexcept;
     [[nodiscard]] JsonValue root() const noexcept;
     void reset() noexcept;
 
 private:
+    [[nodiscard]] static Status parseBounded(const char* data, std::size_t size,
+                                             std::size_t limit, JsonDocument& output,
+                                             JsonError& error) noexcept;
     void* document_{};
 };
 

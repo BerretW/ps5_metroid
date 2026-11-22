@@ -17,7 +17,7 @@ public:
     [[nodiscard]] rendering::CanvasBatch2D& batch() noexcept { return *batch_; }
     [[nodiscard]] const CanvasSprites& sprites() const noexcept { return sprites_; }
     [[nodiscard]] const CanvasWorldSprites& worldSprites() const noexcept { return worldSprites_; }
-    [[nodiscard]] rendering::Status beginFrame() noexcept;
+    [[nodiscard]] rendering::Status beginFrame(rendering::FrameState frame = {}) noexcept;
     [[nodiscard]] rendering::Status endFrame() noexcept;
     [[nodiscard]] rendering::Status shutdown() noexcept;
 

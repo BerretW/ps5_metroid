@@ -1,8 +1,11 @@
 # Native Windows PS5 feasibility
 
 The experimental Vulkan game compiles, links, signs and passes static
-package validation on native Windows. The operator reports both the current
+package validation on native Windows. The operator reported earlier
 Vulkan and SDL impact-sparks packages fully functional on PS5 (2026-11-22).
+After the subsequent menu glyph and WebP packages were presented, the operator
+reported full functionality on 2026-11-22 without identifying the tested
+variant(s), installed digest, setup, or individual checks.
 Individual effect appearance and lifecycle were not separately described.
 A separate RADV first-frame diagnostic also passes static validation.
 Runtime hold checks and RADV instance/device/queue creation were reported
@@ -22,7 +25,7 @@ With the previously prepared pinned RADV archive, runtime, SDK and Windows
 Vulkan SDK available (the manual host-tool prerequisites below still apply):
 
 ```powershell
-.\scripts\build-ps5.ps1 -Target Game -SkipPs5Keyboard -Vulkan
+.\scripts\build-ps5.ps1 -Target Game -SkipPs5Keyboard -Vulkan -RestoreDependencies
 .\tests\ps5_package_tests.ps1 -Vulkan
 ```
 
@@ -44,13 +47,15 @@ experiment is separate from the production game. Production shot particles
 use the bounded CPU system and are recorded as canvas fills in both SDL and
 Vulkan builds. The current revision also adds enemy impact sparks and clears
 particles on room transition, respawn, New Game and Continue.
+The menu additionally loads the bounded GLB/glTF glyph and WebP textures
+described in [MATERIALS.md](MATERIALS.md); the SDL package uses the PNG fallback.
 
-The current candidate FSELF is 27,939,005 bytes, SHA-256
-`973358631d120d2b43f1e5445f37e4040c17b28680515a48e23bcac389336c09`.
+The current candidate FSELF is 28,107,069 bytes, SHA-256
+`e01f4d5aecd1c1ca4e3de00be0c11c7573a83e0a060b56fe56b73341323b003e`.
 The updated artifact passes native Windows static validation and
-`tests\ps5_package_tests.ps1 -Vulkan`. The operator reports both current
-packages fully functional on PS5; the installed digests and console setup were
-not provided. The prior 60 FPS
+`tests\ps5_package_tests.ps1 -Vulkan`. The subsequent user report of full
+functionality did not specify the variant(s), installed digest, or console
+setup, so the local hash is not proof of what ran. The prior 60 FPS
 observation predates the damage-flash change.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and

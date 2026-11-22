@@ -12,6 +12,7 @@ get_filename_component(ECHO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ECHO_FRAMEWORK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ECHO_FRAMEWORK_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(ECHO_FRAMEWORK_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+include("${ECHO_ROOT}/cmake/webp.cmake")
 add_subdirectory("${ECHO_ROOT}/framework" framework)
 add_subdirectory("${ECHO_ROOT}/framework/rendering" rendering)
 add_subdirectory("${ECHO_ROOT}/framework/vfx" vfx)
@@ -58,12 +59,14 @@ add_executable(echo_vulkan_menu
     "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
     "${ECHO_ROOT}/src/platform/sdl/canvas_assets.cpp"
     "${ECHO_ROOT}/src/platform/sdl/gpu_canvas.cpp"
+    "${ECHO_ROOT}/src/platform/sdl/menu_glyph.cpp"
     "${ECHO_ROOT}/src/platform/sdl/assets.cpp"
     "${ECHO_ROOT}/src/platform/sdl/stb_image_impl.c"
     "${ECHO_ROOT}/src/input/dualsense_diagnostics.cpp")
 target_include_directories(echo_vulkan_menu PRIVATE "${ECHO_ROOT}/src" "${ECHO_ROOT}/third_party")
+target_include_directories(echo_vulkan_menu PRIVATE "${libwebp_SOURCE_DIR}/src")
 target_compile_definitions(echo_vulkan_menu PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan EchoFramework::VFX SDL2-static
+target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan EchoFramework::VFX SDL2-static webpdecoder
     EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
     EchoFramework::Cutscenes EchoFramework::World user32)
@@ -115,6 +118,33 @@ if(BUILD_TESTING)
         -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_menu.ps1"
         -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/menu-frame.ppm")
     set_tests_properties(echo_vulkan_menu_frame PROPERTIES FIXTURES_REQUIRED echo_menu_capture TIMEOUT 30)
+    foreach(normal flat tilted)
+        add_test(NAME echo_vulkan_glyph_${normal}
+            COMMAND echo_vulkan_menu --frames 1 --validation
+                --glyph-root "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/normal-${normal}"
+                --capture "${CMAKE_CURRENT_BINARY_DIR}/glyph-${normal}.ppm")
+        set_tests_properties(echo_vulkan_glyph_${normal} PROPERTIES
+            TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_glyph_${normal})
+    endforeach()
+    add_test(NAME echo_vulkan_glyph_normal_map
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_glyph.ps1"
+            -Flat "${CMAKE_CURRENT_BINARY_DIR}/glyph-flat.ppm"
+            -Tilted "${CMAKE_CURRENT_BINARY_DIR}/glyph-tilted.ppm")
+    set_tests_properties(echo_vulkan_glyph_normal_map PROPERTIES
+        FIXTURES_REQUIRED "echo_glyph_flat;echo_glyph_tilted" TIMEOUT 60)
+    add_test(NAME echo_vulkan_glyph_invalid
+        COMMAND echo_vulkan_menu --frames 1 --validation
+            --glyph-root "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/invalid-base64")
+    set_tests_properties(echo_vulkan_glyph_invalid PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE WILL_FAIL TRUE)
+    add_test(NAME echo_vulkan_glyph_webp
+        COMMAND echo_vulkan_menu --frames 1 --validation
+            --glyph-root "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/webp")
+    set_tests_properties(echo_vulkan_glyph_webp PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(NAME echo_vulkan_glyph_invalid_webp
+        COMMAND echo_vulkan_menu --frames 1 --validation
+            --glyph-root "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/invalid-webp")
+    set_tests_properties(echo_vulkan_glyph_invalid_webp PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE WILL_FAIL TRUE)
     add_test(NAME echo_vulkan_canvas_texture
         COMMAND echo_vulkan_menu --frames 1 --validation --canvas-texture-test
             --capture "${CMAKE_CURRENT_BINARY_DIR}/canvas-texture.ppm")

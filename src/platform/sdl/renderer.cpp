@@ -171,6 +171,10 @@ bool Renderer::create() noexcept {
 void Renderer::destroy() noexcept {
     releaseSprites();
     releaseWorldSprites();
+    if (menuGlyph_ != nullptr) {
+        SDL_DestroyTexture(menuGlyph_);
+        menuGlyph_ = nullptr;
+    }
     if (renderer_ != nullptr) {
         SDL_DestroyRenderer(renderer_);
         renderer_ = nullptr;
@@ -179,6 +183,21 @@ void Renderer::destroy() noexcept {
         SDL_DestroyWindow(window_);
         window_ = nullptr;
     }
+}
+
+void Renderer::loadMenuGlyph(const char* assetDirectory) noexcept {
+    if (menuGlyph_ != nullptr) {
+        SDL_DestroyTexture(menuGlyph_);
+        menuGlyph_ = nullptr;
+    }
+    if (renderer_ == nullptr || assetDirectory == nullptr) return;
+    std::array<char, 512> path{};
+    const int written = std::snprintf(path.data(), path.size(), "%smenu/glyph.png", assetDirectory);
+    if (written <= 0 || written >= static_cast<int>(path.size())) {
+        SDL_Log("Menu glyph path is too long");
+        return;
+    }
+    menuGlyph_ = loadPngTexture(renderer_, path.data());
 }
 
 void Renderer::releaseSprites() noexcept {
@@ -586,6 +605,23 @@ void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
     drawMenuContent(selection, continueAvailable);
+    if (menuGlyph_ != nullptr) {
+        int width{}, height{};
+        if (SDL_QueryTexture(menuGlyph_, nullptr, nullptr, &width, &height) != 0 ||
+            width <= 0 || height <= 0) {
+            SDL_Log("Menu glyph dimensions unavailable: %s", SDL_GetError());
+            SDL_RenderPresent(renderer_);
+            return;
+        }
+        const float scale = std::min(174.0F / static_cast<float>(width),
+                                     140.0F / static_cast<float>(height));
+        const int scaledWidth = std::max(1, static_cast<int>(width * scale));
+        const int scaledHeight = std::max(1, static_cast<int>(height * scale));
+        SDL_Rect destination{366 + (174 - scaledWidth) / 2, 160 + (140 - scaledHeight) / 2,
+                             scaledWidth, scaledHeight};
+        if (SDL_RenderCopy(renderer_, menuGlyph_, nullptr, &destination) != 0)
+            SDL_Log("Menu glyph render failed: %s", SDL_GetError());
+    }
     SDL_RenderPresent(renderer_);
 }
 
@@ -601,17 +637,29 @@ bool Renderer::endRecording() noexcept {
     return !drawSinkFailed_;
 }
 
-bool Renderer::recordMenu(rendering::ICanvas2D& sink, int selection, bool continueAvailable) noexcept {
+bool Renderer::recordMenu(rendering::ICanvas2D& sink, int selection, bool continueAvailable, bool modelWindow) noexcept {
     if (!beginRecording(sink, kBackground)) return false;
-    if (!drawSinkFailed_) drawMenuContent(selection, continueAvailable);
+    if (!drawSinkFailed_) drawMenuContent(selection, continueAvailable, modelWindow);
     return endRecording();
 }
 
-void Renderer::drawMenuContent(int selection, bool continueAvailable) noexcept {
+void Renderer::drawMenuContent(int selection, bool continueAvailable, bool modelWindow) noexcept {
     for (int y = 34; y < 360; y += 32) {
-        panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
+        if (modelWindow && y >= 160 && y < 300) {
+            panel({0, y, 366, 1}, SDL_Color{18, 35, 48, 255});
+            panel({540, y, 100, 1}, SDL_Color{18, 35, 48, 255});
+        } else {
+            panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
+        }
     }
-    panel({74, 62, 492, 244}, kPanel);
+    if (modelWindow) {
+        panel({74, 62, 492, 98}, kPanel);
+        panel({74, 160, 292, 140}, kPanel);
+        panel({540, 160, 26, 140}, kPanel);
+        panel({74, 300, 492, 6}, kPanel);
+    } else {
+        panel({74, 62, 492, 244}, kPanel);
+    }
     panel({74, 62, 492, 3}, kCyan);
     text(120, 94, "PROJECT ECHO", 4, kText);
     text(122, 135, "FACILITY 07  /  SIGNAL LOST", 1, kMuted);

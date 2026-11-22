@@ -5,6 +5,7 @@
 
 extern "C" {
 unsigned char* echo_decode_png_rgba(const unsigned char* data, int length, int* width, int* height);
+int echo_png_info(const unsigned char* data, int length, int* width, int* height);
 void echo_free_png(unsigned char* pixels);
 }
 
@@ -69,14 +70,36 @@ bool loadPngRgba(const char* path, RgbaImage& image) noexcept {
     int length = 0;
     unsigned char* data = readFile(path, length);
     if (data == nullptr) return false;
+    const bool decoded = decodePngRgba(
+        {reinterpret_cast<const std::byte*>(data), static_cast<std::size_t>(length)}, image);
+    SDL_free(data);
+    if (!decoded) SDL_Log("PNG decode failed: %s", path);
+    return decoded;
+}
+
+bool decodePngRgba(std::span<const std::byte> bytes, RgbaImage& image) noexcept {
+    freePngRgba(image);
+    if (bytes.empty() || bytes.size() > static_cast<std::size_t>(kMaxAssetBytes)) {
+        SDL_Log("PNG input size rejected");
+        return false;
+    }
     int width = 0;
     int height = 0;
-    unsigned char* pixels = echo_decode_png_rgba(data, length, &width, &height);
-    SDL_free(data);
+    if (!echo_png_info(reinterpret_cast<const unsigned char*>(bytes.data()),
+                       static_cast<int>(bytes.size()), &width, &height) ||
+        width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4U >
+            kMaxDecodedPngBytes) {
+        SDL_Log("PNG dimensions rejected");
+        return false;
+    }
+    unsigned char* pixels = echo_decode_png_rgba(
+        reinterpret_cast<const unsigned char*>(bytes.data()), static_cast<int>(bytes.size()),
+        &width, &height);
     if (pixels == nullptr || width <= 0 || height <= 0 ||
         static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4U >
             kMaxDecodedPngBytes) {
-        SDL_Log("PNG decode failed or decoded size rejected: %s", path);
+        SDL_Log("PNG decode failed or decoded size rejected");
         echo_free_png(pixels);
         return false;
     }

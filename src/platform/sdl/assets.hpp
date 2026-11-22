@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace echo::platform {
 
@@ -22,6 +23,7 @@ struct RgbaImage {
 
 // Decodes a bounded PNG into RGBA bytes; release successful images with freePngRgba.
 [[nodiscard]] bool loadPngRgba(const char* path, RgbaImage& image) noexcept;
+[[nodiscard]] bool decodePngRgba(std::span<const std::byte> bytes, RgbaImage& image) noexcept;
 void freePngRgba(RgbaImage& image) noexcept;
 
 // Decodes a PNG file into an SDL texture. Returns nullptr and logs on any failure.

@@ -22,6 +22,11 @@ unsigned char* echo_decode_png_rgba(const unsigned char* data, int length, int* 
     return stbi_load_from_memory(data, length, width, height, &channels, 4);
 }
 
+int echo_png_info(const unsigned char* data, int length, int* width, int* height) {
+    int channels = 0;
+    return stbi_info_from_memory(data, length, width, height, &channels);
+}
+
 void echo_free_png(unsigned char* pixels) {
     stbi_image_free(pixels);
 }

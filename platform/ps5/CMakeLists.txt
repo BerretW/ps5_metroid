@@ -38,6 +38,7 @@ if(ECHO_PS5_GAME)
             message(FATAL_ERROR "PS5 Vulkan requires verified RADV link inputs and the controller-only non-diagnostic SDL build.")
         endif()
         include("${ECHO_RADV_LINK_INPUTS}")
+        include("${echo_root}/cmake/webp.cmake")
         add_subdirectory("${echo_root}/framework/rendering_vulkan" framework_rendering_vulkan)
     endif()
     if(NOT TARGET EchoFramework::Narrative)
@@ -99,8 +100,10 @@ if(ECHO_PS5_GAME)
         target_sources(project_echo_ps5 PRIVATE
             "${echo_root}/src/platform/sdl/canvas_assets.cpp"
             "${echo_root}/src/platform/sdl/gpu_canvas.cpp"
+            "${echo_root}/src/platform/sdl/menu_glyph.cpp"
             "${echo_root}/experiments/vulkan3d/ps5/radv/compat.c")
         target_compile_definitions(project_echo_ps5 PRIVATE ECHO_PS5_VULKAN)
+        target_include_directories(project_echo_ps5 PRIVATE "${libwebp_SOURCE_DIR}/src")
         target_link_options(project_echo_ps5 PRIVATE
             "-T${echo_root}/experiments/vulkan3d/ps5/runtime/runtime-layout.ld"
             "-L${native}" "--version-script=${ECHO_RADV_ALIASES_MAP}"
@@ -117,7 +120,7 @@ if(ECHO_PS5_GAME)
             EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
             EchoFramework::Abilities EchoFramework::Quests EchoFramework::Cutscenes EchoFramework::World
             EchoFramework::VFX EchoFramework::Rendering
-            EchoFramework::RenderingVulkan --end-group ${ECHO_RADV_STUBS}
+            EchoFramework::RenderingVulkan webpdecoder --end-group ${ECHO_RADV_STUBS}
             --whole-archive "${ECHO_RADV_ARCHIVE}" --no-whole-archive --start-group
             "${PS5_SDK_ROOT}/target/lib/libc++.a" "${PS5_SDK_ROOT}/target/lib/libc++abi.a"
             "${PS5_SDK_ROOT}/target/lib/libunwind.a"

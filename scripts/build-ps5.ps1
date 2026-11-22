@@ -253,6 +253,9 @@ if ($Target -eq "Game") {
     $gameSdk = $sdk
     $gameOptions = @()
     if ($Vulkan) {
+        Restore-Source "libwebp" $manifest.webp
+        $webpSource = Join-Path $deps "sources\libwebp"
+        $gameOptions += "-DFETCHCONTENT_SOURCE_DIR_LIBWEBP=$webpSource"
         $gameSdk = Join-Path $deps "vulkan-ps5\sdk"
         foreach ($module in @("kernel", "SceLibcInternal", "SceSystemService", "SceVideoOut",
                               "ScePad", "SceUserService", "SceAudioOut", "SceKeyboard", "SceImeDialog")) {
@@ -357,6 +360,9 @@ if ($Target -eq "Game") {
     }
     Copy-Item -LiteralPath (Join-Path $root "licenses\stb.txt") -Destination (Join-Path $gameApp "licenses\stb.txt")
     Copy-Item -LiteralPath (Join-Path $root "licenses\yyjson.txt") -Destination (Join-Path $gameApp "licenses\yyjson.txt")
+    if ($Vulkan) {
+        Copy-Item -LiteralPath (Join-Path $webpSource "COPYING"),(Join-Path $webpSource "PATENTS") -Destination (Join-Path $gameApp "licenses") -Force
+    }
     # Replace only the game's own asset folder so stale files never ship.
     $packagedAssets = Join-Path $gameApp "assets"
     if (Test-Path -LiteralPath $packagedAssets) { Remove-Item -LiteralPath $packagedAssets -Recurse -Force }

@@ -10,6 +10,7 @@
 #ifdef ECHO_PS5_VULKAN
 #include "echo/framework/vulkan_backend.hpp"
 #include "platform/sdl/gpu_canvas.hpp"
+#include "platform/sdl/menu_glyph.hpp"
 #endif
 
 #include <SDL.h>
@@ -783,6 +784,7 @@ int main(int, char**) {
 #ifdef ECHO_PS5_VULKAN
     echo::rendering::VulkanBackend gpuBackend{};
     echo::platform::GpuCanvas gpuCanvas{gpuBackend};
+    echo::platform::MenuGlyph menuGlyph{gpuBackend};
     logMessage("PS5 Vulkan renderer initialization starting");
     const auto gpuStatus = gpuBackend.initialize(
         {nullptr, 1280, 720, "/app0/assets/shaders", false, 640, 360, logVulkanStage, nullptr});
@@ -849,8 +851,20 @@ int main(int, char**) {
             }
             const int sprites = static_cast<int>(gpuCanvas.sprites().size());
             const int worldSheets = static_cast<int>(gpuCanvas.worldSprites().count);
+            const auto glyphStatus = menuGlyph.load(assets.data());
+            if (!glyphStatus && glyphStatus.code != echo::framework::ErrorCode::NotFound) {
+                (void)logRenderStatus(glyphStatus);
+                audio.close();
+                (void)logRenderStatus(menuGlyph.shutdown());
+                (void)logRenderStatus(gpuCanvas.shutdown());
+                gpuBackend.shutdown();
+                framework.shutdown();
+                SDL_Quit();
+                return 1;
+            }
 #else
             const int sprites = renderer.loadSprites(assets.data());
+            renderer.loadMenuGlyph(assets.data());
             ECHO_DIAG("ECHO DIAG 08b: %d sprites; before world sheets", sprites);
             const int worldSheets = renderer.loadWorldSprites(assets.data(), game.world());
             ECHO_DIAG("ECHO DIAG 08c: %d world sheets; before sounds", worldSheets);
@@ -2196,7 +2210,7 @@ int main(int, char**) {
         bool recorded = false;
         auto& canvas = gpuCanvas.batch();
         if (screen == Screen::MainMenu) {
-            recorded = renderer.recordMenu(canvas, menuSelection, continueAvailable);
+            recorded = renderer.recordMenu(canvas, menuSelection, continueAvailable, menuGlyph.ready());
         } else if (screen == Screen::DualSenseLab) {
             refreshControllerSnapshot();
             recorded = renderer.recordDualSenseLab(canvas, controllerSnapshot, SDL_NumJoysticks());
@@ -2224,13 +2238,17 @@ int main(int, char**) {
             renderFailed = true;
             break;
         }
-        const auto frameStatus = gpuCanvas.beginFrame();
+        const bool glyphVisible = screen == Screen::MainMenu && menuGlyph.ready();
+        const auto frameStatus = gpuCanvas.beginFrame(
+            glyphVisible ? menuGlyph.frame() : echo::rendering::FrameState{});
         if (!frameStatus && frameStatus.code == echo::framework::ErrorCode::InvalidState &&
             frameStatus.detail == "swapchain out of date; retry frame") {
             SDL_Delay(1);
             continue;
         }
-        if (!logRenderStatus(frameStatus) || !logRenderStatus(gpuCanvas.endFrame())) {
+        if (!logRenderStatus(frameStatus) ||
+            (glyphVisible && !logRenderStatus(menuGlyph.submit(static_cast<float>(SDL_GetTicks()) / 1000.0F))) ||
+            !logRenderStatus(gpuCanvas.endFrame())) {
             renderFailed = true;
             break;
         }
@@ -2302,6 +2320,7 @@ int main(int, char**) {
     SDL_free(controllerSnapshot.touches);
     audio.close();
 #ifdef ECHO_PS5_VULKAN
+    if (!logRenderStatus(menuGlyph.shutdown())) renderFailed = true;
     if (!logRenderStatus(gpuCanvas.shutdown())) renderFailed = true;
     gpuBackend.shutdown();
     if (gpuBackend.diagnostics().allocatedGpuBytes != 0) {

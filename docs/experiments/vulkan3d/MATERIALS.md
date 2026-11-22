@@ -64,10 +64,9 @@ The caller registers the referenced mesh IDs in `ContentRegistry` before
 parsing. A scene material may omit `textureId`; the caller may bind the
 backend's white fallback texture. When a symbolic `textureId` is supplied, the
 caller resolves it and passes its live `TextureHandle` before calling
-`IRenderBackend::createMaterial`. Only the base texture slot is supported by
-the current Vulkan backend; normal maps and other texture channels are not
-implemented. The scene loader describes data but does not allocate GPU
-resources.
+`IRenderBackend::createMaterial`. The Vulkan backend also accepts linear normal
+and metallic-roughness textures. The scene loader describes data but does not
+allocate GPU resources.
 
 The Vulkan shader implements unlit, vertex-color, textured Lambert, and a small
 GGX/Schlick metallic/roughness approximation. It has ambient/directional light
@@ -89,7 +88,28 @@ indices are retained. Caps: 2048 vertices, 6144 indices, 32 primitives and 16
 materials. Failed imports expose no partial geometry. Tests cover strided
 normal/UV preservation, truncation, invalid indices and required extensions.
 
-GLB, sparse/normalized accessors, texture binding, normal maps, skinning, morphs,
-scene-node transforms, animation and modular importer registration are not
-implemented. The demonstration deliberately remains procedural; no custom
-model format or protected sample artwork was introduced.
+## Menu glyph
+
+The Vulkan game loads `assets/menu/glyph.glb` first, otherwise
+`assets/menu/glyph.gltf`. The GLB contains one binary buffer and embedded PNG or
+WebP images; the glTF JSON variant requires embedded base64 buffer and image
+URIs. External files, JPEG, animated WebP and required extensions other than
+`EXT_texture_webp` are unsupported. The SDL game instead displays the optional
+`assets/menu/glyph.png` as a 2D fallback.
+
+The menu adapter limits the file to 16 MiB, the binary buffer and each encoded
+image to 4 MiB, and each decoded image to 64 MiB. It accepts a single scene
+containing one untransformed mesh node. Sparse/normalized accessors, skinning,
+morphs, animations, scene transforms and instancing are rejected. Export
+triangles with float positions, normals and UVs. Exported tangents are used
+when present; otherwise the importer generates a tangent frame and rejects
+degenerate UVs or mirrored UVs sharing vertices. Generated tangents are not a
+MikkTSpace implementation; export tangents matching the normal-map bake for
+best fidelity.
+
+Base-color textures use sRGB; normal and metallic-roughness textures use linear
+sampling. Normal scale and the glTF metallic (B) and roughness (G) channels are
+supported; occlusion and emissive textures are rejected. Lighting is a
+simplified PBR approximation without IBL. The PNG fallback does not animate.
+The WebP decoder is pinned libwebp 1.6.0 with SIMD and threading disabled;
+its license and patent grant ship with Vulkan builds.

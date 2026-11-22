@@ -75,7 +75,8 @@ Copy-Item -LiteralPath (Join-Path $build "echo_vulkan3d.exe"),(Join-Path $build 
 foreach ($asset in @("scene.json","reactor_sparks.json","player.png")) {
     Copy-Item -LiteralPath (Join-Path $build "assets\$asset") -Destination (Join-Path $package "assets\$asset") -Force
 }
-foreach ($directory in @("sprites", "framework", "world")) {
+foreach ($directory in @("sprites", "framework", "world", "menu")) {
+    if ($directory -eq "menu" -and -not (Test-Path -LiteralPath (Join-Path $build "assets\menu"))) { continue }
     Copy-Item -LiteralPath (Join-Path $build "assets\$directory") -Destination (Join-Path $package "assets") -Recurse -Force
 }
 foreach ($shader in @("scene.vert.spv","scene.frag.spv")) {
@@ -83,5 +84,6 @@ foreach ($shader in @("scene.vert.spv","scene.frag.spv")) {
 }
 Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $package "licenses\Echo-MIT.txt") -Force
 Copy-Item -LiteralPath (Join-Path $root "licenses\stb.txt"),(Join-Path $root "licenses\yyjson.txt"),(Join-Path $root "licenses\SDL2.txt") -Destination (Join-Path $package "licenses") -Force
+Copy-Item -LiteralPath (Join-Path $build "_deps\libwebp-src\COPYING"),(Join-Path $build "_deps\libwebp-src\PATENTS") -Destination (Join-Path $package "licenses") -Force
 Write-Output "Vulkan experiment built: $build\echo_vulkan3d.exe (no PS5 hardware claim)"
 Write-Output "Independent Windows output: $package"

@@ -8,6 +8,7 @@
 #include "platform/sdl/canvas_assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
 #include "platform/sdl/gpu_canvas.hpp"
+#include "platform/sdl/menu_glyph.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <array>
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
     unsigned frameLimit{};
     bool validation{}, motionTest{}, canvasTextureTest{}, gameSprites{}, dataWorld{};
     const char* capture{};
+    const char* glyphRoot{};
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             char* end{};
@@ -90,6 +92,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--sprites")) gameSprites = true;
         else if (!std::strcmp(argv[i], "--data-world")) dataWorld = true;
         else if (!std::strcmp(argv[i], "--capture") && i + 1 < argc) capture = argv[++i];
+        else if (!std::strcmp(argv[i], "--glyph-root") && i + 1 < argc) glyphRoot = argv[++i];
         else { std::fprintf(stderr, "Unknown or incomplete argument: %s\n", argv[i]); return 2; }
     }
     if (capture && !frameLimit) { std::fprintf(stderr, "Capture requires --frames\n"); return 2; }
@@ -161,6 +164,8 @@ int main(int argc, char** argv) {
         if (!require(backend.initialize({window, 1280, 720, shaders.data(), validation, 640, 360}))) return false;
         echo::platform::GpuCanvas canvas{backend};
         if (!require(canvas.initialize())) return false;
+        echo::platform::MenuGlyph glyph{backend};
+        if (glyphRoot && !require(glyph.load(glyphRoot))) return false;
         auto& geometry = canvas.batch();
         TextureHandle texture{};
         TextureHandle playerTexture{};
@@ -257,7 +262,7 @@ int main(int argc, char** argv) {
                 }
             } else {
                 accumulator = 0.0F;
-                if (!gameMenu.recordMenu(geometry, selection, false)) {
+                if (!gameMenu.recordMenu(geometry, selection, false, glyph.ready())) {
                     std::fprintf(stderr, "Game menu recording failed\n");
                     return false;
                 }
@@ -285,10 +290,11 @@ int main(int argc, char** argv) {
                 }
             }
             lastTick = now;
-            auto status = canvas.beginFrame();
+            auto status = canvas.beginFrame(glyph.ready() && !inGame ? glyph.frame() : FrameState{});
             if (!status && status.code == ErrorCode::InvalidState &&
                 status.detail == "swapchain out of date; retry frame") continue;
             if (!require(status)) return false;
+            if (glyph.ready() && !inGame && !require(glyph.submit(0.0F))) return false;
             if (capture && frames + 1 == frameLimit && !require(backend.captureNextFrame(capture))) return false;
             if (!require(canvas.endFrame())) return false;
             ++frames;
@@ -302,7 +308,7 @@ int main(int argc, char** argv) {
         std::printf("{\"stage\":\"menu.complete\",\"frames\":%llu,\"drawCalls\":%u,\"triangles\":%u,\"validationErrors\":%u}\n",
                     static_cast<unsigned long long>(stats.frames), stats.drawCalls,
                     stats.triangles, stats.validationErrors);
-        if (stats.validationErrors || !require(canvas.shutdown())) return false;
+        if (stats.validationErrors || !require(glyph.shutdown()) || !require(canvas.shutdown())) return false;
         if (texture.valid() && !require(backend.destroyTexture(texture))) return false;
         if (playerTexture.valid() && !require(backend.destroyTexture(playerTexture))) return false;
         return true;

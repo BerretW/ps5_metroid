@@ -2,10 +2,19 @@
 
 The operator reported a visible turquoise first frame and a moving interactive
 cube on PS5, with successful RADV graphics and pad stages in the supplied logs.
-The operator reports both current impact-sparks game packages fully functional
+The operator reports earlier impact-sparks game packages fully functional
 on PS5; individual effect appearance and lifecycle were not separately described.
+After the subsequent menu glyph and WebP packages were presented, the operator
+reported full functionality on 2026-11-22 without identifying the tested
+variant(s), installed digest, setup, or individual checks.
 Upstream tests and PROJECT ECHO's software isometric room are not substitutes.
 Deployment is manual only.
+
+For the menu glyph revision, manually upload exactly one complete `PPSA91007`
+application directory. In Vulkan, check the rotating 3D model, textures, normal
+detail, and menu navigation; in SDL, check the static PNG fallback. Verify
+gameplay and clean exit/relaunch separately. Record the package digest and any
+startup error; static package validation is not a hardware result.
 
 For the `PPSA91008` diagnostics below, verify the candidate digest/static report
 and confirm that identity is unused on the console. Do not overwrite

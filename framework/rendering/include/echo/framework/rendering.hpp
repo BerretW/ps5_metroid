@@ -37,6 +37,7 @@ struct Vertex {
     Vec3 normal{0, 1, 0};
     Vec2 uv{};
     Vec4 color{1, 1, 1, 1};
+    Vec4 tangent{1, 0, 0, 1};
 };
 inline constexpr std::size_t kMaxMeshVertices = 65536;
 inline constexpr std::size_t kMaxMeshIndices = 196608;
@@ -60,6 +61,7 @@ using TargetHandle = Handle<struct TargetTag>;
 
 enum class MaterialModel : std::uint8_t { Unlit, VertexColor, Textured, SimplePbr };
 enum class AlphaMode : std::uint8_t { Opaque, Blend, Additive };
+enum class TextureColorSpace : std::uint8_t { Srgb, Linear };
 struct Material {
     MaterialModel model{MaterialModel::Textured};
     AlphaMode alpha{AlphaMode::Opaque};
@@ -67,6 +69,9 @@ struct Material {
     Vec3 emission{};
     float metallic{}, roughness{0.5F};
     TextureHandle texture{};
+    TextureHandle normalTexture{};
+    TextureHandle metallicRoughnessTexture{};
+    float normalScale{1.0F};
 };
 Status validateMaterial(const Material& material) noexcept;
 
@@ -142,7 +147,8 @@ public:
                                      MeshHandle&) noexcept = 0;
     virtual Status updateDynamicMesh(MeshHandle, MeshView) noexcept = 0;
     virtual Status createTexture(std::uint32_t width, std::uint32_t height,
-                                 std::span<const std::byte> rgba, TextureHandle&) noexcept = 0;
+                                 std::span<const std::byte> rgba, TextureHandle&,
+                                 TextureColorSpace colorSpace = TextureColorSpace::Srgb) noexcept = 0;
     virtual Status createMaterial(const Material&, MaterialHandle&) noexcept = 0;
     virtual Status destroyMesh(MeshHandle) noexcept = 0;
     virtual Status destroyTexture(TextureHandle) noexcept = 0;

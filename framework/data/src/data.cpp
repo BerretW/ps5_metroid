@@ -344,13 +344,23 @@ JsonDocument& JsonDocument::operator=(JsonDocument&& other) noexcept {
 
 Status JsonDocument::parse(const char* data, std::size_t size,
                            JsonDocument& output, JsonError& error) noexcept {
+    return parseBounded(data, size, kMaxJsonBytes, output, error);
+}
+
+Status JsonDocument::parseAsset(const char* data, std::size_t size,
+                                JsonDocument& output, JsonError& error) noexcept {
+    return parseBounded(data, size, kMaxAssetJsonBytes, output, error);
+}
+
+Status JsonDocument::parseBounded(const char* data, std::size_t size, std::size_t limit,
+                                  JsonDocument& output, JsonError& error) noexcept {
     output.reset();
     error = {};
     if (data == nullptr || size == 0) {
         return {ErrorCode::InvalidArgument, {}, "JSON input must not be empty."};
     }
-    if (size > kMaxJsonBytes) {
-        return {ErrorCode::CapacityExceeded, {}, "JSON input exceeds the 1 MiB content limit."};
+    if (size > limit) {
+        return {ErrorCode::CapacityExceeded, {}, "JSON input exceeds the selected content limit."};
     }
     yyjson_read_err parseError{};
     // yyjson documents this cast as read-only when YYJSON_READ_INSITU is not set.

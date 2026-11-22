@@ -224,7 +224,7 @@ Status validateMesh(MeshView mesh) noexcept {
     }
     for (const Vertex& vertex : mesh.vertices) {
         if (!finite(vertex.position) || !finite(vertex.normal) ||
-            !finite(vertex.uv) || !finite(vertex.color) ||
+            !finite(vertex.uv) || !finite(vertex.color) || !finite(vertex.tangent) ||
             std::abs(vertex.position.x) > kMaxVertexPosition ||
             std::abs(vertex.position.y) > kMaxVertexPosition ||
             std::abs(vertex.position.z) > kMaxVertexPosition ||
@@ -233,6 +233,10 @@ Status validateMesh(MeshView mesh) noexcept {
             std::abs(vertex.normal.z) > kMaxVertexAttribute ||
             std::abs(vertex.uv.x) > kMaxVertexAttribute ||
             std::abs(vertex.uv.y) > kMaxVertexAttribute ||
+            std::abs(vertex.tangent.x) > kMaxVertexAttribute ||
+            std::abs(vertex.tangent.y) > kMaxVertexAttribute ||
+            std::abs(vertex.tangent.z) > kMaxVertexAttribute ||
+            (vertex.tangent.w != -1.0F && vertex.tangent.w != 1.0F) ||
             vertex.color.x < 0.0F || vertex.color.x > 1.0F ||
             vertex.color.y < 0.0F || vertex.color.y > 1.0F ||
             vertex.color.z < 0.0F || vertex.color.z > 1.0F ||
@@ -269,6 +273,7 @@ Status validateMaterial(const Material& material) noexcept {
         alpha > static_cast<std::uint8_t>(AlphaMode::Additive) ||
         !finite(material.baseColor) || !finite(material.emission) ||
         !std::isfinite(material.metallic) || !std::isfinite(material.roughness) ||
+        !std::isfinite(material.normalScale) ||
         material.baseColor.x < 0.0F || material.baseColor.x > 1.0F ||
         material.baseColor.y < 0.0F || material.baseColor.y > 1.0F ||
         material.baseColor.z < 0.0F || material.baseColor.z > 1.0F ||
@@ -278,7 +283,8 @@ Status validateMaterial(const Material& material) noexcept {
         material.emission.y > kMaxEmission || material.emission.z > kMaxEmission ||
         material.metallic < 0.0F ||
         material.metallic > 1.0F || material.roughness < 0.0F ||
-        material.roughness > 1.0F) {
+        material.roughness > 1.0F || material.normalScale < 0.0F ||
+        material.normalScale > 10.0F) {
         return {ErrorCode::InvalidValue, "material",
                 "Material enums and finite color/PBR values are outside supported bounds."};
     }

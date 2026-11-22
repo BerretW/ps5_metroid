@@ -44,6 +44,13 @@
     "commit": "6447536015f3d600f3d65323b10976103b337ca7",
     "license": "MIT (licenses/yyjson.txt)"
   },
+  "webp": {
+    "usage": "Static decoder for embedded glTF WebP images in the Vulkan menu",
+    "version": "1.6.0",
+    "url": "https://github.com/webmproject/libwebp.git",
+    "commit": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
+    "license": "BSD-3-Clause and patent grant (upstream LICENSE and PATENTS)"
+  },
   "pacbrew": {
     "usage": "Research-only archive; software SDL build does not require it",
     "version": "0.40.2",

@@ -25,7 +25,7 @@ struct MeshSlot {
     std::size_t vertexCapacity{}, indexCapacity{};
     bool active{}, dynamic{};
 };
-struct TextureSlot { Image image{}; std::uint32_t generation{1}, references{}; bool active{}; };
+struct TextureSlot { Image image{}; std::uint32_t generation{1}, references{}; bool active{}; TextureColorSpace colorSpace{}; };
 struct MaterialSlot { Material material{}; VkDescriptorSet descriptor{}; std::uint32_t generation{1}; bool active{}; };
 struct alignas(16) Uniforms {
     Mat4 vp;
@@ -33,7 +33,7 @@ struct alignas(16) Uniforms {
     std::array<PointLight, 4> points;
 };
 struct Push { Mat4 model; Vec4 color; Vec4 emissionMetallic; Vec4 parameters; Vec4 uvTransform; };
-static_assert(sizeof(Push) == 128 && sizeof(Uniforms) == 240 && sizeof(Vertex) == 48);
+static_assert(sizeof(Push) == 128 && sizeof(Uniforms) == 240 && sizeof(Vertex) == 64);
 Status error(ErrorCode code, std::string_view detail) noexcept {
     return {code, "echo.rendering.vulkan", detail};
 }
@@ -241,14 +241,15 @@ struct VulkanBackend::State {
         stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertex, "main", nullptr};
         stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragment, "main", nullptr};
         VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-        std::array<VkVertexInputAttributeDescription, 4> attributes{{
+        std::array<VkVertexInputAttributeDescription, 5> attributes{{
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
             {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
             {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)},
-            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, color)}}};
+            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, color)},
+            {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, tangent)}}};
         VkPipelineVertexInputStateCreateInfo input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         input.vertexBindingDescriptionCount = 1; input.pVertexBindingDescriptions = &binding;
-        input.vertexAttributeDescriptionCount = 4; input.pVertexAttributeDescriptions = attributes.data();
+        input.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributes.size()); input.pVertexAttributeDescriptions = attributes.data();
         VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -631,13 +632,15 @@ Status VulkanBackend::initialize(const BackendInit& init) noexcept {
     if (result) result = s.check(vkCreateFence(s.device, &fence, nullptr, &s.fence), "frame.fence");
     if (result) result = s.buffer(sizeof(Uniforms), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, s.uniform);
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{{
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{{
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}}};
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}}};
     VkDescriptorSetLayoutCreateInfo layout{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    layout.bindingCount = 2; layout.pBindings = bindings.data();
+    layout.bindingCount = static_cast<std::uint32_t>(bindings.size()); layout.pBindings = bindings.data();
     if (result) result = s.check(vkCreateDescriptorSetLayout(s.device, &layout, nullptr, &s.descriptorLayout), "descriptor.layout");
-    std::array<VkDescriptorPoolSize, 2> sizes{{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kResources}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kResources}}};
+    std::array<VkDescriptorPoolSize, 2> sizes{{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kResources}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kResources * 3}}};
     VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptors.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; descriptors.maxSets = kResources;
     descriptors.poolSizeCount = 2; descriptors.pPoolSizes = sizes.data();
@@ -715,9 +718,11 @@ Status VulkanBackend::updateDynamicMesh(MeshHandle handle, MeshView mesh) noexce
     return Status::success();
 }
 Status VulkanBackend::createTexture(std::uint32_t width, std::uint32_t height,
-                                   std::span<const std::byte> rgba, TextureHandle& handle) noexcept {
+                                   std::span<const std::byte> rgba, TextureHandle& handle,
+                                   TextureColorSpace colorSpace) noexcept {
     handle = {};
-    if (!width || !height || width > 4096 || height > 4096 || rgba.size() != std::uint64_t(width) * height * 4)
+    if (!width || !height || width > 4096 || height > 4096 || rgba.size() != std::uint64_t(width) * height * 4 ||
+        (colorSpace != TextureColorSpace::Srgb && colorSpace != TextureColorSpace::Linear))
         return error(ErrorCode::InvalidArgument, "texture dimensions or RGBA size");
     if (!state_ || !state_->initialized) return error(ErrorCode::InvalidState, "backend not initialized");
     auto& s = *state_; auto status = s.idle(); if (!status) return status;
@@ -727,7 +732,8 @@ Status VulkanBackend::createTexture(std::uint32_t width, std::uint32_t height,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging);
         if (!status) return status;
         std::memcpy(staging.mapped, rgba.data(), rgba.size());
-        status = s.image(width, height, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        const auto format = colorSpace == TextureColorSpace::Srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+        status = s.image(width, height, format, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                          VK_IMAGE_ASPECT_COLOR_BIT, texture.image);
         VkCommandBuffer cmd{};
         if (status) status = s.immediateBegin(cmd);
@@ -746,7 +752,7 @@ Status VulkanBackend::createTexture(std::uint32_t width, std::uint32_t height,
         sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         if (status) status = s.check(vkCreateSampler(s.device, &sampler, nullptr, &texture.image.sampler), "texture.sampler");
         if (!status) { s.freeImage(texture.image); return status; }
-        texture.active = true; handle = {i, texture.generation}; s.log("texture.ready"); return status;
+        texture.active = true; texture.colorSpace = colorSpace; handle = {i, texture.generation}; s.log("texture.ready"); return status;
     }
     return error(ErrorCode::CapacityExceeded, "texture capacity");
 }
@@ -757,6 +763,18 @@ Status VulkanBackend::createMaterial(const Material& material, MaterialHandle& h
     auto t = material.texture;
     if (t.index >= kResources || !s.textures[t.index].active || s.textures[t.index].generation != t.generation)
         return error(ErrorCode::NotFound, "material texture handle");
+    const auto normal = material.normalTexture.valid() ? material.normalTexture : t;
+    if (normal.index >= kResources || !s.textures[normal.index].active ||
+        s.textures[normal.index].generation != normal.generation)
+        return error(ErrorCode::NotFound, "material normal texture handle");
+    if (material.normalTexture.valid() && s.textures[normal.index].colorSpace != TextureColorSpace::Linear)
+        return error(ErrorCode::InvalidValue, "normal texture must use linear color space");
+    const auto pbr = material.metallicRoughnessTexture.valid() ? material.metallicRoughnessTexture : t;
+    if (pbr.index >= kResources || !s.textures[pbr.index].active ||
+        s.textures[pbr.index].generation != pbr.generation)
+        return error(ErrorCode::NotFound, "material metallic-roughness texture handle");
+    if (material.metallicRoughnessTexture.valid() && s.textures[pbr.index].colorSpace != TextureColorSpace::Linear)
+        return error(ErrorCode::InvalidValue, "metallic-roughness texture must use linear color space");
     for (std::uint32_t i = 0; i < kResources; ++i) if (!s.materials[i].active) {
         auto& slot = s.materials[i];
         VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -764,13 +782,21 @@ Status VulkanBackend::createMaterial(const Material& material, MaterialHandle& h
         status = s.check(vkAllocateDescriptorSets(s.device, &alloc, &slot.descriptor), "material.descriptor");
         if (!status) return status;
         const auto& image = s.textures[t.index].image;
+        const auto& normalImage = s.textures[normal.index].image;
+        const auto& pbrImage = s.textures[pbr.index].image;
         VkDescriptorBufferInfo buffer{s.uniform.buffer, 0, sizeof(Uniforms)};
         VkDescriptorImageInfo texture{image.sampler, image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        VkDescriptorImageInfo normalTexture{normalImage.sampler, normalImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo pbrTexture{pbrImage.sampler, pbrImage.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        std::array<VkWriteDescriptorSet, 4> writes{};
         writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffer, nullptr};
         writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &texture, nullptr, nullptr};
-        vkUpdateDescriptorSets(s.device, 2, writes.data(), 0, nullptr);
+        writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 2, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &normalTexture, nullptr, nullptr};
+        writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, slot.descriptor, 3, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &pbrTexture, nullptr, nullptr};
+        vkUpdateDescriptorSets(s.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
         slot.material = material; slot.active = true; ++s.textures[t.index].references;
+        if (material.normalTexture.valid()) ++s.textures[normal.index].references;
+        if (material.metallicRoughnessTexture.valid()) ++s.textures[pbr.index].references;
         handle = {i, slot.generation}; return status;
     }
     return error(ErrorCode::CapacityExceeded, "material capacity");
@@ -805,7 +831,10 @@ Status VulkanBackend::destroyMaterial(MaterialHandle h) noexcept {
     auto& material = s.materials[h.index];
     status = s.check(vkFreeDescriptorSets(s.device, s.descriptorPool, 1, &material.descriptor), "material.free");
     if (!status) return status;
-    --s.textures[material.material.texture.index].references; material.active = false; material.descriptor = {};
+    --s.textures[material.material.texture.index].references;
+    if (material.material.normalTexture.valid()) --s.textures[material.material.normalTexture.index].references;
+    if (material.material.metallicRoughnessTexture.valid()) --s.textures[material.material.metallicRoughnessTexture.index].references;
+    material.active = false; material.descriptor = {};
     if (++material.generation == 0) ++material.generation; return status;
 }
 Status VulkanBackend::createTarget(std::uint32_t, std::uint32_t, TargetHandle& h) noexcept {
@@ -919,7 +948,9 @@ Status VulkanBackend::endFrame() noexcept {
         Vec4 color{m.baseColor.x * draw.tint.x, m.baseColor.y * draw.tint.y,
                    m.baseColor.z * draw.tint.z, m.baseColor.w * draw.tint.w};
         Push push{draw.model, color, {m.emission.x, m.emission.y, m.emission.z, m.metallic},
-                  {m.roughness, static_cast<float>(m.model), draw.overlay ? 1.0F : 0.0F, 0},
+                  {m.roughness, static_cast<float>(m.model),
+                   (draw.overlay ? 1.0F : 0.0F) + (m.metallicRoughnessTexture.valid() ? 2.0F : 0.0F),
+                   m.normalTexture.valid() ? m.normalScale : -1.0F},
                   draw.uvTransform};
         vkCmdPushConstants(s.command, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(s.command, count, 1, draw.firstIndex, 0, 0); s.stats.triangles += count / 3;

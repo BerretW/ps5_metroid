@@ -1,6 +1,7 @@
 #include "echo/framework/gltf.hpp"
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 int main() {
     using namespace echo::rendering;
@@ -29,6 +30,33 @@ int main() {
         mesh.materials().size()!=1 || mesh.materials()[0].metallic!=0.25F ||
         mesh.primitiveMaterials()[0]!=0 || mesh.mesh().vertices[1].normal.z!=1 ||
         mesh.mesh().vertices[1].uv.x!=0.5F) { std::fprintf(stderr,"Valid glTF import failed\n"); return 1; }
+    std::string normalJson{json};
+    normalJson.insert(normalJson.find("\"materials\""),
+        "\"images\":[{}],\"textures\":[{\"source\":0}],");
+    normalJson.replace(normalJson.find("\"baseColorFactor\""), sizeof("\"baseColorFactor\"")-1,
+        "\"metallicRoughnessTexture\":{\"index\":0},\"baseColorFactor\"");
+    normalJson.replace(normalJson.find("\"pbrMetallicRoughness\""), sizeof("\"pbrMetallicRoughness\"")-1,
+        "\"normalTexture\":{\"index\":0},\"pbrMetallicRoughness\"");
+    status=mesh.parse(normalJson,buffer,parseError);
+    if (!status || mesh.materialImages()[0].normal!=0 || mesh.materialImages()[0].metallicRoughness!=0 ||
+        mesh.mesh().vertices[0].tangent.x < 0.99F) {
+        std::fprintf(stderr,"Normal map tangent generation or PBR texture import failed\n"); return 1;
+    }
+    auto invalidImage=normalJson;
+    invalidImage.replace(invalidImage.find("\"source\":0"), sizeof("\"source\":0")-1, "\"source\":1");
+    status=mesh.parse(invalidImage,buffer,parseError);
+    if (status || !mesh.mesh().vertices.empty()) { std::fprintf(stderr,"Invalid image accepted\n"); return 1; }
+    auto transformed=normalJson;
+    transformed.insert(transformed.find("\"meshes\""),
+        "\"nodes\":[{\"mesh\":0,\"translation\":[1,0,0]}],\"scenes\":[{\"nodes\":[0]}],");
+    status=mesh.parse(transformed,buffer,parseError);
+    if (status.code!=ErrorCode::MissingCapability) { std::fprintf(stderr,"Unsupported scene transform accepted\n"); return 1; }
+    auto degenerate=buffer;
+    std::memset(degenerate.data()+24,0,8);
+    std::memset(degenerate.data()+56,0,8);
+    std::memset(degenerate.data()+88,0,8);
+    status=mesh.parse(normalJson,degenerate,parseError);
+    if (status || !mesh.mesh().vertices.empty()) { std::fprintf(stderr,"Degenerate normal-map UVs accepted\n"); return 1; }
     status=mesh.parse(json,std::span<const std::byte>(buffer).first(101),parseError);
     if (status || !mesh.mesh().vertices.empty()) { std::fprintf(stderr,"Truncated glTF buffer exposed geometry\n"); return 1; }
     buffer[100]=std::byte{3};

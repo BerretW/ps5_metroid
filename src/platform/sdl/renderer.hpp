@@ -101,10 +101,11 @@ public:
     // Loads every sprite sheet referenced by world data. Returns the number of
     // unique sheets loaded; missing sheets fall back to the built-in art.
     int loadWorldSprites(const char* assetDirectory, const WorldLayout& world) noexcept;
+    void loadMenuGlyph(const char* assetDirectory) noexcept;
     [[nodiscard]] int worldSheetCount() const noexcept { return worldSheetCount_; }
     void drawMenu(int selection, bool continueAvailable = true) noexcept;
     [[nodiscard]] bool recordMenu(rendering::ICanvas2D& sink, int selection,
-                                  bool continueAvailable = true) noexcept;
+                                  bool continueAvailable = true, bool modelWindow = false) noexcept;
     void drawOptions(int selection, int volume, framework::DialogueLanguage language,
                      bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
@@ -157,7 +158,7 @@ private:
     void fillRecordedOrSdl(SDL_Rect bounds, SDL_Color color) noexcept;
     bool beginRecording(rendering::ICanvas2D& sink, SDL_Color background) noexcept;
     bool endRecording() noexcept;
-    void drawMenuContent(int selection, bool continueAvailable) noexcept;
+    void drawMenuContent(int selection, bool continueAvailable, bool modelWindow = false) noexcept;
     void drawOptionsContent(int selection, int volume, framework::DialogueLanguage language,
                             bool waitingForKey, std::string_view jumpKey,
                             std::string_view shootKey, std::string_view interactKey,
@@ -190,6 +191,7 @@ private:
     ControlScheme controls_;
     SDL_Window* window_{};
     SDL_Renderer* renderer_{};
+    SDL_Texture* menuGlyph_{};
     std::array<SDL_Texture*, static_cast<int>(Sprite::Count)> sprites_{};
     std::array<WorldSheet, kMaxWorldSheets> worldSheets_{};
     int worldSheetCount_{};

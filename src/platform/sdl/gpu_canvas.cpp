@@ -54,11 +54,10 @@ rendering::Status GpuCanvas::loadWorldSprites(const char* assetRoot, const World
     return rendering::Status::success();
 }
 
-rendering::Status GpuCanvas::beginFrame() noexcept {
+rendering::Status GpuCanvas::beginFrame(rendering::FrameState frame) noexcept {
     if (!batch_) return canvasError(rendering::ErrorCode::InvalidState, "canvas not initialized");
     auto status = batch_->flushMesh(mesh_);
     if (!status) return status;
-    rendering::FrameState frame{};
     frame.clearColor = batch_->background();
     return backend_.beginFrame(frame);
 }

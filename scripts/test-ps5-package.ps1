@@ -36,7 +36,7 @@ if ($VulkanGame) {
     if (-not $env:VULKAN_SDK) { throw "VULKAN_SDK is required to validate PS5 shaders." }
     $spirvVal = Join-Path $env:VULKAN_SDK "Bin\spirv-val.exe"
     if (-not (Test-Path -LiteralPath $spirvVal -PathType Leaf)) { throw "SPIR-V validator is missing." }
-    foreach ($license in @("PS5_Vulkan.txt", "PS5_Platform.txt", "Mesa-license.rst", "LLVM.txt",
+    foreach ($license in @("PS5_Vulkan.txt", "PS5_Platform.txt", "Mesa-license.rst", "LLVM.txt", "COPYING", "PATENTS",
                            "echo-vulkan-game.txt", "build-provenance.json", "Mesa\MIT")) {
         if (-not (Test-Path -LiteralPath (Join-Path $app "licenses\$license") -PathType Leaf)) {
             throw "PS5 Vulkan license or provenance file is missing: $license"
@@ -53,7 +53,9 @@ if ($VulkanGame) {
 }
 if (Test-Path -LiteralPath $assetDir) {
     foreach ($asset in Get-ChildItem -LiteralPath $assetDir -Recurse -File) {
-        if ($asset.Length -gt 4MB) { throw "Asset exceeds the 4 MiB runtime limit: $($asset.Name)" }
+        $assetLimit = if ($asset.FullName -in @((Join-Path $assetDir "menu\glyph.gltf"),
+                                                 (Join-Path $assetDir "menu\glyph.glb"))) { 16MB } else { 4MB }
+        if ($asset.Length -gt $assetLimit) { throw "Asset exceeds its runtime limit: $($asset.Name)" }
         $head = New-Object byte[] 36
         $stream = [IO.File]::OpenRead($asset.FullName)
         try { $read = $stream.Read($head, 0, $head.Length) } finally { $stream.Dispose() }
@@ -61,6 +63,23 @@ if (Test-Path -LiteralPath $assetDir) {
             if ($read -lt 24 -or [BitConverter]::ToString($head, 0, 8) -ne "89-50-4E-47-0D-0A-1A-0A") {
                 throw "Invalid PNG asset: $($asset.Name)"
             }
+        } elseif ($asset.Extension -eq ".webp" -and
+                  $asset.FullName.StartsWith((Join-Path $assetDir "menu\"), [StringComparison]::OrdinalIgnoreCase)) {
+            if ($read -lt 12 -or [Text.Encoding]::ASCII.GetString($head, 0, 4) -ne "RIFF" -or
+                [Text.Encoding]::ASCII.GetString($head, 8, 4) -ne "WEBP" -or
+                [BitConverter]::ToUInt32($head, 4) + 8 -ne $asset.Length) {
+                throw "Invalid menu WebP asset: $($asset.Name)"
+            }
+        } elseif ($asset.Extension -eq ".glb" -and
+                  $asset.FullName -eq (Join-Path $assetDir "menu\glyph.glb")) {
+            if ($read -lt 28 -or [Text.Encoding]::ASCII.GetString($head, 0, 4) -ne "glTF" -or
+                [BitConverter]::ToUInt32($head, 4) -ne 2 -or
+                [BitConverter]::ToUInt32($head, 8) -ne $asset.Length) {
+                throw "Invalid menu GLB asset."
+            }
+        } elseif ($asset.Extension -eq ".gltf" -and
+                  $asset.FullName -eq (Join-Path $assetDir "menu\glyph.gltf")) {
+            if ($asset.Length -eq 0) { throw "Empty menu glTF asset." }
         } elseif ($asset.Extension -eq ".wav") {
             if ($read -lt 36 -or [Text.Encoding]::ASCII.GetString($head, 0, 4) -ne "RIFF" -or
                 [Text.Encoding]::ASCII.GetString($head, 8, 8) -ne "WAVEfmt " -or

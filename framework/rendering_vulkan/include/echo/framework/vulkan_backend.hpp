@@ -16,7 +16,7 @@ public:
                              MeshHandle&) noexcept override;
     Status updateDynamicMesh(MeshHandle, MeshView) noexcept override;
     Status createTexture(std::uint32_t, std::uint32_t, std::span<const std::byte>,
-                         TextureHandle&) noexcept override;
+                         TextureHandle&, TextureColorSpace = TextureColorSpace::Srgb) noexcept override;
     Status createMaterial(const Material&, MaterialHandle&) noexcept override;
     Status destroyMesh(MeshHandle) noexcept override;
     Status destroyTexture(TextureHandle) noexcept override;
