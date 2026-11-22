@@ -180,6 +180,7 @@ int main(int argc, char** argv) {
     bool isometricLightMetricTest{};
     bool shadowTest{};
     bool cargoLightingSaveTest{};
+    bool platformerLightingTest{};
     const char* capture{};
     const char* glyphRoot{};
     for (int i = 1; i < argc; ++i) {
@@ -201,6 +202,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--isometric-light-metric-test")) isometricLightMetricTest = true;
         else if (!std::strcmp(argv[i], "--shadow-test")) shadowTest = true;
         else if (!std::strcmp(argv[i], "--cargo-lighting-save-test")) cargoLightingSaveTest = true;
+        else if (!std::strcmp(argv[i], "--platformer-lighting-test")) platformerLightingTest = true;
         else if (!std::strcmp(argv[i], "--capture") && i + 1 < argc) capture = argv[++i];
         else if (!std::strcmp(argv[i], "--glyph-root") && i + 1 < argc) glyphRoot = argv[++i];
         else { std::fprintf(stderr, "Unknown or incomplete argument: %s\n", argv[i]); return 2; }
@@ -243,6 +245,15 @@ int main(int argc, char** argv) {
         std::fprintf(stderr,
                      "Cargo lighting save test requires --game --sprites --data-world "
                      "--frames 2 and --capture\n");
+        return 2;
+    }
+    if (platformerLightingTest &&
+        (!inGame || !gameSprites || !dataWorld || !capture || frameLimit != 4 ||
+         motionTest || canvasTextureTest || lightingTest || glyphRoot ||
+         cargoLightingSaveTest)) {
+        std::fprintf(stderr,
+                     "Platformer lighting test requires --game --sprites --data-world "
+                     "--frames 4 and --capture\n");
         return 2;
     }
 
@@ -358,7 +369,11 @@ int main(int argc, char** argv) {
         echo::platform::FrameworkIntegration gameIntegration{};
         echo::Game game;
         std::array<char, 1200> cargoPoweredCapture{}, cargoRestoredCapture{};
+        std::array<char, 1200> platformerPoweredCapture{}, platformerMovedCapture{},
+            platformerExpiredCapture{}, platformerOutageCapture{};
         bool cargoLightingStateRestored{};
+        bool platformerCircuitSwitched{};
+        bool platformerProjectileExpired{};
         if (cargoLightingSaveTest) {
             const int poweredLength = std::snprintf(
                 cargoPoweredCapture.data(), cargoPoweredCapture.size(),
@@ -371,6 +386,31 @@ int main(int argc, char** argv) {
                 restoredLength <= 0 ||
                 restoredLength >= static_cast<int>(cargoRestoredCapture.size())) {
                 std::fprintf(stderr, "Cargo lighting capture path is too long\n");
+                return false;
+            }
+        }
+        if (platformerLightingTest) {
+            const int poweredLength = std::snprintf(
+                platformerPoweredCapture.data(), platformerPoweredCapture.size(),
+                "%s.platformer-powered.ppm", capture);
+            const int movedLength = std::snprintf(
+                platformerMovedCapture.data(), platformerMovedCapture.size(),
+                "%s.platformer-projectile.ppm", capture);
+            const int expiredLength = std::snprintf(
+                platformerExpiredCapture.data(), platformerExpiredCapture.size(),
+                "%s.platformer-projectile-expired.ppm", capture);
+            const int outageLength = std::snprintf(
+                platformerOutageCapture.data(), platformerOutageCapture.size(),
+                "%s.platformer-outage.ppm", capture);
+            if (poweredLength <= 0 ||
+                poweredLength >= static_cast<int>(platformerPoweredCapture.size()) ||
+                movedLength <= 0 ||
+                movedLength >= static_cast<int>(platformerMovedCapture.size()) ||
+                expiredLength <= 0 ||
+                expiredLength >= static_cast<int>(platformerExpiredCapture.size()) ||
+                outageLength <= 0 ||
+                outageLength >= static_cast<int>(platformerOutageCapture.size())) {
+                std::fprintf(stderr, "Platformer lighting capture path is too long\n");
                 return false;
             }
         }
@@ -415,6 +455,17 @@ int main(int argc, char** argv) {
                 cargoCheckpoint.playerPosition = {600.0F, 170.0F};
                 if (!game.restore(cargoCheckpoint)) {
                     std::fprintf(stderr, "Cargo Hold checkpoint setup failed\n");
+                    return false;
+                }
+            }
+            if (platformerLightingTest) {
+                echo::GameCheckpoint platformerCheckpoint = game.checkpoint();
+                platformerCheckpoint.room = echo::RoomId::LandingBay;
+                platformerCheckpoint.playerPosition = {520.0F, 292.0F};
+                platformerCheckpoint.playerFacing = -1;
+                if (!game.restore(platformerCheckpoint) ||
+                    game.nearbyPowerPanel(game.player().position) == nullptr) {
+                    std::fprintf(stderr, "Landing Bay lighting scenario setup failed\n");
                     return false;
                 }
             }
@@ -546,6 +597,41 @@ int main(int argc, char** argv) {
             } else if (inGame) {
                 if (cargoLightingSaveTest) {
                     accumulator = 0.0F;
+                } else if (platformerLightingTest) {
+                    accumulator = 0.0F;
+                    if (frames == 0) {
+                        echo::Input input{};
+                        input.shootHeld = true;
+                        if (!require(game.update(input, echo::kFixedStep))) return false;
+                    } else if (frames == 1) {
+                        echo::Input input{};
+                        for (int step = 0; step < 10; ++step) {
+                            if (!require(game.update(input, echo::kFixedStep))) return false;
+                        }
+                    } else if (frames == 2) {
+                        echo::Input input{};
+                        for (int step = 0; step < 240; ++step) {
+                            if (!require(game.update(input, echo::kFixedStep))) return false;
+                        }
+                        platformerProjectileExpired = std::none_of(
+                            game.projectiles().begin(), game.projectiles().end(),
+                            [](const echo::Projectile& projectile) { return projectile.active; });
+                    } else if (frames == 3) {
+                        const echo::PropLayout* panel =
+                            game.nearbyPowerPanel(game.player().position);
+                        if (panel == nullptr ||
+                            !require(gameIntegration.togglePowerCircuit(panel->circuit))) {
+                            std::fprintf(stderr, "Landing Bay power-panel toggle failed\n");
+                            return false;
+                        }
+                        bool powered{};
+                        if (!require(gameIntegration.powerModule()->isPowered(
+                                "echo:power/landing_main", powered)) || powered) {
+                            std::fprintf(stderr, "Landing Bay main circuit stayed powered\n");
+                            return false;
+                        }
+                        platformerCircuitSwitched = true;
+                    }
                 } else {
                     accumulator += frameLimit ? echo::kFixedStep :
                         std::min(0.25F, std::chrono::duration<float>(now - lastTick).count());
@@ -607,6 +693,13 @@ int main(int argc, char** argv) {
                 const char* frameCapture = frames == 0 ? cargoPoweredCapture.data()
                                                        : cargoRestoredCapture.data();
                 if (!require(backend.captureNextFrame(frameCapture))) return false;
+            } else if (platformerLightingTest) {
+                const char* frameCapture = frames == 0
+                    ? platformerPoweredCapture.data()
+                    : frames == 1 ? platformerMovedCapture.data()
+                    : frames == 2 ? platformerExpiredCapture.data()
+                                  : platformerOutageCapture.data();
+                if (!require(backend.captureNextFrame(frameCapture))) return false;
             } else if (capture && frames + 1 == frameLimit &&
                        !require(backend.captureNextFrame(capture))) {
                 return false;
@@ -617,6 +710,11 @@ int main(int argc, char** argv) {
         if (frameLimit && frames != frameLimit) { std::fprintf(stderr, "Bounded run interrupted\n"); return false; }
         if (cargoLightingSaveTest && !cargoLightingStateRestored) {
             std::fprintf(stderr, "Cargo lighting save/restore test did not reach its restored frame\n");
+            return false;
+        }
+        if (platformerLightingTest &&
+            (!platformerCircuitSwitched || !platformerProjectileExpired)) {
+            std::fprintf(stderr, "Landing Bay lighting scenario did not complete\n");
             return false;
         }
         if (motionTest && game.player().position.x <= initialX + 80.0F) {
@@ -631,6 +729,12 @@ int main(int argc, char** argv) {
             std::printf("{\"stage\":\"cargo_lighting.save_restore\",\"room\":\"cargo_hold\","
                         "\"main_circuit\":\"off\",\"emergency_circuit\":\"on\","
                         "\"persistent_light_override\":\"restored\"}\n");
+        }
+        if (platformerLightingTest) {
+            std::printf("{\"stage\":\"platformer_lighting.power_switch\","
+                        "\"room\":\"landing_bay\",\"main_circuit\":\"off\","
+                        "\"backup_emission\":\"on\","
+                        "\"projectile_light\":\"moved_then_expired\"}\n");
         }
         if (stats.validationErrors || !require(glyph.shutdown()) || !require(canvas.shutdown())) return false;
         if (texture.valid() && !require(backend.destroyTexture(texture))) return false;

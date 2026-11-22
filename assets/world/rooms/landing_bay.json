@@ -3,6 +3,26 @@
   "id": "echo:room/landing_bay",
   "parent": "echo:room/station_base",
   "name": "Landing Bay",
+  "lighting": {
+    "ambient": {
+      "color": [0.35, 0.42, 0.58],
+      "intensity": 0.18
+    },
+    "lights": [
+      {
+        "id": "echo:light/landing_lamp",
+        "type": "point",
+        "position": [520, 252],
+        "radius": 190,
+        "color": [1.0, 0.68, 0.38],
+        "intensity": 1.8,
+        "attenuation": [1.0, 0.15, 0.05],
+        "enabled": true,
+        "circuit": "echo:power/landing_main",
+        "shadow": true
+      }
+    ]
+  },
   "layers": [
     {
       "name": "back",
@@ -59,6 +79,15 @@
       "object": "echo:object/prop_crate",
       "position": [1180, 288],
       "facing": "left"
+    },
+    {
+      "id": "lighting_panel",
+      "object": "echo:object/prop_power_indicator",
+      "position": [560, 288],
+      "properties": {
+        "interaction": "toggle_power",
+        "circuit": "echo:power/landing_main"
+      }
     }
   ]
 }

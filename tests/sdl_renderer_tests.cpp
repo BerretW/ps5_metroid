@@ -854,6 +854,90 @@ public:
     float lastRotation{};
 };
 
+void testLandingBayRuntimeLights(echo::platform::Renderer& renderer,
+                                 echo::platform::FrameworkIntegration& integration,
+                                 echo::Game& game,
+                                 const echo::platform::CanvasSprites& sprites,
+                                 const echo::platform::CanvasWorldSprites* worldSprites,
+                                 SpriteProbeSink& spriteProbe) {
+    auto checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::LandingBay;
+    checkpoint.playerPosition = {520.0F, 292.0F};
+    checkpoint.playerFacing = -1;
+    check(game.restore(checkpoint) &&
+              integration.powerModule()->setRequested("echo:power/landing_main", true) &&
+              integration.powerModule()->setRequested("echo:power/landing_emergency", true) &&
+              game.nearbyPowerPanel(game.player().position) != nullptr,
+          "side-scrolling Landing Bay fixture has a nearby switch and independent backup circuit");
+
+    echo::Input fireProjectile{};
+    fireProjectile.shootHeld = true;
+    check(static_cast<bool>(game.update(fireProjectile, echo::kFixedStep)),
+          "Landing Bay fixture creates a gameplay projectile");
+    spriteProbe = {};
+    const bool recordedProjectileStart = renderer.recordGame(
+        spriteProbe, game, false, false, "SPACE", "J", "E", &sprites, worldSprites);
+    const auto projectileLightPosition = [](const echo::rendering::FrameState& frame) {
+        for (const echo::rendering::PointLight& light : frame.pointLights) {
+            if (std::abs(light.positionRadius.w - 88.0F) < 0.001F &&
+                light.colorIntensity.y > 0.6F && light.colorIntensity.z > 0.8F) {
+                return echo::rendering::Vec2{
+                    light.positionRadius.x, light.positionRadius.y};
+            }
+        }
+        return echo::rendering::Vec2{-1000000.0F, -1000000.0F};
+    };
+    const echo::rendering::Vec2 projectileLightStart =
+        projectileLightPosition(spriteProbe.lastWorldLighting);
+    echo::Input noInput{};
+    for (int step = 0; step < 10; ++step) {
+        check(static_cast<bool>(game.update(noInput, echo::kFixedStep)),
+              "Landing Bay projectile advances by fixed steps");
+    }
+    spriteProbe = {};
+    const bool recordedProjectileMoved = renderer.recordGame(
+        spriteProbe, game, false, false, "SPACE", "J", "E", &sprites, worldSprites);
+    const echo::rendering::Vec2 projectileLightMoved =
+        projectileLightPosition(spriteProbe.lastWorldLighting);
+    check(recordedProjectileStart && recordedProjectileMoved &&
+              projectileLightStart.x > -10000.0F &&
+              projectileLightMoved.x < projectileLightStart.x - 40.0F,
+          "projectile light follows the moving world-space projectile");
+
+    for (int step = 0; step < 240; ++step) {
+        check(static_cast<bool>(game.update(noInput, echo::kFixedStep)),
+              "expired-projectile fixture advances by fixed steps");
+    }
+    spriteProbe = {};
+    const bool recordedExpiredProjectile = renderer.recordGame(
+        spriteProbe, game, false, false, "SPACE", "J", "E", &sprites, worldSprites);
+    check(recordedExpiredProjectile &&
+              projectileLightPosition(spriteProbe.lastWorldLighting).x < -10000.0F,
+          "projectile destruction also removes its bounded runtime light");
+
+    const echo::PropLayout* lightingPanel = game.nearbyPowerPanel(game.player().position);
+    bool panelToggled = lightingPanel != nullptr &&
+        integration.togglePowerCircuit(lightingPanel->circuit);
+    bool mainCircuitOff{};
+    panelToggled = panelToggled &&
+        integration.powerModule()->isPowered("echo:power/landing_main", mainCircuitOff) &&
+        !mainCircuitOff;
+    spriteProbe = {};
+    const bool recordedLampOutage = renderer.recordGame(
+        spriteProbe, game, false, false, "SPACE", "J", "E", &sprites, worldSprites);
+    const bool mainLampStillActive = std::any_of(
+        spriteProbe.lastWorldLighting.pointLights.begin(),
+        spriteProbe.lastWorldLighting.pointLights.end(),
+        [](const echo::rendering::PointLight& light) {
+            return std::abs(light.positionRadius.w - 190.0F) < 0.001F;
+        });
+    check(panelToggled && recordedLampOutage && !mainLampStillActive &&
+              spriteProbe.poweredEmissiveCalls > 0,
+          "the power-panel switch disables its lamp while backup-circuit emission remains active");
+    check(static_cast<bool>(game.restore(checkpoint)),
+          "Landing Bay lighting fixture restores the default player state");
+}
+
 } // namespace
 
 int main() {
@@ -874,7 +958,8 @@ int main() {
             ECHO_SOURCE_ASSETS "framework/game.json",
             ECHO_SOURCE_ASSETS "framework/engineer.json",
             ECHO_SOURCE_ASSETS "framework/items.json", ECHO_SOURCE_ASSETS);
-        if (!status || !integration.beginGame()) {
+        const auto began = status && integration.beginGame();
+        if (!began) {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
         keyboard.setPowerModule(integration.powerModule());
@@ -1528,7 +1613,7 @@ int main() {
                         addWorldSprite(tileset.sheet.data(), tileset.material);
                 }
             }
-            check(worldSpritesLoaded && canvasWorldSprites->count == 20,
+            check(worldSpritesLoaded && canvasWorldSprites->count == 21,
                   "world sprite handles are populated from every JSON-referenced sheet");
             spriteProbe = {};
             check(keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
@@ -1668,8 +1753,9 @@ int main() {
                       spriteProbe.calls > 1 && spriteProbe.emissiveMaskCalls > 0 &&
                       spriteProbe.poweredEmissiveCalls > 0 &&
                       std::abs(spriteProbe.lastWorldLighting.lightDirectionAmbient.w -
-                               0.24F) < 0.001F,
-                  "Cargo Hold draws a powered emissive console and preserves room ambient on canvas");
+                               0.24F) < 0.001F &&
+                      spriteProbe.lastWorldLighting.shadowInfo.x > 0.0F,
+                  "Cargo Hold draws powered emissive materials with live ambient and cached tile shadows");
             const auto playerLampPosition = [](const echo::rendering::FrameState& frame) {
                 for (const echo::rendering::PointLight& light : frame.pointLights) {
                     if (std::abs(light.positionRadius.w - 125.0F) < 0.001F) {
@@ -1786,6 +1872,9 @@ int main() {
             pad.drawGame(cargoGame, false, false, "SPACE", "J", "E");
             check(isoCentre != sideCentre && isoCentre != capture(padWindow, centre),
                   "isometric rooms render a player-following diamond grid");
+
+            testLandingBayRuntimeLights(keyboard, integration, worldGame, canvasSprites,
+                                        canvasWorldSprites.get(), spriteProbe);
         }
 
         echo::platform::SoundBuffer sound;

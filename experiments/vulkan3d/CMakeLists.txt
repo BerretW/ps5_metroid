@@ -240,6 +240,22 @@ if(BUILD_TESTING)
             -RestoredPath "${CMAKE_CURRENT_BINARY_DIR}/cargo-lighting.restored.ppm")
     set_tests_properties(echo_vulkan_game_cargo_lighting_save_readback PROPERTIES
         FIXTURES_REQUIRED echo_cargo_lighting_save_capture TIMEOUT 60)
+    add_test(NAME echo_vulkan_game_platformer_lighting
+        COMMAND echo_vulkan_menu --game --sprites --data-world
+            --platformer-lighting-test --frames 4 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/platformer-lighting")
+    set_tests_properties(echo_vulkan_game_platformer_lighting PROPERTIES
+        TIMEOUT 180 RUN_SERIAL TRUE
+        FIXTURES_SETUP echo_platformer_lighting_capture)
+    add_test(NAME echo_vulkan_game_platformer_lighting_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_platformer_lighting.ps1"
+            -PoweredPath "${CMAKE_CURRENT_BINARY_DIR}/platformer-lighting.platformer-powered.ppm"
+            -MovedPath "${CMAKE_CURRENT_BINARY_DIR}/platformer-lighting.platformer-projectile.ppm"
+            -ExpiredPath "${CMAKE_CURRENT_BINARY_DIR}/platformer-lighting.platformer-projectile-expired.ppm"
+            -OutagePath "${CMAKE_CURRENT_BINARY_DIR}/platformer-lighting.platformer-outage.ppm")
+    set_tests_properties(echo_vulkan_game_platformer_lighting_readback PROPERTIES
+        FIXTURES_REQUIRED echo_platformer_lighting_capture TIMEOUT 60)
     add_test(NAME echo_vulkan_game_motion COMMAND echo_vulkan_menu --game --motion-test --frames 60 --validation
         --capture "${CMAKE_CURRENT_BINARY_DIR}/game-motion.ppm")
     set_tests_properties(echo_vulkan_game_start echo_vulkan_game_motion PROPERTIES

@@ -50,12 +50,13 @@ particles on room transition, respawn, New Game and Continue.
 The menu additionally loads the bounded GLB/glTF glyph and WebP textures
 described in [MATERIALS.md](MATERIALS.md); the SDL package uses the PNG fallback.
 
-The latest local candidate FSELF is 28,188,909 bytes, SHA-256
-`0603ae6718330b0a1c9bb63b88894da4591d264dfef70c342e93081247f55693`.
+The latest local candidate FSELF is 28,189,549 bytes, SHA-256
+`c1ea71e19c18a08e597a9bef10e614c4b4ab58794f6d898352b5b14c32a21b3c`.
 It includes projection-aware world-space point attenuation and spotlight cones,
-runtime prop transforms that update prop draws and attached lights, and bounded
-GPU shadowing against solid-tile boundaries, props, the player, and living
-enemies. Native Windows static validation and
+runtime prop transforms that update prop draws and attached lights, bounded GPU
+shadowing against solid-tile boundaries, props, the player, and living enemies,
+and the data-driven Landing Bay lamp, circuit switch and backup emissive
+indicator. Native Windows static validation and
 `tests\ps5_package_tests.ps1 -Vulkan` pass. This candidate has NOT been tested
 on PS5. Earlier operator reports of full
 functionality refer to prior packages; the installed digest and console setup

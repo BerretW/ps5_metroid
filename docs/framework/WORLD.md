@@ -146,8 +146,10 @@ drive attached lights, but there is no generic entity-component parent resolver
 or authored moving-prop gameplay behavior. Point lights with `shadow: true`
 cast bounded GPU shadows against visible solid-tile boundary edges and prop
 rectangles. The renderer retains the 32 nearest eligible edges and logs when
-the bound is exceeded; it rebuilds this edge list each frame and includes the
-player, living enemies, and room props as rectangular occluders. Projectiles and
+the bound is exceeded. Immutable solid-tile boundary edges are cached per room
+definition; the visible, light-prioritized segment list is rebuilt each frame
+to account for camera and light movement. The list also includes the player,
+living enemies, and room props as rectangular occluders. Projectiles and
 particles do not cast shadows. Static light accumulation is still evaluated per
 frame, there is no SDL lighting fallback or HDR bloom.
 Windows Vulkan Debug and Release readbacks verify an illuminated sample, a

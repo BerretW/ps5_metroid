@@ -11,6 +11,8 @@
 #include <SDL.h>
 
 #include <array>
+#include <cstdint>
+#include <memory>
 #include <span>
 #include <string_view>
 
@@ -157,6 +159,9 @@ public:
                                           int connectedControllers) noexcept;
 
 private:
+    struct StaticTileShadowEdge {
+        std::uint16_t ax{}, ay{}, bx{}, by{};
+    };
     struct WorldSheet {
         std::array<char, 96> path{};
         SDL_Texture* texture{};
@@ -230,6 +235,9 @@ private:
     bool shadowOverflowLogged_{};
     const framework::RoomDefinition* lightFadeRoom_{};
     std::array<framework::LightFadeTransition, framework::kMaxRoomLights> lightFades_{};
+    const framework::RoomDefinition* shadowGeometryRoom_{};
+    std::unique_ptr<StaticTileShadowEdge[]> staticTileShadowEdges_{};
+    std::size_t staticTileShadowEdgeCount_{};
     Uint64 lightFadeTicks_{};
     int worldOffsetX_{};
     int worldOffsetY_{};

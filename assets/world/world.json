@@ -22,6 +22,7 @@
     "echo:object/prop_base",
     "echo:object/prop_console",
     "echo:object/prop_console_alert",
+    "echo:object/prop_power_indicator",
     "echo:object/prop_crate",
     "echo:object/trigger_lab_exit"
   ],

@@ -13,14 +13,16 @@ hardware results below are operator-reported.
 | D: actual PS5 Vulkan rendering | PASS (operator-reported, prior candidate): the operator confirmed a previous game build; the latest local candidate has NOT been tested on PS5 |
 
 The latest native Windows regression passed 20/20 tests. The Vulkan experiment
-passed 33/33 tests in both Debug and Release, including NVIDIA GPU target
+passed 35/35 tests in both Debug and Release, including NVIDIA GPU target
 color/depth readback, projection-aware isometric light attenuation, Cargo Hold
-power/save readback and 2D shadow visibility. These Windows tests do not
+power/save readback, 2D shadow visibility, and the Landing Bay powered,
+projectile-moved/expired and power-outage GPU captures. These Windows tests do not
 establish PS5 rendering behavior. The latest local PS5 Vulkan game candidate
-FSELF is 28,188,909 bytes, SHA-256
-`0603ae6718330b0a1c9bb63b88894da4591d264dfef70c342e93081247f55693`; it
-includes runtime prop transforms and bounded 2D shadows, passed static
-validation, and its hardware status is NOT TESTED. The separate
+FSELF is 28,189,549 bytes, SHA-256
+`c1ea71e19c18a08e597a9bef10e614c4b4ab58794f6d898352b5b14c32a21b3c`; it
+includes runtime prop transforms, bounded 2D shadows, and the Landing Bay
+lighting scenario, passed static validation, and its hardware status is NOT
+TESTED. The separate
 PS5 SDL and Vulkan game-package results remain as documented in
 [PS5_BUILD](PS5_BUILD.md#ps5-vulkan-game-candidate).
 
@@ -35,7 +37,8 @@ Hold integration fixture. A bounded shadow pass tests point-light rays against
 solid-tile boundary edges, props, the player, and living enemies; Debug and
 Release readback checks both the lit side and blocked side of an occluder. Its
 fixed-capacity edge list is rebuilt every frame. Projectiles and particles do
-not cast shadows. Static-light accumulation caching, the SDL software-renderer
+not cast shadows. Immutable tile-boundary edges are cached per room; static
+light accumulation itself is still evaluated per frame. The SDL software-renderer
 lighting path, HDR bloom and PS5 hardware behavior remain incomplete or
 untested.
 
@@ -48,7 +51,7 @@ not unimplemented Vulkan 1.4 features. This is hardware rasterization, never a
 CPU renderer or Vulkan software-device fallback.
 
 `scripts/build-vulkan-windows.ps1 -Configuration Debug -RunTests` and the same
-command with `-Configuration Release` each passed **33/33**:
+command with `-Configuration Release` each passed **35/35**:
 
 - Rendering math, camera, hierarchy, validation, schema/content and VFX tests.
 - glTF mesh/material import, strided normal/UV data and invalid-data cases.

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <new>
 #include <string>
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -172,6 +173,9 @@ bool Renderer::create() noexcept {
 void Renderer::destroy() noexcept {
     releaseSprites();
     releaseWorldSprites();
+    staticTileShadowEdges_.reset();
+    staticTileShadowEdgeCount_ = 0;
+    shadowGeometryRoom_ = nullptr;
     if (menuGlyph_ != nullptr) {
         SDL_DestroyTexture(menuGlyph_);
         menuGlyph_ = nullptr;
@@ -1892,6 +1896,59 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                        room.definition->collision(column, row) ==
                            framework::TileCollision::Solid;
             };
+            if (!staticTileShadowEdges_) {
+                constexpr std::size_t edgeCapacity =
+                    framework::kMaxRoomColumns * framework::kMaxRoomRows * 4;
+                staticTileShadowEdges_.reset(
+                    new (std::nothrow) StaticTileShadowEdge[edgeCapacity]);
+                if (!staticTileShadowEdges_) {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                 "Static tile shadow-edge cache allocation failed");
+                    drawSinkFailed_ = true;
+                }
+            }
+            if (staticTileShadowEdges_ &&
+                shadowGeometryRoom_ != room.definition) {
+                shadowGeometryRoom_ = room.definition;
+                staticTileShadowEdgeCount_ = 0;
+                for (int row = 0; row < room.definition->rows(); ++row) {
+                    for (int column = 0; column < room.definition->columns(); ++column) {
+                        if (!solidAt(column, row)) continue;
+                        const float left = static_cast<float>(column * kTileSize);
+                        const float top = static_cast<float>(row * kTileSize);
+                        const float right = left + static_cast<float>(kTileSize);
+                        const float bottom = top + static_cast<float>(kTileSize);
+                        const auto cacheEdge = [&](float ax, float ay, float bx,
+                                                   float by) noexcept {
+                            constexpr std::size_t edgeCapacity =
+                                framework::kMaxRoomColumns *
+                                framework::kMaxRoomRows * 4;
+                            if (staticTileShadowEdgeCount_ == edgeCapacity) {
+                                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                             "Static tile shadow-edge cache capacity exceeded");
+                                drawSinkFailed_ = true;
+                                return;
+                            }
+                            staticTileShadowEdges_[staticTileShadowEdgeCount_++] =
+                                {static_cast<std::uint16_t>(ax),
+                                 static_cast<std::uint16_t>(ay),
+                                 static_cast<std::uint16_t>(bx),
+                                 static_cast<std::uint16_t>(by)};
+                        };
+                        if (!solidAt(column, row - 1)) cacheEdge(left, top, right, top);
+                        if (!solidAt(column + 1, row)) cacheEdge(right, top, right, bottom);
+                        if (!solidAt(column, row + 1)) cacheEdge(left, bottom, right, bottom);
+                        if (!solidAt(column - 1, row)) cacheEdge(left, top, left, bottom);
+                    }
+                }
+            }
+            if (staticTileShadowEdges_) {
+                for (std::size_t edge = 0; edge < staticTileShadowEdgeCount_; ++edge) {
+                    const StaticTileShadowEdge& segment = staticTileShadowEdges_[edge];
+                    appendEdge(static_cast<float>(segment.ax), static_cast<float>(segment.ay),
+                               static_cast<float>(segment.bx), static_cast<float>(segment.by));
+                }
+            }
             const auto appendRectangle = [&](float x, float y, float width,
                                              float height) noexcept {
                 if (width <= 0.0F || height <= 0.0F) return;
@@ -1902,19 +1959,6 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                 appendEdge(x, bottom, right, bottom);
                 appendEdge(x, y, x, bottom);
             };
-            for (int row = 0; row < room.definition->rows(); ++row) {
-                for (int column = 0; column < room.definition->columns(); ++column) {
-                    if (!solidAt(column, row)) continue;
-                    const float left = static_cast<float>(column * kTileSize);
-                    const float top = static_cast<float>(row * kTileSize);
-                    const float right = left + static_cast<float>(kTileSize);
-                    const float bottom = top + static_cast<float>(kTileSize);
-                    if (!solidAt(column, row - 1)) appendEdge(left, top, right, top);
-                    if (!solidAt(column + 1, row)) appendEdge(right, top, right, bottom);
-                    if (!solidAt(column, row + 1)) appendEdge(left, bottom, right, bottom);
-                    if (!solidAt(column - 1, row)) appendEdge(left, top, left, bottom);
-                }
-            }
             const Player& player = game.player();
             const float playerWidth = world.archetypes.player != nullptr
                 ? world.archetypes.player->width() : 20.0F;

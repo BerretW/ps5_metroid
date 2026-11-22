@@ -39,6 +39,14 @@
       {
         "id": "echo:power/cargo_emergency",
         "defaultOn": true
+      },
+      {
+        "id": "echo:power/landing_main",
+        "defaultOn": true
+      },
+      {
+        "id": "echo:power/landing_emergency",
+        "defaultOn": true
       }
     ]
   },
