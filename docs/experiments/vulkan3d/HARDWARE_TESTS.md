@@ -253,10 +253,18 @@ installed executable digest and firmware/loader setup were not supplied. A later
 production shot-particle build had local Vulkan FSELF hash
 `2177bff9e8f87d44a8ff72fb97be260ff26d72ec8548404cd367ca06e97e0dff`;
 the operator reported both Vulkan and SDL particle builds fully functional.
-Installed hashes and console setup were not supplied. The current render-debug
-Vulkan candidate has local FSELF hash
+Installed hashes and console setup were not supplied. A later render-debug
+Vulkan candidate had local FSELF hash
 `3e4c0edc7ec645f1399c8a64f2d48e2f12a0606f5ae41051cccd29e868c90dd0`
-and requires separate hardware verification.
+and the operator reported Vulkan held 60 FPS while SDL dropped to 30 FPS in
+the isometric scene. The installed hashes and exact setup were not provided.
+The newer damage-flash candidate has local Vulkan FSELF hash
+`9eb2bcca66ebd4048049fa1cee9cdec3f37a843d4ff74ccb165b448fc347c13d`
+and local SDL FSELF hash
+`bf697af4b244b3f67148743d8d43546cd631ce6902ae7be366d89aa885bbdb12`.
+On 2026-11-22 the operator reported both latest packages fully functional on
+PS5. The installed digests, firmware, loader, and individual damage-flash
+observation were not supplied.
 The title uses the existing 2D Vulkan canvas, not the separate 3D/VFX demonstration.
 
 1. Back up the existing project title outside all loader scan roots and back up

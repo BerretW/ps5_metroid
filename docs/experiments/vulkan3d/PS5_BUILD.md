@@ -1,8 +1,8 @@
 # Native Windows PS5 feasibility
 
 The experimental Vulkan game compiles, links, signs and passes static
-package validation on native Windows. Earlier Vulkan game builds were reported
-playable on PS5; the current render-debug revision is not yet hardware tested.
+package validation on native Windows. The operator reports both the Vulkan and
+SDL damage-flash packages fully functional on PS5 (2026-11-22).
 A separate RADV first-frame diagnostic also passes static validation.
 Runtime hold checks and RADV instance/device/queue creation were reported
 successful on hardware. A first-frame log reports successful submit, fence
@@ -43,11 +43,12 @@ experiment is separate from the production game. Production shot particles
 use the bounded CPU system and are recorded as canvas fills in both SDL and
 Vulkan builds.
 
-The current candidate FSELF is 27,935,549 bytes, SHA-256
-`3e4c0edc7ec645f1399c8a64f2d48e2f12a0606f5ae41051cccd29e868c90dd0`.
+The current candidate FSELF is 27,935,869 bytes, SHA-256
+`9eb2bcca66ebd4048049fa1cee9cdec3f37a843d4ff74ccb165b448fc347c13d`.
 The updated artifact passes native Windows static validation and
-`tests\ps5_package_tests.ps1 -Vulkan`. Its hardware execution is **NOT TESTED**;
-the previous functionality report predates the render-debug change.
+`tests\ps5_package_tests.ps1 -Vulkan`. The operator reports both latest packages
+fully functional on PS5; the installed digests and console setup were not
+provided. The prior 60 FPS observation predates the damage-flash change.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and
 `build\ps5\game-vulkan`. The package records source pins, archive and shader

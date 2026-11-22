@@ -70,6 +70,25 @@ void testFixedStepParticles() {
           "fixed-step bursts advance deterministically by the shared simulation step");
 }
 
+void testDamageFlash() {
+    echo::platform::DamageFlash flash{};
+    check(flash.opacity() == 0, "damage flash starts invisible");
+    flash.trigger();
+    const auto initial = flash.opacity();
+    flash.step();
+    check(initial > 0 && flash.opacity() < initial && flash.opacity() > 0,
+          "damage flash fades on a fixed simulation step");
+    flash.trigger();
+    check(flash.opacity() == initial, "repeated damage restarts the flash");
+    for (unsigned index = 0; index < echo::platform::DamageFlash::kDurationSteps; ++index) {
+        flash.step();
+    }
+    check(flash.opacity() == 0, "damage flash expires after its fixed duration");
+    flash.trigger();
+    flash.clear();
+    check(flash.opacity() == 0, "reset clears the damage flash");
+}
+
 void testSettingsPersistence() {
     using echo::framework::GameState;
     using echo::framework::StateScope;
@@ -668,6 +687,7 @@ int main() {
         }
         testSettingsPersistence();
         testFixedStepParticles();
+        testDamageFlash();
         testBitmapFontUtf8();
         testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
@@ -1024,6 +1044,19 @@ int main() {
         };
         checkRecordedGame(false);
         checkRecordedGame(true);
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E");
+        const auto unflashed = capture(keyboardWindow, {0, 100, 640, 100});
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E", {}, nullptr, 64);
+        const auto flashed = capture(keyboardWindow, {0, 0, 640, 360});
+        check(unflashed != capture(keyboardWindow, {0, 100, 640, 100}),
+              "damage flash visibly tints the gameplay world");
+        check(keyboard.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E",
+                                  nullptr, nullptr, {}, nullptr, 64) &&
+                  SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                       recordedMenu.data(),
+                                       menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                  flashed == recordedMenu,
+              "damage flash matches in SDL and abstract canvas");
         echo::platform::RenderDebugInfo debugInfo{};
         debugInfo.vulkan = true;
         debugInfo.timingAvailable = true;

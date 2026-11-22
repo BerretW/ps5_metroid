@@ -35,6 +35,22 @@ struct RenderDebugInfo {
     std::uint32_t triangles{};
 };
 
+class DamageFlash {
+public:
+    static constexpr unsigned kDurationSteps = 12;
+    static constexpr std::uint8_t kMaximumOpacity = 64;
+
+    void trigger() noexcept { remaining_ = kDurationSteps; }
+    void step() noexcept { if (remaining_ != 0) --remaining_; }
+    void clear() noexcept { remaining_ = 0; }
+    [[nodiscard]] std::uint8_t opacity() const noexcept {
+        return static_cast<std::uint8_t>(kMaximumOpacity * remaining_ / kDurationSteps);
+    }
+
+private:
+    unsigned remaining_{};
+};
+
 struct CanvasWorldSprite {
     std::array<char, 96> path{};
     CanvasSprite image{};
@@ -105,14 +121,16 @@ public:
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey,
                   std::span<const vfx::Particle> particles = {},
-                  const RenderDebugInfo* debug = nullptr) noexcept;
+                  const RenderDebugInfo* debug = nullptr,
+                  std::uint8_t damageFlashOpacity = 0) noexcept;
     [[nodiscard]] bool recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                                   std::string_view jumpKey, std::string_view shootKey,
                                   std::string_view interactKey,
                                   const CanvasSprites* sprites = nullptr,
                                   const CanvasWorldSprites* worldSprites = nullptr,
                                   std::span<const vfx::Particle> particles = {},
-                                  const RenderDebugInfo* debug = nullptr) noexcept;
+                                  const RenderDebugInfo* debug = nullptr,
+                                  std::uint8_t damageFlashOpacity = 0) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
     [[nodiscard]] bool recordInventory(rendering::ICanvas2D& sink, const Game& game,
@@ -146,7 +164,8 @@ private:
                          std::string_view jumpKey, std::string_view shootKey,
                          std::string_view interactKey,
                          std::span<const vfx::Particle> particles,
-                         const RenderDebugInfo* debug) noexcept;
+                         const RenderDebugInfo* debug,
+                         std::uint8_t damageFlashOpacity) noexcept;
     void drawParticles(const Game& game, std::span<const vfx::Particle> particles) noexcept;
     void drawInventoryContent(const Game& game, const InventoryMenu& menu,
                               std::string_view message) noexcept;

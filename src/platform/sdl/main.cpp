@@ -757,6 +757,7 @@ int main(int, char**) {
     shotParticles.endScale = 0.15F;
     shotParticles.randomSeed = 0x4543484FU;
     echo::vfx::EmitterHandle shotEmitter{};
+    echo::platform::DamageFlash damageFlash{};
     const echo::framework::Status particleSetup =
         particleSystem->createEmitter(shotParticles, shotEmitter);
     if (!particleSetup) {
@@ -1430,6 +1431,7 @@ int main(int, char**) {
             return false;
         }
         game = resumed;
+        damageFlash.clear();
         gameSessionActive = true;
         secondsSinceAutosave = 0.0;
         screen = Screen::Playing;
@@ -1560,6 +1562,7 @@ int main(int, char**) {
             }
             ECHO_DIAG("ECHO DIAG M1: framework reset; before game start");
             game.start();
+            damageFlash.clear();
             gameSessionActive = true;
             screen = Screen::Playing;
             paused = false;
@@ -2102,6 +2105,13 @@ int main(int, char**) {
             const SoundState after = captureSoundState(game);
             const unsigned stepEvents = soundEventsBetween(before, after);
             soundEvents |= stepEvents;
+            damageFlash.step();
+            if (after.room != before.room && after.deaths == before.deaths) {
+                damageFlash.clear();
+            }
+            if ((stepEvents & (1U << static_cast<unsigned>(SoundId::Hurt))) != 0U) {
+                damageFlash.trigger();
+            }
             if ((stepEvents & (1U << static_cast<unsigned>(SoundId::Shot))) != 0U) {
                 const auto& player = game.player();
                 const float shotAimX = player.aim.x == 0.0F
@@ -2206,7 +2216,8 @@ int main(int, char**) {
                                                shoot.data(), interact.data(), &gpuCanvas.sprites(),
                                                &gpuCanvas.worldSprites(),
                                                particleSystem->particles(shotEmitter),
-                                               renderDebug ? &renderInfo : nullptr);
+                                               renderDebug ? &renderInfo : nullptr,
+                                               damageFlash.opacity());
             }
         }
         if (!recorded) {
@@ -2249,7 +2260,8 @@ int main(int, char**) {
             } else {
                 renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data(),
                                   particleSystem->particles(shotEmitter),
-                                  renderDebug ? &renderInfo : nullptr);
+                                  renderDebug ? &renderInfo : nullptr,
+                                  damageFlash.opacity());
             }
         }
 #endif

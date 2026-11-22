@@ -43,8 +43,12 @@ the SDL and Vulkan game paths therefore share the same simulation and effect.
 The current Vulkan backend reports compute, postprocessing, render to texture,
 instancing, and shadow maps as unavailable.
 
-Screen flash, camera shake, and light-event coupling remain deferred effects;
-the module currently owns particles and emitter simulation only.
+The game also renders a brief red damage flash before its HUD through the same
+canvas path. Player health loss or death starts it; it fades over 12 fixed
+steps, pauses with simulation, restarts on another hit, and resets on a new or
+loaded game. It is presentation-only and does not change game state. Camera
+shake and light-event coupling remain deferred; the VFX module itself owns only
+particles and emitter simulation.
 
 The standalone reference application explicitly translates live particles into
 additively blended Vulkan quads using per-draw tint/scale. Interactive updates

@@ -1222,10 +1222,12 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                         std::string_view jumpKey, std::string_view shootKey,
                         std::string_view interactKey,
                         std::span<const vfx::Particle> particles,
-                        const RenderDebugInfo* debug) noexcept {
+                        const RenderDebugInfo* debug,
+                        std::uint8_t damageFlashOpacity) noexcept {
     SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
     SDL_RenderClear(renderer_);
-    drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey, particles, debug);
+    drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey, particles, debug,
+                    damageFlashOpacity);
     SDL_RenderPresent(renderer_);
 }
 
@@ -1234,7 +1236,8 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
                           std::string_view interactKey, const CanvasSprites* sprites,
                           const CanvasWorldSprites* worldSprites,
                           std::span<const vfx::Particle> particles,
-                          const RenderDebugInfo* debug) noexcept {
+                          const RenderDebugInfo* debug,
+                          std::uint8_t damageFlashOpacity) noexcept {
     if ((worldSheetCount_ != 0 && worldSprites == nullptr) || (sprites == nullptr &&
         std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; }))) {
         SDL_Log("Recording game with loaded SDL textures is not supported");
@@ -1287,7 +1290,7 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
     canvasSprites_ = sprites;
     canvasWorldSprites_ = worldSprites;
     if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey,
-                                          particles, debug);
+                                          particles, debug, damageFlashOpacity);
     canvasSprites_ = nullptr;
     canvasWorldSprites_ = nullptr;
     return endRecording();
@@ -1297,7 +1300,8 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                                std::string_view jumpKey, std::string_view shootKey,
                                std::string_view interactKey,
                                std::span<const vfx::Particle> particles,
-                               const RenderDebugInfo* debug) noexcept {
+                               const RenderDebugInfo* debug,
+                               std::uint8_t damageFlashOpacity) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
     panel({0, 0, 640, 360},
@@ -1309,6 +1313,9 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         drawSideWorld(game, paused);
     }
     if (!showMap) drawParticles(game, particles);
+    if (damageFlashOpacity != 0) {
+        panel({0, 0, 640, 360}, SDL_Color{255, 24, 18, damageFlashOpacity});
+    }
     const Player& player = game.player();
 
     panel({12, 12, 184, 38}, SDL_Color{4, 10, 17, 218});
