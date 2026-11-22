@@ -31,7 +31,8 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
 
 [[nodiscard]] inline framework::Status encodeSettings(
     int volume, const Bindings& bindings, framework::DialogueLanguage language,
-    framework::GameState& output, DisplayMode display = DisplayMode::Window720) noexcept {
+    framework::GameState& output, DisplayMode display = DisplayMode::Window720,
+    bool renderDebug = false) noexcept {
     using namespace framework;
     if (volume < 0 || volume > 100 ||
         (language != DialogueLanguage::English && language != DialogueLanguage::Czech) ||
@@ -54,12 +55,14 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
         !status) return status;
     if (const Status status = setInteger("video.display", static_cast<std::int64_t>(display));
         !status) return status;
+    if (const Status status = setInteger("video.render_debug", renderDebug ? 1 : 0);
+        !status) return status;
     return output.replaceValues(candidate);
 }
 
 [[nodiscard]] inline framework::Status decodeSettings(
     const framework::GameState& state, int& volume, Bindings& bindings,
-    framework::DialogueLanguage& language, DisplayMode& display) noexcept {
+    framework::DialogueLanguage& language, DisplayMode& display, bool& renderDebug) noexcept {
     using namespace framework;
     const auto readInteger = [&state](std::string_view key, std::int64_t& value) {
         StateValue stateValue{};
@@ -108,6 +111,13 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
         return {ErrorCode::CorruptData, "settings",
                 "Settings save contains an unsupported display mode."};
     }
+    std::int64_t savedRenderDebug{};
+    const bool hasSavedRenderDebug = readInteger("video.render_debug", savedRenderDebug);
+    if ((hasSavedRenderDebug && savedRenderDebug != 0 && savedRenderDebug != 1) ||
+        (!hasSavedRenderDebug && state.contains({StateScope::Global, {}, "video.render_debug"}))) {
+        return {ErrorCode::CorruptData, "settings",
+                "Settings save contains an invalid render debug value."};
+    }
     const Bindings candidate{
         static_cast<SDL_Keycode>(savedJump),
         static_cast<SDL_Keycode>(savedShoot),
@@ -124,7 +134,15 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
     language = hasSavedLanguage ? static_cast<DialogueLanguage>(savedLanguage)
                                 : DialogueLanguage::English;
     display = hasSavedDisplay ? static_cast<DisplayMode>(savedDisplay) : DisplayMode::Window720;
+    renderDebug = hasSavedRenderDebug && savedRenderDebug == 1;
     return Status::success();
+}
+
+[[nodiscard]] inline framework::Status decodeSettings(
+    const framework::GameState& state, int& volume, Bindings& bindings,
+    framework::DialogueLanguage& language, DisplayMode& display) noexcept {
+    bool renderDebug{};
+    return decodeSettings(state, volume, bindings, language, display, renderDebug);
 }
 
 [[nodiscard]] inline framework::Status decodeSettings(

@@ -2,6 +2,7 @@
 
 #include "game/game.hpp"
 #include "echo/framework/canvas2d.hpp"
+#include "echo/framework/vfx.hpp"
 #include "input/dualsense_diagnostics.hpp"
 #include "platform/sdl/inventory_menu.hpp"
 #include "platform/sdl/settings_persistence.hpp"
@@ -9,6 +10,7 @@
 #include <SDL.h>
 
 #include <array>
+#include <span>
 #include <string_view>
 
 namespace echo::platform {
@@ -22,6 +24,16 @@ struct CanvasSprite {
     std::uint32_t width{}, height{};
 };
 using CanvasSprites = std::array<CanvasSprite, static_cast<int>(Sprite::Count)>;
+
+struct RenderDebugInfo {
+    bool vulkan{};
+    bool timingAvailable{};
+    bool backendStatsAvailable{};
+    unsigned fps{};
+    unsigned frameTenthsMs{};
+    std::uint32_t drawCalls{};
+    std::uint32_t triangles{};
+};
 
 struct CanvasWorldSprite {
     std::array<char, 96> path{};
@@ -45,12 +57,19 @@ public:
     // Options rows: Windows lists DISPLAY before BACK, PS5 omits it.
     [[nodiscard]] static constexpr int optionCount() noexcept {
 #ifdef __PROSPERO__
-        return 6;
-#else
         return 7;
+#else
+        return 8;
 #endif
     }
     static constexpr int kDisplayOption = 5;
+#ifdef __PROSPERO__
+    static constexpr bool kHasDisplayOption = false;
+    static constexpr int kRenderDebugOption = 5;
+#else
+    static constexpr bool kHasDisplayOption = true;
+    static constexpr int kRenderDebugOption = 6;
+#endif
     // Logical-screen point isometric shots leave from; the camera keeps the player centred.
     static constexpr float kIsometricAimOriginX = 320.0F;
     static constexpr float kIsometricAimOriginY = 182.0F;
@@ -74,20 +93,26 @@ public:
                      bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
                      std::string_view interactKey,
-                     DisplayMode display = DisplayMode::Window720) noexcept;
+                     DisplayMode display = DisplayMode::Window720,
+                     bool renderDebug = false) noexcept;
     [[nodiscard]] bool recordOptions(rendering::ICanvas2D& sink, int selection, int volume,
                                      framework::DialogueLanguage language, bool waitingForKey,
                                      std::string_view jumpKey, std::string_view shootKey,
                                      std::string_view interactKey,
-                                     DisplayMode display = DisplayMode::Window720) noexcept;
+                                     DisplayMode display = DisplayMode::Window720,
+                                     bool renderDebug = false) noexcept;
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
-                  std::string_view interactKey) noexcept;
+                  std::string_view interactKey,
+                  std::span<const vfx::Particle> particles = {},
+                  const RenderDebugInfo* debug = nullptr) noexcept;
     [[nodiscard]] bool recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                                   std::string_view jumpKey, std::string_view shootKey,
                                   std::string_view interactKey,
                                   const CanvasSprites* sprites = nullptr,
-                                  const CanvasWorldSprites* worldSprites = nullptr) noexcept;
+                                  const CanvasWorldSprites* worldSprites = nullptr,
+                                  std::span<const vfx::Particle> particles = {},
+                                  const RenderDebugInfo* debug = nullptr) noexcept;
     void drawInventory(const Game& game, const InventoryMenu& menu,
                        std::string_view message) noexcept;
     [[nodiscard]] bool recordInventory(rendering::ICanvas2D& sink, const Game& game,
@@ -116,10 +141,13 @@ private:
     void drawOptionsContent(int selection, int volume, framework::DialogueLanguage language,
                             bool waitingForKey, std::string_view jumpKey,
                             std::string_view shootKey, std::string_view interactKey,
-                            DisplayMode display) noexcept;
+                            DisplayMode display, bool renderDebug) noexcept;
     void drawGameContent(const Game& game, bool showMap, bool paused,
                          std::string_view jumpKey, std::string_view shootKey,
-                         std::string_view interactKey) noexcept;
+                         std::string_view interactKey,
+                         std::span<const vfx::Particle> particles,
+                         const RenderDebugInfo* debug) noexcept;
+    void drawParticles(const Game& game, std::span<const vfx::Particle> particles) noexcept;
     void drawInventoryContent(const Game& game, const InventoryMenu& menu,
                               std::string_view message) noexcept;
     void drawDualSenseLabContent(const input::ControllerSnapshot& controller,

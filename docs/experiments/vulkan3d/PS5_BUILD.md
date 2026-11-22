@@ -1,17 +1,19 @@
 # Native Windows PS5 feasibility
 
-The experimental Vulkan game now compiles, links, signs and passes static
-package validation on native Windows. **The Vulkan game has not been tested on
-PS5 hardware.** A separate RADV first-frame diagnostic also passes static validation.
+The experimental Vulkan game compiles, links, signs and passes static
+package validation on native Windows. Earlier Vulkan game builds were reported
+playable on PS5; the current render-debug revision is not yet hardware tested.
+A separate RADV first-frame diagnostic also passes static validation.
 Runtime hold checks and RADV instance/device/queue creation were reported
 successful on hardware. A first-frame log reports successful submit, fence
 wait and present calls, and the operator confirms a visible turquoise screen.
 The operator also reports a visible moving interactive cube, with successful
 pipeline, pad and loop stages in the log. Those diagnostics do not establish
 game rendering, textures, input, audio, saves or normal shutdown. The operator
-subsequently confirmed that the full PROJECT ECHO Vulkan game is fully playable
-on PS5, including controls, audio, saving and clean shutdown (2026-11-22). The
-installed digest and console setup were not provided.
+subsequently confirmed that the previous full PROJECT ECHO Vulkan game build
+was fully playable on PS5, including controls, audio, saving and clean shutdown
+(2026-11-22), and later reported both SDL and Vulkan particle-effect builds
+fully functional. The installed digests and console setup were not provided.
 
 ## PS5 Vulkan game candidate
 
@@ -37,11 +39,15 @@ The candidate uses RADV through `VK_KHR_display`, with SDL controller and
 audio but no SDL video or PS5 keyboard/IME initialization. It records the
 existing game and screens as a 640x360 ordered 2D canvas; the existing SDL
 renderer remains the default in the other build. The separate Windows 3D/VFX
-experiment is not integrated into this PS5 game. The operator confirms that
-the game is fully playable.
+experiment is separate from the production game. Production shot particles
+use the bounded CPU system and are recorded as canvas fills in both SDL and
+Vulkan builds.
 
-The candidate FSELF is 27,920,877 bytes, SHA-256
-`5994688994746aeae6a265f039cef29715142fefac6f0dfe52c52b6c030aec41`.
+The current candidate FSELF is 27,935,549 bytes, SHA-256
+`3e4c0edc7ec645f1399c8a64f2d48e2f12a0606f5ae41051cccd29e868c90dd0`.
+The updated artifact passes native Windows static validation and
+`tests\ps5_package_tests.ps1 -Vulkan`. Its hardware execution is **NOT TESTED**;
+the previous functionality report predates the render-debug change.
 The validation report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`;
 compiler/linker output and commands are in that log directory and
 `build\ps5\game-vulkan`. The package records source pins, archive and shader

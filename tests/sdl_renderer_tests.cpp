@@ -33,6 +33,43 @@ void check(bool condition, std::string_view message) {
     }
 }
 
+void testFixedStepParticles() {
+    echo::vfx::ParticleSystem first{};
+    echo::vfx::ParticleSystem second{};
+    echo::vfx::EmitterConfig config{};
+    config.maximumParticles = 8;
+    config.minimumLifetime = 0.5F;
+    config.maximumLifetime = 0.5F;
+    config.initialVelocity = {30.0F, 0.0F, 0.0F};
+    config.randomSeed = 0x4543484FU;
+    echo::vfx::EmitterHandle firstEmitter{};
+    echo::vfx::EmitterHandle secondEmitter{};
+    const bool created =
+        static_cast<bool>(first.createEmitter(config, firstEmitter)) &&
+        static_cast<bool>(second.createEmitter(config, secondEmitter));
+    check(created, "fixed-step particle emitters initialize");
+    if (!created) return;
+
+    const bool prepared =
+        static_cast<bool>(first.setPosition(firstEmitter, {10.0F, 20.0F, 0.0F})) &&
+        static_cast<bool>(second.setPosition(secondEmitter, {10.0F, 20.0F, 0.0F})) &&
+        static_cast<bool>(first.emitBurst(firstEmitter, 1)) &&
+        static_cast<bool>(second.emitBurst(secondEmitter, 1));
+    check(prepared, "fixed-step particle burst initializes at the requested origin");
+    if (!prepared) return;
+
+    const bool updated = static_cast<bool>(first.update(echo::kFixedStep)) &&
+                         static_cast<bool>(second.update(echo::kFixedStep));
+    const auto firstParticles = first.particles(firstEmitter);
+    const auto secondParticles = second.particles(secondEmitter);
+    check(updated && firstParticles.size() == 1 && secondParticles.size() == 1 &&
+              firstParticles[0].age == echo::kFixedStep &&
+              firstParticles[0].position.x == 10.0F + 30.0F * echo::kFixedStep &&
+              firstParticles[0].position.x == secondParticles[0].position.x &&
+              firstParticles[0].velocity.y == secondParticles[0].velocity.y,
+          "fixed-step bursts advance deterministically by the shared simulation step");
+}
+
 void testSettingsPersistence() {
     using echo::framework::GameState;
     using echo::framework::StateScope;
@@ -108,6 +145,34 @@ void testSettingsPersistence() {
                                               display) &&
               display == DisplayMode::Window1080,
           "settings decoder rejects unknown display modes without applying them");
+    GameState debugSettings{};
+    bool renderDebug = false;
+    check(static_cast<bool>(echo::platform::encodeSettings(
+              70, original, czech, debugSettings, DisplayMode::Fullscreen, true)) &&
+              static_cast<bool>(echo::platform::decodeSettings(
+                  debugSettings, volume, bindings, language, display, renderDebug)) &&
+              renderDebug,
+          "render debug setting round-trips");
+    GameState legacyDebug = debugSettings;
+    check(legacyDebug.erase({StateScope::Global, {}, "video.render_debug"}) &&
+              static_cast<bool>(echo::platform::decodeSettings(
+                  legacyDebug, volume, bindings, language, display, renderDebug)) &&
+              !renderDebug,
+          "older settings default render debug to off");
+    GameState invalidDebug = debugSettings;
+    renderDebug = true;
+    volume = 23;
+    check(static_cast<bool>(invalidDebug.set({StateScope::Global, {}, "video.render_debug"},
+                                             StateValue::fromInteger(2))) &&
+              !echo::platform::decodeSettings(
+                  invalidDebug, volume, bindings, language, display, renderDebug) &&
+              renderDebug && volume == 23,
+          "invalid render debug setting is rejected without partial application");
+    check(static_cast<bool>(invalidDebug.set({StateScope::Global, {}, "video.render_debug"},
+                                             StateValue::fromBoolean(true))) &&
+              !echo::platform::decodeSettings(
+                  invalidDebug, volume, bindings, language, display, renderDebug),
+          "render debug setting rejects incorrect value types");
 }
 
 void testBitmapFontUtf8() {
@@ -602,6 +667,7 @@ int main() {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
         testSettingsPersistence();
+        testFixedStepParticles();
         testBitmapFontUtf8();
         testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
@@ -775,9 +841,9 @@ int main() {
         pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");
         const auto padOptions = capture(padWindow, {74, 38, 492, 284});
-        const auto cross = capture(padWindow, {390, 135, 10, 14});
-        const auto square = capture(padWindow, {390, 160, 10, 14});
-        const auto triangle = capture(padWindow, {390, 185, 10, 14});
+        const auto cross = capture(padWindow, {390, 132, 10, 14});
+        const auto square = capture(padWindow, {390, 154, 10, 14});
+        const auto triangle = capture(padWindow, {390, 176, 10, 14});
         const auto visibleSymbol = [](const std::vector<Uint32>& pixels) {
             return !pixels.empty() && std::any_of(pixels.begin(), pixels.end(),
                 [first = pixels.front()](Uint32 pixel) { return pixel != first; });
@@ -792,20 +858,29 @@ int main() {
               "PlayStation options do not show keyboard bindings or rebinding instructions");
         pad.drawOptions(4, 60, echo::framework::DialogueLanguage::Czech,
                         false, "SPACE", "J", "E");
-        const auto czechOptions = capture(padWindow, {390, 210, 20, 14});
+        const auto czechOptions = capture(padWindow, {390, 198, 20, 14});
         pad.drawOptions(4, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");
-        check(czechOptions != capture(padWindow, {390, 210, 20, 14}),
+        check(czechOptions != capture(padWindow, {390, 198, 20, 14}),
               "Options displays the selected dialogue language");
 
         keyboard.drawOptions(5, 60, echo::framework::DialogueLanguage::English,
                              false, "SPACE", "J", "E", echo::platform::DisplayMode::Window720);
-        const auto windowedRow = capture(keyboardWindow, {390, 235, 160, 14});
+        const auto windowedRow = capture(keyboardWindow, {390, 220, 160, 14});
         keyboard.drawOptions(5, 60, echo::framework::DialogueLanguage::English,
                              false, "SPACE", "J", "E", echo::platform::DisplayMode::Fullscreen);
-        check(echo::platform::Renderer::optionCount() == 7 &&
-                  windowedRow != capture(keyboardWindow, {390, 235, 160, 14}),
+        check(echo::platform::Renderer::optionCount() == 8 &&
+                  windowedRow != capture(keyboardWindow, {390, 220, 160, 14}),
               "Windows Options lists the selected display mode");
+        keyboard.drawOptions(echo::platform::Renderer::kRenderDebugOption, 60,
+                             echo::framework::DialogueLanguage::English, false,
+                             "SPACE", "J", "E", echo::platform::DisplayMode::Window720, false);
+        const auto debugOff = capture(keyboardWindow, {390, 242, 50, 14});
+        keyboard.drawOptions(echo::platform::Renderer::kRenderDebugOption, 60,
+                             echo::framework::DialogueLanguage::English, false,
+                             "SPACE", "J", "E", echo::platform::DisplayMode::Window720, true);
+        check(debugOff != capture(keyboardWindow, {390, 242, 50, 14}),
+              "Options visibly displays the render debug toggle");
 
         for (int tick = 0; tick < 2400; ++tick) {
             if (game.roomId() == echo::RoomId::MaintenanceTunnel &&
@@ -910,6 +985,14 @@ int main() {
         checkRecordedScreen(padWindow, pad.recordOptions(menuSink, 4, 60,
             echo::framework::DialogueLanguage::Czech, false, "SPACE", "J", "E"),
             "recorded options exactly match SDL");
+        pad.drawOptions(echo::platform::Renderer::kRenderDebugOption, 60,
+                        echo::framework::DialogueLanguage::English, false, "SPACE", "J", "E",
+                        echo::platform::DisplayMode::Window720, true);
+        checkRecordedScreen(padWindow, pad.recordOptions(
+            menuSink, echo::platform::Renderer::kRenderDebugOption, 60,
+            echo::framework::DialogueLanguage::English, false, "SPACE", "J", "E",
+            echo::platform::DisplayMode::Window720, true),
+            "recorded enabled render debug option matches SDL");
         echo::platform::InventoryMenu recordedInventory{};
         recordedInventory.selected = 2;
         pad.drawInventory(recordedGame, recordedInventory, "TEST MESSAGE");
@@ -941,6 +1024,48 @@ int main() {
         };
         checkRecordedGame(false);
         checkRecordedGame(true);
+        echo::platform::RenderDebugInfo debugInfo{};
+        debugInfo.vulkan = true;
+        debugInfo.timingAvailable = true;
+        debugInfo.backendStatsAvailable = true;
+        debugInfo.fps = 60;
+        debugInfo.frameTenthsMs = 167;
+        debugInfo.drawCalls = 12;
+        debugInfo.triangles = 123;
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E");
+        const auto withoutDebug = capture(keyboardWindow, {470, 68, 158, 53});
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E", {}, &debugInfo);
+        const auto withDebug = capture(keyboardWindow, {0, 0, 640, 360});
+        check(withoutDebug != capture(keyboardWindow, {470, 68, 158, 53}),
+              "render debug overlay appears only when enabled");
+        check(keyboard.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E",
+                                  nullptr, nullptr, {}, &debugInfo) &&
+                  SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                       recordedMenu.data(),
+                                       menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                  withDebug == recordedMenu,
+              "render debug overlay matches in SDL and abstract canvas");
+        const auto firstStats = capture(keyboardWindow, {478, 88, 140, 21});
+        debugInfo.fps = 30;
+        debugInfo.drawCalls = 99;
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E", {}, &debugInfo);
+        check(firstStats != capture(keyboardWindow, {478, 88, 140, 21}),
+              "render debug overlay displays updated timing and draw statistics");
+        echo::vfx::Particle spark{};
+        spark.position = {recordedGame.player().position.x + 10.0F,
+                          recordedGame.player().position.y + 14.0F, 0.0F};
+        spark.color = {0.15F, 0.9F, 1.0F, 0.9F};
+        spark.scale = 1.0F;
+        const std::array<echo::vfx::Particle, 1> recordedParticles{spark};
+        keyboard.drawGame(recordedGame, false, false, "SPACE", "J", "E", recordedParticles);
+        const auto particleScreen = capture(keyboardWindow, {0, 0, 640, 360});
+        check(keyboard.recordGame(menuSink, recordedGame, false, false, "SPACE", "J", "E",
+                                  nullptr, nullptr, recordedParticles) &&
+                  SDL_RenderReadPixels(menuRenderer.get(), nullptr, SDL_PIXELFORMAT_ARGB8888,
+                                       recordedMenu.data(),
+                                       menuWidth * static_cast<int>(sizeof(Uint32))) == 0 &&
+                  particleScreen == recordedMenu,
+              "SDL and abstract canvas render gameplay particles identically");
         FailingMenuSink failingGame{};
         check(!keyboard.recordGame(failingGame, recordedGame, false, false, "SPACE", "J", "E") &&
                   failingGame.calls == 1,

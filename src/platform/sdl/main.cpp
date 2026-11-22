@@ -5,6 +5,7 @@
 #include "platform/sdl/renderer.hpp"
 #include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
+#include "echo/framework/vfx.hpp"
 
 #ifdef ECHO_PS5_VULKAN
 #include "echo/framework/vulkan_backend.hpp"
@@ -20,6 +21,8 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <new>
 #include <string_view>
 #include <utility>
 #ifdef __PROSPERO__
@@ -734,6 +737,35 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
+    std::unique_ptr<echo::vfx::ParticleSystem> particleSystem{
+        new (std::nothrow) echo::vfx::ParticleSystem{}};
+    if (!particleSystem) {
+        logMessage("Gameplay VFX allocation failed");
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
+    echo::vfx::EmitterConfig shotParticles{};
+    shotParticles.maximumParticles = 128;
+    shotParticles.minimumLifetime = 0.12F;
+    shotParticles.maximumLifetime = 0.32F;
+    shotParticles.velocitySpread = {78.0F, 78.0F, 0.0F};
+    shotParticles.gravity = {0.0F, 20.0F, 0.0F};
+    shotParticles.startColor = {0.2F, 0.9F, 1.0F, 1.0F};
+    shotParticles.endColor = {1.0F, 0.35F, 0.08F, 0.0F};
+    shotParticles.startScale = 1.0F;
+    shotParticles.endScale = 0.15F;
+    shotParticles.randomSeed = 0x4543484FU;
+    echo::vfx::EmitterHandle shotEmitter{};
+    const echo::framework::Status particleSetup =
+        particleSystem->createEmitter(shotParticles, shotEmitter);
+    if (!particleSetup) {
+        logMessage("Gameplay VFX initialization failed");
+        logMessage(particleSetup.detail);
+        framework.shutdown();
+        SDL_Quit();
+        return 1;
+    }
     ECHO_DIAG("ECHO DIAG 05c: game content ready; before save storage");
     logMessage("Echo Framework and engineer dialogue initialized from assets/framework");
 #if defined(__PROSPERO__)
@@ -895,8 +927,10 @@ int main(int, char**) {
     echo::framework::DialogueLanguage dialogueLanguage =
         echo::framework::DialogueLanguage::English;
     echo::platform::DisplayMode displayMode = echo::platform::DisplayMode::Window720;
+    bool renderDebug = false;
     constexpr int kOptionCount = echo::platform::Renderer::optionCount();
     constexpr int kDisplayOption = echo::platform::Renderer::kDisplayOption;
+    constexpr int kRenderDebugOption = echo::platform::Renderer::kRenderDebugOption;
     bool pendingJump = false;
     bool pendingInteract = false;
     bool pendingUseItem = false;
@@ -1410,7 +1444,8 @@ int main(int, char**) {
         }
         echo::framework::GameState settings{};
         echo::framework::Status status =
-            echo::platform::encodeSettings(volume, bindings, dialogueLanguage, settings, displayMode);
+            echo::platform::encodeSettings(volume, bindings, dialogueLanguage, settings,
+                                           displayMode, renderDebug);
         if (!status) {
             logMessage("Settings encoding failed");
             logMessage(status.detail);
@@ -1446,9 +1481,10 @@ int main(int, char**) {
         Bindings restoredBindings = bindings;
         auto restoredLanguage = dialogueLanguage;
         auto restoredDisplay = displayMode;
+        bool restoredRenderDebug = renderDebug;
         const echo::framework::Status decoded =
             echo::platform::decodeSettings(settings, restoredVolume, restoredBindings,
-                                           restoredLanguage, restoredDisplay);
+                                           restoredLanguage, restoredDisplay, restoredRenderDebug);
         if (!decoded) {
             logMessage("Settings validation failed; defaults retained");
             logMessage(decoded.detail);
@@ -1465,6 +1501,7 @@ int main(int, char**) {
         bindings = restoredBindings;
         dialogueLanguage = restoredLanguage;
         displayMode = restoredDisplay;
+        renderDebug = restoredRenderDebug;
         if (!renderer.applyDisplayMode(displayMode)) {
             logMessage("Display mode could not be applied");
         }
@@ -1506,6 +1543,11 @@ int main(int, char**) {
         (void)saveSettings();
     };
 
+    const auto toggleRenderDebug = [&]() {
+        renderDebug = !renderDebug;
+        (void)saveSettings();
+    };
+
     const auto selectMenu = [&]() {
         if (menuSelection == 0) {
             ECHO_DIAG("ECHO DIAG M0: new game selected");
@@ -1544,6 +1586,12 @@ int main(int, char**) {
     std::uint64_t previousCounter = SDL_GetPerformanceCounter();
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
     double accumulator = 0.0;
+    std::uint64_t renderSampleStart = previousCounter;
+    unsigned renderSampleFrames = 0;
+    echo::platform::RenderDebugInfo renderInfo{};
+#ifdef ECHO_PS5_VULKAN
+    renderInfo.vulkan = true;
+#endif
 
     const auto openInventory = [&]() {
         inventoryMenu.reset();
@@ -1701,8 +1749,14 @@ int main(int, char**) {
                         changeDialogueLanguage(1);
                     } else if ((button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
                                 button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) &&
-                               kOptionCount > 6 && optionSelection == kDisplayOption) {
+                               echo::platform::Renderer::kHasDisplayOption &&
+                               optionSelection == kDisplayOption) {
                         changeDisplayMode(button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ? 1 : -1);
+                    } else if ((button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
+                                button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ||
+                                button == SDL_CONTROLLER_BUTTON_A) &&
+                               optionSelection == kRenderDebugOption) {
+                        toggleRenderDebug();
                     } else if (button == SDL_CONTROLLER_BUTTON_A && optionSelection == kOptionCount - 1) {
                         (void)saveSettings();
                         screen = Screen::MainMenu;
@@ -1844,9 +1898,13 @@ int main(int, char**) {
                     changeDialogueLanguage(-1);
                 } else if (key == SDLK_RIGHT && optionSelection == 4) {
                     changeDialogueLanguage(1);
-                } else if ((key == SDLK_LEFT || key == SDLK_RIGHT) && kOptionCount > 6 &&
+                } else if ((key == SDLK_LEFT || key == SDLK_RIGHT) &&
+                           echo::platform::Renderer::kHasDisplayOption &&
                            optionSelection == kDisplayOption) {
                     changeDisplayMode(key == SDLK_RIGHT ? 1 : -1);
+                } else if ((key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_RETURN ||
+                            key == SDLK_SPACE) && optionSelection == kRenderDebugOption) {
+                    toggleRenderDebug();
                 } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 1) {
                     waitingForKey = true;
                     rebindAction = RebindAction::Jump;
@@ -2042,7 +2100,28 @@ int main(int, char**) {
                 logMessage(gameplayStatus.detail);
             }
             const SoundState after = captureSoundState(game);
-            soundEvents |= soundEventsBetween(before, after);
+            const unsigned stepEvents = soundEventsBetween(before, after);
+            soundEvents |= stepEvents;
+            if ((stepEvents & (1U << static_cast<unsigned>(SoundId::Shot))) != 0U) {
+                const auto& player = game.player();
+                const float shotAimX = player.aim.x == 0.0F
+                    ? static_cast<float>(player.facing) : player.aim.x;
+                const float direction = shotAimX < 0.0F ? -1.0F : 1.0F;
+                const echo::framework::Status positionStatus = particleSystem->setPosition(
+                    shotEmitter, {player.position.x + 10.0F + direction * 8.0F,
+                                  player.position.y + 14.0F, 0.0F});
+                const echo::framework::Status burstStatus =
+                    positionStatus ? particleSystem->emitBurst(shotEmitter, 8) : positionStatus;
+                if (!burstStatus) {
+                    logMessage("Gameplay shot VFX emission failed");
+                    logMessage(burstStatus.detail);
+                }
+            }
+            const echo::framework::Status particleUpdate = particleSystem->update(echo::kFixedStep);
+            if (!particleUpdate) {
+                logMessage("Gameplay VFX fixed-step update failed");
+                logMessage(particleUpdate.detail);
+            }
             if (!before.abilityCollected && after.abilityCollected) {
                 const echo::framework::Status status = framework.notifyEchoStepUnlocked();
                 if (!status) {
@@ -2121,11 +2200,13 @@ int main(int, char**) {
             if (screen == Screen::Options) {
                 recorded = renderer.recordOptions(canvas, optionSelection, volume, dialogueLanguage,
                                                   waitingForKey, jump.data(), shoot.data(),
-                                                  interact.data(), displayMode);
+                                                  interact.data(), displayMode, renderDebug);
             } else {
                 recorded = renderer.recordGame(canvas, game, showMap, paused, jump.data(),
                                                shoot.data(), interact.data(), &gpuCanvas.sprites(),
-                                               &gpuCanvas.worldSprites());
+                                               &gpuCanvas.worldSprites(),
+                                               particleSystem->particles(shotEmitter),
+                                               renderDebug ? &renderInfo : nullptr);
             }
         }
         if (!recorded) {
@@ -2143,6 +2224,12 @@ int main(int, char**) {
             renderFailed = true;
             break;
         }
+        {
+            const auto stats = gpuBackend.diagnostics();
+            renderInfo.backendStatsAvailable = stats.frames != 0;
+            renderInfo.drawCalls = stats.drawCalls;
+            renderInfo.triangles = stats.triangles;
+        }
 #else
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection, continueAvailable);
@@ -2157,12 +2244,28 @@ int main(int, char**) {
             const auto interact = keyName(bindings.interact);
             if (screen == Screen::Options) {
                 renderer.drawOptions(optionSelection, volume, dialogueLanguage, waitingForKey,
-                                     jump.data(), shoot.data(), interact.data(), displayMode);
+                                     jump.data(), shoot.data(), interact.data(), displayMode,
+                                     renderDebug);
             } else {
-                renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data());
+                renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data(),
+                                  particleSystem->particles(shotEmitter),
+                                  renderDebug ? &renderInfo : nullptr);
             }
         }
 #endif
+        ++renderSampleFrames;
+        const std::uint64_t renderSampleEnd = SDL_GetPerformanceCounter();
+        const double renderSampleSeconds =
+            static_cast<double>(renderSampleEnd - renderSampleStart) / frequency;
+        if (renderSampleSeconds >= 1.0) {
+            renderInfo.fps = static_cast<unsigned>(std::min(
+                static_cast<double>(renderSampleFrames) / renderSampleSeconds, 9999.0) + 0.5);
+            renderInfo.frameTenthsMs = static_cast<unsigned>(std::min(
+                renderSampleSeconds * 10000.0 / renderSampleFrames, 9999.0) + 0.5);
+            renderInfo.timingAvailable = true;
+            renderSampleStart = renderSampleEnd;
+            renderSampleFrames = 0;
+        }
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
         if (diagnosticFirstFrame) {
             diagnosticCheckpoint("ECHO DIAG 12: first frame rendered");

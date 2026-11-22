@@ -640,22 +640,24 @@ void Renderer::drawMenuContent(int selection, bool continueAvailable) noexcept {
 void Renderer::drawOptions(int selection, int volume,
                            framework::DialogueLanguage language, bool waitingForKey,
                            std::string_view jumpKey, std::string_view shootKey,
-                           std::string_view interactKey, DisplayMode display) noexcept {
+                           std::string_view interactKey, DisplayMode display,
+                           bool renderDebug) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
     drawOptionsContent(selection, volume, language, waitingForKey, jumpKey, shootKey,
-                       interactKey, display);
+                       interactKey, display, renderDebug);
     SDL_RenderPresent(renderer_);
 }
 
 bool Renderer::recordOptions(rendering::ICanvas2D& sink, int selection, int volume,
                              framework::DialogueLanguage language, bool waitingForKey,
                              std::string_view jumpKey, std::string_view shootKey,
-                             std::string_view interactKey, DisplayMode display) noexcept {
+                             std::string_view interactKey, DisplayMode display,
+                             bool renderDebug) noexcept {
     if (!beginRecording(sink, kBackground)) return false;
     if (!drawSinkFailed_) {
         drawOptionsContent(selection, volume, language, waitingForKey, jumpKey, shootKey,
-                           interactKey, display);
+                           interactKey, display, renderDebug);
     }
     return endRecording();
 }
@@ -663,7 +665,8 @@ bool Renderer::recordOptions(rendering::ICanvas2D& sink, int selection, int volu
 void Renderer::drawOptionsContent(int selection, int volume,
                                   framework::DialogueLanguage language, bool waitingForKey,
                                   std::string_view jumpKey, std::string_view shootKey,
-                                  std::string_view interactKey, DisplayMode display) noexcept {
+                                  std::string_view interactKey, DisplayMode display,
+                                  bool renderDebug) noexcept {
     panel({74, 38, 492, 284}, kPanel);
     panel({74, 38, 492, 3}, kCyan);
     text(110, 62, "OPTIONS", 3, kText);
@@ -671,16 +674,17 @@ void Renderer::drawOptionsContent(int selection, int volume,
         text(110, 94, "FIXED CONTROLLER BUTTONS", 1, kMuted);
     }
 
-    std::array<std::string_view, 7> rows{
-        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "DISPLAY", "BACK"
+    std::array<std::string_view, 8> rows{
+        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "DISPLAY", "RENDER DEBUG", "BACK"
     };
+    rows[static_cast<std::size_t>(kRenderDebugOption)] = "RENDER DEBUG";
     rows[static_cast<std::size_t>(optionCount() - 1)] = "BACK";
-    const int spacing = optionCount() > 6 ? 25 : 28;
+    constexpr int spacing = 22;
     for (int index = 0; index < optionCount(); ++index) {
         const int y = 110 + index * spacing;
         if (selection == index) {
-            panel({102, y - 5, 436, 25}, kPanelLight);
-            panel({102, y - 5, 3, 25}, kCyan);
+            panel({102, y - 3, 436, 21}, kPanelLight);
+            panel({102, y - 3, 3, 21}, kCyan);
         }
         text(118, y, rows[static_cast<std::size_t>(index)], 2,
              selection == index ? kCyan : kText);
@@ -700,10 +704,12 @@ void Renderer::drawOptionsContent(int selection, int volume,
         } else if (index == 4) {
             text(390, y, language == framework::DialogueLanguage::Czech ? "CS" : "EN",
                  2, kText);
-        } else if (index == kDisplayOption && optionCount() > 6) {
+        } else if (index == kDisplayOption && kHasDisplayOption) {
             text(390, y, display == DisplayMode::Fullscreen ? "FULLSCREEN"
                          : display == DisplayMode::Window1080 ? "1920X1080" : "1280X720",
                  2, kText);
+        } else if (index == kRenderDebugOption) {
+            text(390, y, renderDebug ? "ON" : "OFF", 2, kText);
         }
     }
     if (controls_ == ControlScheme::PlayStation) {
@@ -1159,19 +1165,76 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     }
 }
 
+void Renderer::drawParticles(const Game& game,
+                             std::span<const vfx::Particle> particles) noexcept {
+    const Player& player = game.player();
+    float cameraX = game.cameraX();
+    float cameraY = 0.0F;
+    if (game.isometric()) {
+        constexpr float kActorWidth = 20.0F;
+        constexpr float kActorHeight = 28.0F;
+        const float focusX = player.position.x + kActorWidth * 0.5F;
+        const float focusY = player.position.y + kActorHeight * 0.5F;
+        const float focusScreenX = focusX - focusY;
+        const float focusScreenY = (focusX + focusY) * 0.5F;
+        cameraX = std::floor(focusScreenX - 320.0F);
+        cameraY = std::floor(focusScreenY - 196.0F);
+    }
+
+    const auto channel = [](float value) noexcept {
+        value = std::clamp(value, 0.0F, 1.0F);
+        const float srgb = value <= 0.0031308F
+            ? value * 12.92F
+            : 1.055F * std::pow(value, 1.0F / 2.4F) - 0.055F;
+        return static_cast<Uint8>(std::lround(srgb * 255.0F));
+    };
+    for (const vfx::Particle& particle : particles) {
+        if (!std::isfinite(particle.position.x) || !std::isfinite(particle.position.y) ||
+            !std::isfinite(particle.scale) || particle.scale <= 0.0F ||
+            !std::isfinite(particle.color.x) || !std::isfinite(particle.color.y) ||
+            !std::isfinite(particle.color.z) || !std::isfinite(particle.color.w)) {
+            continue;
+        }
+        float screenX = particle.position.x - cameraX;
+        float screenY = particle.position.y - cameraY;
+        if (game.isometric()) {
+            const float projectedX = particle.position.x - particle.position.y;
+            const float projectedY = (particle.position.x + particle.position.y) * 0.5F;
+            screenX = projectedX - cameraX;
+            screenY = projectedY - cameraY;
+        }
+        if (!std::isfinite(screenX) || !std::isfinite(screenY) ||
+            screenX < -16.0F || screenX > 656.0F ||
+            screenY < -16.0F || screenY > 376.0F) {
+            continue;
+        }
+        const int size = static_cast<int>(
+            std::lround(std::clamp(particle.scale * 6.0F, 1.0F, 16.0F)));
+        const SDL_Rect bounds{
+            static_cast<int>(std::floor(screenX - size * 0.5F)),
+            static_cast<int>(std::floor(screenY - size * 0.5F)), size, size};
+        panel(bounds, {channel(particle.color.x), channel(particle.color.y),
+                       channel(particle.color.z), channel(particle.color.w)});
+    }
+}
+
 void Renderer::drawGame(const Game& game, bool showMap, bool paused,
                         std::string_view jumpKey, std::string_view shootKey,
-                        std::string_view interactKey) noexcept {
+                        std::string_view interactKey,
+                        std::span<const vfx::Particle> particles,
+                        const RenderDebugInfo* debug) noexcept {
     SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
     SDL_RenderClear(renderer_);
-    drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey);
+    drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey, particles, debug);
     SDL_RenderPresent(renderer_);
 }
 
 bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool showMap, bool paused,
                           std::string_view jumpKey, std::string_view shootKey,
                           std::string_view interactKey, const CanvasSprites* sprites,
-                          const CanvasWorldSprites* worldSprites) noexcept {
+                          const CanvasWorldSprites* worldSprites,
+                          std::span<const vfx::Particle> particles,
+                          const RenderDebugInfo* debug) noexcept {
     if ((worldSheetCount_ != 0 && worldSprites == nullptr) || (sprites == nullptr &&
         std::any_of(sprites_.begin(), sprites_.end(), [](SDL_Texture* texture) { return texture != nullptr; }))) {
         SDL_Log("Recording game with loaded SDL textures is not supported");
@@ -1223,7 +1286,8 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
     if (!beginRecording(sink, SDL_Color{8, 15, 26, 255})) return false;
     canvasSprites_ = sprites;
     canvasWorldSprites_ = worldSprites;
-    if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey);
+    if (!drawSinkFailed_) drawGameContent(game, showMap, paused, jumpKey, shootKey, interactKey,
+                                          particles, debug);
     canvasSprites_ = nullptr;
     canvasWorldSprites_ = nullptr;
     return endRecording();
@@ -1231,7 +1295,9 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
 
 void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                                std::string_view jumpKey, std::string_view shootKey,
-                               std::string_view interactKey) noexcept {
+                               std::string_view interactKey,
+                               std::span<const vfx::Particle> particles,
+                               const RenderDebugInfo* debug) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
     panel({0, 0, 640, 360},
@@ -1242,6 +1308,7 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
     } else {
         drawSideWorld(game, paused);
     }
+    if (!showMap) drawParticles(game, particles);
     const Player& player = game.player();
 
     panel({12, 12, 184, 38}, SDL_Color{4, 10, 17, 218});
@@ -1401,6 +1468,25 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         text(82, 260, game.cutsceneText(), 1, kText);
         text(82, 298, controls_ == ControlScheme::PlayStation
                           ? "\x03 CONTINUE" : interactKey, 1, kMuted);
+    }
+    if (debug != nullptr) {
+        panel({470, 68, 158, 53}, SDL_Color{4, 10, 17, 230});
+        text(478, 74, debug->vulkan ? "RENDER: VULKAN" : "RENDER: SDL", 1, kCyan);
+        std::array<char, 40> line{};
+        if (debug->timingAvailable) {
+            std::snprintf(line.data(), line.size(), "FPS %u  FRAME %u.%u MS",
+                          debug->fps, debug->frameTenthsMs / 10, debug->frameTenthsMs % 10);
+            text(478, 88, line.data(), 1, kText);
+        } else {
+            text(478, 88, "FPS: SAMPLING", 1, kMuted);
+        }
+        if (debug->backendStatsAvailable) {
+            std::snprintf(line.data(), line.size(), "DRAWS %u  TRI %u",
+                          debug->drawCalls, debug->triangles);
+            text(478, 102, line.data(), 1, kText);
+        } else {
+            text(478, 102, "CANVAS 640X360", 1, kMuted);
+        }
     }
 }
 

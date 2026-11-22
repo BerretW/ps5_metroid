@@ -244,14 +244,20 @@ outcome were not reported.
 
 ## PROJECT ECHO Vulkan game
 
-The separately staged game candidate is `dist\ps5-vulkan\PPSA91007`, with
-`eboot.bin` SHA-256
+The build used for the 2026-11-22 hardware confirmation was staged at
+`dist\ps5-vulkan\PPSA91007`, with `eboot.bin` SHA-256
 `5994688994746aeae6a265f039cef29715142fefac6f0dfe52c52b6c030aec41`.
-Its static report is `build\ps5\logs\vulkan-game\PPSA91007-validation.json`.
-On 2026-11-22 the operator confirmed that the PS5 Vulkan game is fully playable,
-including controller input, audio, saving and clean shutdown. The installed
-executable digest and firmware/loader setup were not supplied. The title is the
-existing game using a 2D Vulkan canvas, not the separate 3D/VFX demonstration.
+On 2026-11-22 the operator confirmed that this PS5 Vulkan game was fully
+playable, including controller input, audio, saving and clean shutdown. The
+installed executable digest and firmware/loader setup were not supplied. A later
+production shot-particle build had local Vulkan FSELF hash
+`2177bff9e8f87d44a8ff72fb97be260ff26d72ec8548404cd367ca06e97e0dff`;
+the operator reported both Vulkan and SDL particle builds fully functional.
+Installed hashes and console setup were not supplied. The current render-debug
+Vulkan candidate has local FSELF hash
+`3e4c0edc7ec645f1399c8a64f2d48e2f12a0606f5ae41051cccd29e868c90dd0`
+and requires separate hardware verification.
+The title uses the existing 2D Vulkan canvas, not the separate 3D/VFX demonstration.
 
 1. Back up the existing project title outside all loader scan roots and back up
    `/data/project_echo/saves` before trying the candidate. Both builds share

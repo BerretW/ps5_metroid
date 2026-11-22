@@ -36,11 +36,12 @@ the definition ID for the document lifetime. The sample
 position, velocity spread, gravity, color/scale transitions, and a deterministic
 seed.
 
-This is CPU simulation only. It does not expose a compute shader, GPU particle
-buffer, automatic renderer integration, or a claim of GPU acceleration.
-Callers translate particle spans into their chosen renderer's draw submission
-path. The current Vulkan backend reports compute, postprocessing, render to
-texture, instancing, and shadow maps as unavailable.
+This is CPU simulation only. It does not expose a compute shader or GPU
+particle buffer. PROJECT ECHO's production game translates shot-emitter
+particles into small alpha-blended rectangles through its existing 2D canvas;
+the SDL and Vulkan game paths therefore share the same simulation and effect.
+The current Vulkan backend reports compute, postprocessing, render to texture,
+instancing, and shadow maps as unavailable.
 
 Screen flash, camera shake, and light-event coupling remain deferred effects;
 the module currently owns particles and emitter simulation only.
@@ -49,4 +50,5 @@ The standalone reference application explicitly translates live particles into
 additively blended Vulkan quads using per-draw tint/scale. Interactive updates
 use a 60 Hz accumulator with a 0.25-second catch-up limit; bounded `--frames`
 runs deliberately advance one fixed step per frame for reproducible captures.
-This is **CPU simulation with GPU rasterization**, not compute particles.
+This is **CPU simulation with GPU rasterization**, not compute particles. The
+production shot sparks use the fixed gameplay step and canvas alpha blending.

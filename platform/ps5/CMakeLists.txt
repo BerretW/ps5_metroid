@@ -30,13 +30,14 @@ if(ECHO_PS5_GAME)
     file(TO_CMAKE_PATH "${SDL_SOURCE}" SDL_SOURCE)
     get_filename_component(echo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
     add_subdirectory("${echo_root}/framework" framework)
+    add_subdirectory("${echo_root}/framework/rendering" framework_rendering)
+    add_subdirectory("${echo_root}/framework/vfx" framework_vfx)
     if(ECHO_PS5_VULKAN)
         if(NOT ECHO_RADV_LINK_INPUTS OR NOT EXISTS "${ECHO_RADV_LINK_INPUTS}" OR
            NOT ECHO_PS5_NO_KEYBOARD OR ECHO_PS5_STARTUP_DIAGNOSTICS)
             message(FATAL_ERROR "PS5 Vulkan requires verified RADV link inputs and the controller-only non-diagnostic SDL build.")
         endif()
         include("${ECHO_RADV_LINK_INPUTS}")
-        add_subdirectory("${echo_root}/framework/rendering" framework_rendering)
         add_subdirectory("${echo_root}/framework/rendering_vulkan" framework_rendering_vulkan)
     endif()
     if(NOT TARGET EchoFramework::Narrative)
@@ -115,7 +116,8 @@ if(ECHO_PS5_GAME)
             EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
             EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
             EchoFramework::Abilities EchoFramework::Quests EchoFramework::Cutscenes EchoFramework::World
-            EchoFramework::RenderingVulkan EchoFramework::Rendering --end-group ${ECHO_RADV_STUBS}
+            EchoFramework::VFX EchoFramework::Rendering
+            EchoFramework::RenderingVulkan --end-group ${ECHO_RADV_STUBS}
             --whole-archive "${ECHO_RADV_ARCHIVE}" --no-whole-archive --start-group
             "${PS5_SDK_ROOT}/target/lib/libc++.a" "${PS5_SDK_ROOT}/target/lib/libc++abi.a"
             "${PS5_SDK_ROOT}/target/lib/libunwind.a"
@@ -127,7 +129,7 @@ if(ECHO_PS5_GAME)
             EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
             EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
             EchoFramework::Abilities EchoFramework::Quests
-            EchoFramework::Cutscenes EchoFramework::World
+            EchoFramework::Cutscenes EchoFramework::World EchoFramework::VFX
             --end-group --as-needed ${stubs})
     endif()
 endif()

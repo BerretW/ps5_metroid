@@ -19,6 +19,8 @@ FetchContent_MakeAvailable(SDL2)
 option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" ${BUILD_TESTING})
 option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" ${BUILD_TESTING})
 add_subdirectory(framework)
+add_subdirectory(framework/rendering)
+add_subdirectory(framework/vfx)
 
 if(NOT TARGET EchoFramework::Narrative)
     message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
@@ -110,7 +112,7 @@ target_compile_features(project_echo PRIVATE cxx_std_20)
 target_include_directories(project_echo PRIVATE framework/rendering/include)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
-    EchoFramework::Core EchoFramework::Data)
+    EchoFramework::Core EchoFramework::Data EchoFramework::VFX)
 # Runtime assets are loaded from <executable dir>/assets, including on incremental builds.
 add_custom_target(echo_runtime_assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -140,7 +142,8 @@ target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)
 target_include_directories(echo_sdl_tests PRIVATE framework/rendering/include)
 target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
-target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static EchoFramework::Data)
+target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static
+    EchoFramework::Data EchoFramework::VFX)
 if(MSVC)
     target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
 else()

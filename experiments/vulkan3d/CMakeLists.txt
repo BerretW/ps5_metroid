@@ -63,7 +63,7 @@ add_executable(echo_vulkan_menu
     "${ECHO_ROOT}/src/input/dualsense_diagnostics.cpp")
 target_include_directories(echo_vulkan_menu PRIVATE "${ECHO_ROOT}/src" "${ECHO_ROOT}/third_party")
 target_compile_definitions(echo_vulkan_menu PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan SDL2-static
+target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan EchoFramework::VFX SDL2-static
     EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
     EchoFramework::Cutscenes EchoFramework::World user32)

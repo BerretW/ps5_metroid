@@ -28,6 +28,14 @@ Options lets you select EN or CS for Mira's dialogue with left/right (D-pad left
 
 Windows Options has a DISPLAY row: left/right cycles 1280X720 window, 1920X1080 window and desktop FULLSCREEN, applies it immediately and saves it. The game keeps its 640x360 logical view with integer scaling, so larger modes show the same picture larger. Settings saved before this option default to 1280x720. PS5 has no DISPLAY row and always creates a display-sized fullscreen window.
 
+Options also has RENDER DEBUG, toggled with left/right or confirm (D-pad or
+Cross on PS5). It is saved separately and defaults to OFF for older settings.
+When enabled, the gameplay overlay shows the active renderer, average FPS and
+average frame interval sampled over at least one second, including game-loop
+work and presentation rather than GPU time. Vulkan additionally shows the
+previous completed frame's draw calls and triangles. SDL does not provide
+those counts here. The overlay is cosmetic and appears only during gameplay.
+
 The Landing Bay's west exit leads to the isometric Cargo Hold, drawn Diablo 2-style with a 2:1 diamond grid. There is no gravity or jump: the stick, D-pad or arrows walk in eight screen directions, and Fire shoots along the aim. Aiming is twin-stick: the mouse (Windows) or right stick aims independently of movement, and an orange crosshair shows the direction. While mouse-aiming on Windows the cursor is locked inside the window and replaced by the crosshair; pausing (Esc), the map, menus or switching windows release it. Moving the mouse selects mouse aim until a controller button or the right stick takes over; with the right stick released and no mouse aim, shots follow the last movement direction. The usual Fire key/button still works, plus the left mouse button and R2. Crates in front of the player become translucent. Stalkers chase you on sight; the floor pools hurt but can be crossed. Leave through the east doorway to return to the side-view Landing Bay.
 
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
