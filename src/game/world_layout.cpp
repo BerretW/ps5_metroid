@@ -29,6 +29,8 @@ struct DefaultRoom {
     std::array<std::uint8_t, 3> background;
     RoomExitLayout left;
     RoomExitLayout right;
+    int columns{kRoomColumns};
+    bool isometric{};
 };
 
 constexpr TileSpan kLandingTiles[] = {
@@ -50,10 +52,24 @@ constexpr TileSpan kCentralTiles[] = {
     {0, 10, kRoomColumns, Tile::Solid}, {7, 8, 5, Tile::Solid},
     {18, 7, 5, Tile::Solid}, {29, 8, 5, Tile::Solid},
 };
+// Isometric cargo hold: walled 24x12 grid, open east wall (rows 4-7) back to the Landing Bay.
+constexpr int kCargoColumns = 24;
+constexpr TileSpan kCargoTiles[] = {
+    {0, 0, kCargoColumns, Tile::Solid}, {0, 11, kCargoColumns, Tile::Solid},
+    {0, 1, 1, Tile::Solid}, {0, 2, 1, Tile::Solid}, {0, 3, 1, Tile::Solid},
+    {0, 4, 1, Tile::Solid}, {0, 5, 1, Tile::Solid}, {0, 6, 1, Tile::Solid},
+    {0, 7, 1, Tile::Solid}, {0, 8, 1, Tile::Solid}, {0, 9, 1, Tile::Solid},
+    {0, 10, 1, Tile::Solid},
+    {23, 1, 1, Tile::Solid}, {23, 2, 1, Tile::Solid}, {23, 3, 1, Tile::Solid},
+    {23, 8, 1, Tile::Solid}, {23, 9, 1, Tile::Solid}, {23, 10, 1, Tile::Solid},
+    {5, 3, 2, Tile::Solid}, {5, 4, 2, Tile::Solid}, {14, 7, 3, Tile::Solid},
+    {16, 2, 1, Tile::Solid}, {9, 8, 3, Tile::Hazard}, {9, 9, 3, Tile::Hazard},
+};
 
 const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     {"Landing Bay", kLandingTiles, {13, 30, 43},
-     {}, {true, false, false, RoomId::MaintenanceTunnel}},
+     {true, false, false, RoomId::CargoHold},
+     {true, false, false, RoomId::MaintenanceTunnel}},
     {"Maintenance Tunnel", kMaintenanceTiles, {13, 30, 43},
      {true, false, false, RoomId::LandingBay}, {true, false, false, RoomId::PowerStation}},
     {"Power Station", kPowerTiles, {28, 27, 47},
@@ -62,6 +78,8 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     {"Research Laboratory", kLabTiles, {20, 38, 42}, {}, {}},
     {"Central Chamber", kCentralTiles, {13, 30, 43},
      {true, false, false, RoomId::PowerStation}, {true, true, false, RoomId::CentralChamber}},
+    {"Cargo Hold", kCargoTiles, {18, 16, 14}, {},
+     {true, false, false, RoomId::LandingBay}, kCargoColumns, true},
 }};
 
 [[nodiscard]] WorldLayout makeDefaultLayout() noexcept {
@@ -70,7 +88,8 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
         const DefaultRoom& source = kDefaultRooms[index];
         RoomLayout& room = layout.rooms[index];
         room.name = source.name;
-        room.columns = kRoomColumns;
+        room.columns = source.columns;
+        room.isometric = source.isometric;
         room.background = source.background;
         room.left = source.left;
         room.right = source.right;
@@ -96,6 +115,11 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     layout.doors[1] = {RoomId::ResearchLab, {0.0F, 0.0F, 120.0F, 384.0F},
                        RoomId::MaintenanceTunnel, false, false, false};
     layout.doorCount = 2;
+    layout.roamers[0] = {RoomId::CargoHold, {300.0F, 120.0F, 24.0F, 24.0F}, 0.0F, 0.0F,
+                         70.0F, 2, EnemyType::Stalker};
+    layout.roamers[1] = {RoomId::CargoHold, {560.0F, 280.0F, 24.0F, 24.0F}, 0.0F, 0.0F,
+                         70.0F, 2, EnemyType::Stalker};
+    layout.roamerCount = 2;
     layout.startRoom = RoomId::LandingBay;
     layout.playerStart = {42.0F, kLayoutFloorY};
     layout.engineer = {108.0F, 280.0F, 28.0F, 40.0F};
@@ -176,7 +200,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     }
     output.requiresEchoStep = !ability.empty();
     if (!output.completesGame && !roomFromId(source.room.data(), output.room)) {
-        return invalid("world.room.exits", "Room exits must lead to one of the five game rooms.");
+        return invalid("world.room.exits", "Room exits must lead to one of the game rooms.");
     }
     return Status::success();
 }
@@ -244,6 +268,36 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
                        "Enemy bounds, speed (0-400) and patrol range must fit its room.");
     }
     usedSlots[slot] = true;
+    return Status::success();
+}
+
+[[nodiscard]] Status addRoamer(const ObjectPlacement& placement, const ObjectDefinition& object,
+                               RoomId room, const RoomLayout& roomLayout,
+                               WorldLayout& layout) noexcept {
+    if (!roomLayout.isometric) {
+        return invalid(placement.object.data(), "Stalkers only roam isometric rooms.");
+    }
+    if (layout.roamerCount == layout.roamers.size()) {
+        return {ErrorCode::CapacityExceeded, placement.object.data(),
+                "The world places at most six stalkers."};
+    }
+    EnemySpawn roamer{};
+    roamer.room = room;
+    roamer.archetype = &object;
+    roamer.type = EnemyType::Stalker;
+    roamer.bounds = {placement.hasPosition ? placement.x : object.spawnX(),
+                     placement.hasPosition ? placement.y : object.spawnY(),
+                     object.width(), object.height()};
+    float health{};
+    if (!readNumber(findProperty(placement, object, "health"), health) ||
+        health != std::floor(health) || health < 1.0F || health > kMaxEnemyHealth ||
+        !readNumber(findProperty(placement, object, "speed"), roamer.speed) ||
+        roamer.speed < 0.0F || roamer.speed > kMaxEnemySpeed) {
+        return invalid(placement.object.data(),
+                       "Stalkers need integer health 1-99 and speed 0-400.");
+    }
+    roamer.health = static_cast<int>(health);
+    layout.roamers[layout.roamerCount++] = roamer;
     return Status::success();
 }
 
@@ -318,8 +372,25 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
             return invalid("world.enemies", "An enemy spawn is outside its save-slot contract.");
         }
     }
-    if (layout.doorCount > layout.doors.size() || layout.propCount > layout.props.size()) {
+    if (layout.doorCount > layout.doors.size() || layout.propCount > layout.props.size() ||
+        layout.roamerCount > layout.roamers.size()) {
         return {ErrorCode::CapacityExceeded, "world", "World layout lists exceed capacity."};
+    }
+    for (const EnemySpawn& roamer : layout.roamerList()) {
+        if (roamer.room >= RoomId::Count) return invalid("world.roamers", "Stalker room is invalid.");
+        const RoomLayout& room = layout.rooms[static_cast<std::size_t>(roamer.room)];
+        if (!room.isometric || roamer.type != EnemyType::Stalker || roamer.health < 1 ||
+            roamer.health > kMaxEnemyHealth || !std::isfinite(roamer.speed) ||
+            roamer.speed < 0.0F || roamer.speed > kMaxEnemySpeed ||
+            !fitsRoom(roamer.bounds, room) || collides(room, roamer.bounds)) {
+            return invalid("world.roamers",
+                           "Stalkers must start on open floor inside an isometric room.");
+        }
+    }
+    for (const EnemySpawn& enemy : layout.enemies) {
+        if (layout.rooms[static_cast<std::size_t>(enemy.room)].isometric) {
+            return invalid("world.enemies", "Saved enemies cannot be placed in isometric rooms.");
+        }
     }
     for (const DoorLayout& door : layout.doorList()) {
         if (door.room >= RoomId::Count || door.destination >= RoomId::Count ||
@@ -331,7 +402,7 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
     const Rect player{layout.playerStart.x, layout.playerStart.y,
                       kLayoutPlayerWidth, kLayoutPlayerHeight};
     if (layout.startRoom != RoomId::LandingBay || !fitsRoom(player, start) ||
-        collides(start, player)) {
+        collides(start, player) || start.isometric) {
         return invalid("world.player", "The player must start inside the Landing Bay.");
     }
     if (!fitsRoom(layout.engineer, start) || collides(start, layout.engineer)) {
@@ -368,6 +439,7 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
         room.name = definition->name();
         room.columns = definition->columns();
         room.background = definition->background();
+        room.isometric = definition->projection() == framework::RoomProjection::Isometric;
         room.definition = definition;
         for (int row = 0; row < kRoomRows; ++row) {
             for (int column = 0; column < room.columns; ++column) {
@@ -395,9 +467,14 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
             }
             Status status = Status::success();
             switch (object->category()) {
-            case ObjectCategory::Enemy:
-                status = addEnemy(placement, *object, room, roomLayout, layout, usedSlots);
+            case ObjectCategory::Enemy: {
+                std::string_view behavior;
+                status = readText(findProperty(placement, *object, "behavior"), behavior) &&
+                                 behavior == "stalker"
+                    ? addRoamer(placement, *object, room, roomLayout, layout)
+                    : addEnemy(placement, *object, room, roomLayout, layout, usedSlots);
                 break;
+            }
             case ObjectCategory::Door:
             case ObjectCategory::Trigger:
                 status = addDoor(placement, *object, room, roomLayout, layout);
@@ -446,6 +523,8 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
 
     layout.archetypes.player =
         requiredObject(world, "echo:object/player", ObjectCategory::Player);
+    layout.archetypes.playerIso =
+        requiredObject(world, "echo:object/player_iso", ObjectCategory::Player);
     layout.archetypes.engineer =
         requiredObject(world, "echo:object/engineer", ObjectCategory::Npc);
     layout.archetypes.projectile =
@@ -454,11 +533,16 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
         requiredObject(world, "echo:object/projectile_enemy", ObjectCategory::Projectile);
     layout.archetypes.loot = requiredObject(world, "echo:object/loot_crate", ObjectCategory::Loot);
     const WorldArchetypes& archetypes = layout.archetypes;
-    if (archetypes.player == nullptr || archetypes.engineer == nullptr ||
+    if (archetypes.player == nullptr || archetypes.playerIso == nullptr ||
+        archetypes.engineer == nullptr ||
         archetypes.projectile == nullptr || archetypes.enemyProjectile == nullptr ||
         archetypes.loot == nullptr) {
         return {ErrorCode::MissingDependency, "world.objects",
-                "Player, engineer, projectile and loot objects are required."};
+                "Player (side and isometric), engineer, projectile and loot objects are required."};
+    }
+    if (archetypes.playerIso->width() != kLayoutPlayerWidth ||
+        archetypes.playerIso->height() != kLayoutPlayerHeight) {
+        return invalid("echo:object/player_iso", "Player collision bounds are fixed at 20x28.");
     }
     if (archetypes.player->width() != kLayoutPlayerWidth ||
         archetypes.player->height() != kLayoutPlayerHeight) {

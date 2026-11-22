@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/cargo_hold",
+  "name": "Cargo Hold",
+  "projection": "isometric",
+  "size": {
+    "columns": 24,
+    "rows": 12
+  },
+  "background": [18, 16, 14],
+  "tilesets": [
+    {
+      "id": "iso_floor",
+      "sheet": "sprites/tiles/iso_floor.png",
+      "tileWidth": 64,
+      "tileHeight": 32
+    },
+    {
+      "id": "iso_blocks",
+      "sheet": "sprites/tiles/iso_blocks.png",
+      "tileWidth": 64,
+      "tileHeight": 64
+    }
+  ],
+  "tiles": {
+    ",": {
+      "tileset": "iso_floor",
+      "x": 0,
+      "y": 0
+    },
+    ":": {
+      "tileset": "iso_floor",
+      "x": 1,
+      "y": 0
+    },
+    "=": {
+      "tileset": "iso_floor",
+      "x": 2,
+      "y": 0
+    },
+    "~": {
+      "tileset": "iso_floor",
+      "x": 3,
+      "y": 0,
+      "collision": "hazard"
+    },
+    "#": {
+      "tileset": "iso_blocks",
+      "x": 0,
+      "y": 0,
+      "collision": "solid"
+    },
+    "I": {
+      "tileset": "iso_blocks",
+      "x": 1,
+      "y": 0,
+      "collision": "solid"
+    },
+    "C": {
+      "tileset": "iso_blocks",
+      "x": 2,
+      "y": 0,
+      "collision": "solid"
+    },
+    "x": {
+      "tileset": "iso_blocks",
+      "x": 3,
+      "y": 0,
+      "collision": "solid"
+    }
+  },
+  "layers": [
+    {
+      "name": "floor",
+      "rows": [
+        ",,,,,,,,,,,,,,,,,,,,,,,,",
+        ",,,,,,,,,,,,,,,,,,,,,,,,",
+        ",,,,,:,,,,,,,,,,,,,,,,,,",
+        ",,,,,,,,,,,,,:,,,,,,,,,,",
+        ",,,,,,,,,,,,,,,,,,,,,,==",
+        ",::::::::::::::::::::::=",
+        ",::::::::::::::::::::::=",
+        ",,,,,,,,,,,,,,,,,,,,,,==",
+        ",,,,,,,,,~~~,,,,,,,,,,,,",
+        ",,,,,,,,,~~~,,,,:,,,,,,,",
+        ",,,,,,,,,,,,,,,,,,,,,,,,",
+        ",,,,,,,,,,,,,,,,,,,,,,,,"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "########################",
+        "#                      #",
+        "#               I      #",
+        "#    CC                #",
+        "#    CC                 ",
+        "#                       ",
+        "#                       ",
+        "#             xxx       ",
+        "#                      #",
+        "#                      #",
+        "#                      #",
+        "########################"
+      ]
+    }
+  ],
+  "exits": {
+    "left": {},
+    "right": {
+      "room": "echo:room/landing_bay"
+    }
+  },
+  "objects": [
+    {
+      "id": "stalker_a",
+      "object": "echo:object/enemy_stalker",
+      "position": [300, 120]
+    },
+    {
+      "id": "stalker_b",
+      "object": "echo:object/enemy_stalker",
+      "position": [560, 280],
+      "facing": "left"
+    }
+  ]
+}

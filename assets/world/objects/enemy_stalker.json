@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_stalker",
+  "parent": "echo:object/enemy_base",
+  "sprite": {
+    "sheet": "sprites/enemies/stalker.png",
+    "frameWidth": 32,
+    "frameHeight": 32,
+    "offset": [-16, -30]
+  },
+  "bounds": [24, 24],
+  "spawn": {
+    "position": [300, 120]
+  },
+  "animations": {
+    "walk": {
+      "row": 0,
+      "column": 0,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    },
+    "idle": {
+      "row": 1,
+      "column": 0,
+      "frames": 2,
+      "fps": 3,
+      "loop": true
+    }
+  },
+  "properties": {
+    "behavior": "stalker",
+    "health": 2,
+    "speed": 70
+  }
+}

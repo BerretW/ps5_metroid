@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/player_iso",
+  "parent": "echo:object/actor_base",
+  "category": "player",
+  "bounds": [20, 28],
+  "sprite": {
+    "sheet": "sprites/characters/player_iso.png",
+    "frameWidth": 32,
+    "frameHeight": 48,
+    "offset": [-16, -44]
+  },
+  "animations": {
+    "idle_s": {
+      "row": 0,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": true
+    },
+    "walk_s": {
+      "row": 0,
+      "column": 1,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    },
+    "idle_se": {
+      "row": 1,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": true
+    },
+    "walk_se": {
+      "row": 1,
+      "column": 1,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    },
+    "idle_e": {
+      "row": 2,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": true
+    },
+    "walk_e": {
+      "row": 2,
+      "column": 1,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    },
+    "idle_ne": {
+      "row": 3,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": true
+    },
+    "walk_ne": {
+      "row": 3,
+      "column": 1,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    },
+    "idle_n": {
+      "row": 4,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": true
+    },
+    "walk_n": {
+      "row": 4,
+      "column": 1,
+      "frames": 4,
+      "fps": 10,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle_s"
+}

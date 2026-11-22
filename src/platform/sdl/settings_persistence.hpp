@@ -16,6 +16,9 @@ struct Bindings {
     SDL_Keycode interact{SDLK_e};
 };
 
+// Windows window size choices; PS5 always presents fullscreen and ignores this value.
+enum class DisplayMode : std::uint8_t { Window720, Window1080, Fullscreen, Count };
+
 namespace settings_detail {
 
 inline bool validBindingKey(SDL_Keycode key) noexcept {
@@ -28,15 +31,16 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
 
 [[nodiscard]] inline framework::Status encodeSettings(
     int volume, const Bindings& bindings, framework::DialogueLanguage language,
-    framework::GameState& output) noexcept {
+    framework::GameState& output, DisplayMode display = DisplayMode::Window720) noexcept {
     using namespace framework;
     if (volume < 0 || volume > 100 ||
         (language != DialogueLanguage::English && language != DialogueLanguage::Czech) ||
+        display >= DisplayMode::Count ||
         !settings_detail::validBindingKey(bindings.jump) ||
         !settings_detail::validBindingKey(bindings.shoot) ||
         !settings_detail::validBindingKey(bindings.interact)) {
         return {ErrorCode::InvalidValue, "settings",
-                "Volume or keyboard binding is invalid."};
+                "Volume, display mode or keyboard binding is invalid."};
     }
     GameState candidate{};
     const auto setInteger = [&candidate](std::string_view key, std::int64_t value) {
@@ -48,12 +52,14 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
     if (const Status status = setInteger("input.interact", bindings.interact); !status) return status;
     if (const Status status = setInteger("dialogue.language", static_cast<std::int64_t>(language));
         !status) return status;
+    if (const Status status = setInteger("video.display", static_cast<std::int64_t>(display));
+        !status) return status;
     return output.replaceValues(candidate);
 }
 
 [[nodiscard]] inline framework::Status decodeSettings(
     const framework::GameState& state, int& volume, Bindings& bindings,
-    framework::DialogueLanguage& language) noexcept {
+    framework::DialogueLanguage& language, DisplayMode& display) noexcept {
     using namespace framework;
     const auto readInteger = [&state](std::string_view key, std::int64_t& value) {
         StateValue stateValue{};
@@ -93,6 +99,15 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
         return {ErrorCode::CorruptData, "settings",
                 "Settings save contains an invalid dialogue language value."};
     }
+    // Settings written before display modes existed fall back to the 1280x720 window.
+    std::int64_t savedDisplay{};
+    const bool hasSavedDisplay = readInteger("video.display", savedDisplay);
+    if ((hasSavedDisplay &&
+         (savedDisplay < 0 || savedDisplay >= static_cast<std::int64_t>(DisplayMode::Count))) ||
+        (!hasSavedDisplay && state.contains({StateScope::Global, {}, "video.display"}))) {
+        return {ErrorCode::CorruptData, "settings",
+                "Settings save contains an unsupported display mode."};
+    }
     const Bindings candidate{
         static_cast<SDL_Keycode>(savedJump),
         static_cast<SDL_Keycode>(savedShoot),
@@ -108,7 +123,15 @@ inline bool validBindingKey(SDL_Keycode key) noexcept {
     bindings = candidate;
     language = hasSavedLanguage ? static_cast<DialogueLanguage>(savedLanguage)
                                 : DialogueLanguage::English;
+    display = hasSavedDisplay ? static_cast<DisplayMode>(savedDisplay) : DisplayMode::Window720;
     return Status::success();
+}
+
+[[nodiscard]] inline framework::Status decodeSettings(
+    const framework::GameState& state, int& volume, Bindings& bindings,
+    framework::DialogueLanguage& language) noexcept {
+    DisplayMode display{};
+    return decodeSettings(state, volume, bindings, language, display);
 }
 
 } // namespace echo::platform

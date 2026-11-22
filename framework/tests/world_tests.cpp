@@ -107,7 +107,7 @@ int main() {
                        {"id":"plain","object":"echo:object/plain"}])",
         "echo:room/template");
     const std::string roomB = room("echo:room/b",
-        R"(,"name":"Beta","size":{"columns":24,"rows":2},"exits":{"right":{"completesGame":true}})" +
+        R"(,"name":"Beta","projection":"isometric","size":{"columns":24,"rows":2},"exits":{"right":{"completesGame":true}})" +
             layers("main", {row('.', 24), row('#', 24)}),
         "echo:room/template");
     const std::string plain = R"({"schemaVersion":1,"id":"echo:object/plain","category":"prop",
@@ -183,6 +183,9 @@ int main() {
     check(beta != nullptr && beta->columns() == 24 && beta->rightExit().completesGame &&
               beta->layers().size() == 1 && beta->findTileType('#') != nullptr,
           "child layers replace parent layers and keep the inherited legend");
+    check(alpha != nullptr && alpha->projection() == RoomProjection::Side &&
+              beta != nullptr && beta->projection() == RoomProjection::Isometric,
+          "rooms default to side view and may select the isometric projection");
     check(world->startRoom() == "echo:room/a" && world->objects().size() == 3 && world->rooms().size() == 3,
           "finalized definitions become visible");
 
@@ -264,6 +267,9 @@ int main() {
     rejectsRoom(tileset + R"(,"tiles":{"#":{"tileset":"t","x":0,"y":0}},"objects":[{"id":"x","object":"echo:object/a","position":[900,10]}])" +
                     layers("main", {row('#')}),
                 "placements outside the room are rejected");
+    rejectsRoom(tileset + R"(,"projection":"oblique","tiles":{"#":{"tileset":"t","x":0,"y":0}})" +
+                    layers("main", {row('#')}),
+                "unknown room projections are rejected");
 
     std::string manySheets = R"(,"name":"A","size":{"columns":20,"rows":1},"tilesets":[)";
     for (int index = 0; index < 17; ++index) {

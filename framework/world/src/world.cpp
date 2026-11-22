@@ -49,6 +49,7 @@ enum RoomField : std::uint32_t {
     kLayers = 1U << 3U,
     kExitLeft = 1U << 4U,
     kExitRight = 1U << 5U,
+    kProjection = 1U << 6U,
 };
 
 constexpr std::array<std::string_view, 11> kObjectFields{
@@ -57,9 +58,9 @@ constexpr std::array<std::string_view, 11> kObjectFields{
 constexpr std::array<std::string_view, 4> kSpriteFields{"sheet", "frameWidth", "frameHeight", "offset"};
 constexpr std::array<std::string_view, 2> kSpawnFields{"position", "facing"};
 constexpr std::array<std::string_view, 5> kAnimationFields{"row", "column", "frames", "fps", "loop"};
-constexpr std::array<std::string_view, 12> kRoomFields{
+constexpr std::array<std::string_view, 13> kRoomFields{
     "schemaVersion", "id", "parent", "abstract", "name", "size", "background",
-    "tilesets", "tiles", "layers", "exits", "objects"};
+    "projection", "tilesets", "tiles", "layers", "exits", "objects"};
 constexpr std::array<std::string_view, 2> kSizeFields{"columns", "rows"};
 constexpr std::array<std::string_view, 6> kTilesetFields{
     "id", "sheet", "tileWidth", "tileHeight", "margin", "spacing"};
@@ -546,6 +547,16 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
         }
         output.present_ |= kBackground;
     }
+    const JsonValue projection = document.find("projection");
+    if (projection.valid()) {
+        std::string_view value;
+        if (!projection.string(value) || (value != "side" && value != "isometric")) {
+            return invalid("world.room.projection", "Projection must be side or isometric.");
+        }
+        output.projection_ = value == "isometric" ? RoomProjection::Isometric
+                                                  : RoomProjection::Side;
+        output.present_ |= kProjection;
+    }
     const JsonValue tilesets = document.find("tilesets");
     if (tilesets.valid()) {
         if (!tilesets.isArray() || tilesets.size() > kMaxRoomTilesets) {
@@ -746,6 +757,7 @@ Status WorldParser::mergeRoom(const RoomDefinition& parent, RoomDefinition& chil
         merged.rows_ = child.rows_;
     }
     if ((own & kBackground) != 0U) merged.background_ = child.background_;
+    if ((own & kProjection) != 0U) merged.projection_ = child.projection_;
     if ((own & kLayers) != 0U) {
         merged.layers_ = child.layers_;
         merged.layerCount_ = child.layerCount_;

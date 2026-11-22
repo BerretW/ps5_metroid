@@ -40,7 +40,9 @@
     }
   ],
   "exits": {
-    "left": {},
+    "left": {
+      "room": "echo:room/cargo_hold"
+    },
     "right": {
       "room": "echo:room/maintenance_tunnel"
     }

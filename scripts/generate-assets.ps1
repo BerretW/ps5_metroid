@@ -58,7 +58,16 @@ function Save-Sprite([string]$name, [int]$width, [int]$height, [scriptblock]$dra
             if (-not $brushes.ContainsKey($key)) { $brushes[$key] = New-Object Drawing.SolidBrush($color) }
             $graphics.FillRectangle($brushes[$key], $x, $y, $w, $h)
         }.GetNewClosure()
-        & $draw $fill
+        $polygon = {
+            param([Drawing.Color]$color, [int[]]$coordinates)
+            $points = New-Object 'Drawing.Point[]' ($coordinates.Length / 2)
+            for ($i = 0; $i -lt $points.Length; $i++) {
+                $points[$i] = New-Object Drawing.Point($coordinates[2 * $i], $coordinates[2 * $i + 1])
+            }
+            $brush = New-Object Drawing.SolidBrush($color)
+            try { $graphics.FillPolygon($brush, $points) } finally { $brush.Dispose() }
+        }.GetNewClosure()
+        & $draw $fill $polygon
         $path = Join-Path $spriteDir $name
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
         $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
@@ -450,6 +459,128 @@ Save-Sprite "tiles/decor.png" 72 18 {
     & $fill (New-Color 70 190 120) ($x + 2) 4 12 8
     & $fill (New-Color 30 90 60) ($x + 3) 6 8 1
     & $fill (New-Color 30 90 60) ($x + 3) 9 6 1
+}
+
+# Isometric floor tileset: 4 diamonds of 64x32 (2:1). plate, grating, warning stripe, acid pool.
+function Draw-IsoDiamond($poly, [int]$ox, [int]$oy, [int]$inset, $color) {
+    & $poly $color @(($ox + 32), ($oy + $inset), ($ox + 64 - 2 * $inset), ($oy + 16),
+                     ($ox + 32), ($oy + 32 - $inset), ($ox + 2 * $inset), ($oy + 16))
+}
+Save-Sprite "tiles/iso_floor.png" 256 32 {
+    param($fill, $poly)
+    # Plate: seams and rivets.
+    Draw-IsoDiamond $poly 0 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 0 0 1 $palette.Stone
+    Draw-IsoDiamond $poly 0 0 7 (New-Color 44 70 84)
+    foreach ($rivet in @(@(31, 4), @(56, 15), @(31, 27), @(6, 15))) { & $fill $palette.Rivet $rivet[0] $rivet[1] 2 1 }
+    # Grating: darker diamond with diagonal slots.
+    Draw-IsoDiamond $poly 64 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 64 0 1 (New-Color 30 50 62)
+    for ($i = 0; $i -lt 6; $i++) {
+        $x = 64 + 14 + $i * 6
+        & $poly (New-Color 16 28 36) @($x, (9 + $i * 0), ($x + 4), 11, ($x - 6), 24, ($x - 10), 22)
+    }
+    Draw-IsoDiamond $poly 64 0 13 (New-Color 61 227 216 60)
+    # Warning stripe: yellow/black chevrons inside a plate.
+    Draw-IsoDiamond $poly 128 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 128 0 1 (New-Color 70 64 40)
+    for ($i = 0; $i -lt 4; $i++) {
+        $x = 128 + 12 + $i * 12
+        & $poly $palette.Yellow @($x, 10, ($x + 6), 10, ($x + 2), 22, ($x - 4), 22)
+    }
+    # Acid pool: hazard green with ripples.
+    Draw-IsoDiamond $poly 192 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 192 0 3 (New-Color 40 120 50)
+    Draw-IsoDiamond $poly 192 0 6 (New-Color 86 196 74)
+    & $fill (New-Color 190 255 150) 214 12 8 1
+    & $fill (New-Color 190 255 150) 228 18 10 1
+    & $fill (New-Color 190 255 150) 220 21 4 1
+}
+
+# Isometric block tileset: 4 cubes of 64x64 whose bottom diamond covers one floor cell.
+# wall panel, pillar, cargo container, crate. Light comes from the upper left.
+function Draw-IsoBlock($fill, $poly, [int]$ox, [int]$top, $topColor, $leftColor, $rightColor) {
+    & $poly $leftColor @($ox, (16 + $top), ($ox + 32), (32 + $top), ($ox + 32), 64, $ox, 48)
+    & $poly $rightColor @(($ox + 32), (32 + $top), ($ox + 64), (16 + $top), ($ox + 64), 48, ($ox + 32), 64)
+    & $poly $topColor @(($ox + 32), $top, ($ox + 64), (16 + $top), ($ox + 32), (32 + $top), $ox, (16 + $top))
+}
+Save-Sprite "tiles/iso_blocks.png" 256 64 {
+    param($fill, $poly)
+    Draw-IsoBlock $fill $poly 0 0 $palette.StoneLite $palette.Stone $palette.StoneDark
+    & $poly $palette.Cyan @(4, 28, 28, 40, 28, 42, 4, 30)
+    & $poly $palette.CyanDark @(36, 40, 60, 28, 60, 30, 36, 42)
+    Draw-IsoBlock $fill $poly 64 0 (New-Color 150 168 176) (New-Color 92 108 118) (New-Color 52 62 70)
+    & $fill $palette.Yellow (64 + 14) 30 3 20
+    & $fill $palette.Yellow (64 + 46) 30 3 20
+    Draw-IsoBlock $fill $poly 128 6 (New-Color 236 150 80) (New-Color 196 104 52) (New-Color 132 64 36)
+    for ($i = 0; $i -lt 4; $i++) {
+        $x = 128 + 6 + $i * 7
+        & $poly (New-Color 150 78 40) @($x, (24 + $i * 3), ($x + 2), (25 + $i * 3), ($x + 2), (54 + $i * 3), $x, (53 + $i * 3))
+    }
+    Draw-IsoBlock $fill $poly 192 16 (New-Color 196 160 104) (New-Color 150 116 70) (New-Color 98 74 44)
+    & $poly (New-Color 98 74 44) @((192 + 8), 38, (192 + 30), 49, (192 + 30), 51, (192 + 8), 40)
+}
+
+# Isometric player: 5x5 frames of 32x48 with the feet at y=44. Rows face S, SE, E, NE, N;
+# the renderer mirrors SE/E/NE for the western directions. Column 0 idle, 1-4 walk.
+function Draw-IsoPlayer($fill, [int]$ox, [int]$oy, [int]$direction, [int]$frame) {
+    $stride = if ($frame -eq 0) { 0 } else { @(2, 0, -2, 0)[$frame - 1] }
+    $bob = if ($frame -eq 2 -or $frame -eq 4) { 1 } else { 0 }
+    & $fill (New-Color 0 0 0 70) ($ox + 9) ($oy + 42) 14 4
+    & $fill $palette.Boot ($ox + 11 + $stride) ($oy + 36) 4 8
+    & $fill $palette.Boot ($ox + 17 - $stride) ($oy + 36) 4 8
+    & $fill $palette.SuitDark ($ox + 10) ($oy + 22 + $bob) 12 15
+    & $fill $palette.Suit ($ox + 11) ($oy + 22 + $bob) 10 13
+    if ($direction -ge 3) {
+        & $fill $palette.SuitDark ($ox + 11) ($oy + 23 + $bob) 10 9
+        & $fill $palette.Cyan ($ox + 14) ($oy + 25 + $bob) 4 3
+    }
+    $armSwing = if ($frame -eq 0) { 0 } else { -$stride }
+    & $fill $palette.SuitDark ($ox + 7) ($oy + 24 + $bob + $armSwing) 3 9
+    & $fill $palette.SuitDark ($ox + 22) ($oy + 24 + $bob - $armSwing) 3 9
+    & $fill $palette.Helmet ($ox + 9) ($oy + 9 + $bob) 14 14
+    & $fill $palette.White ($ox + 10) ($oy + 9 + $bob) 12 2
+    switch ($direction) {
+        0 { & $fill $palette.CyanDark ($ox + 11) ($oy + 14 + $bob) 10 5; & $fill $palette.Cyan ($ox + 12) ($oy + 15 + $bob) 4 2 }
+        1 { & $fill $palette.CyanDark ($ox + 14) ($oy + 14 + $bob) 9 5; & $fill $palette.Cyan ($ox + 16) ($oy + 15 + $bob) 4 2 }
+        2 { & $fill $palette.CyanDark ($ox + 18) ($oy + 13 + $bob) 6 6; & $fill $palette.Cyan ($ox + 20) ($oy + 14 + $bob) 3 2
+            & $fill $palette.Orange ($ox + 23) ($oy + 27 + $bob) 6 3 }
+        3 { & $fill $palette.CyanDark ($ox + 20) ($oy + 13 + $bob) 3 5 }
+        4 { & $fill $palette.StoneLite ($ox + 12) ($oy + 12 + $bob) 8 6 }
+    }
+}
+Save-Sprite "characters/player_iso.png" 160 240 {
+    param($fill)
+    for ($direction = 0; $direction -lt 5; $direction++) {
+        for ($frame = 0; $frame -lt 5; $frame++) {
+            Draw-IsoPlayer $fill ($frame * 32) ($direction * 48) $direction $frame
+        }
+    }
+}
+
+# Stalker: 4x2 frames of 32x32, feet at y=30. Row 0 = scuttle (4 frames), row 1 = idle (2).
+function Draw-Stalker($fill, [int]$ox, [int]$oy, [int]$frame, [bool]$walking) {
+    $shell = New-Color 74 52 96
+    $lite = New-Color 132 96 170
+    $dark = New-Color 40 26 56
+    $step = if ($walking) { @(0, 2, 0, -2)[$frame] } else { 0 }
+    & $fill (New-Color 0 0 0 80) ($ox + 5) ($oy + 27) 22 5
+    foreach ($leg in @(@(3, 1), @(9, -1), @(21, 1), @(27, -1))) {
+        $lift = $step * $leg[1]
+        & $fill $dark ($ox + $leg[0]) ($oy + 18 + [Math]::Min(0, $lift)) 2 (11 - [Math]::Abs($lift))
+        & $fill $dark ($ox + $leg[0] - 1) ($oy + 28 - [Math]::Max(0, $lift)) 4 2
+    }
+    $pulse = if (-not $walking -and $frame -eq 1) { 1 } else { 0 }
+    & $fill $shell ($ox + 6) ($oy + 12 + $pulse) 20 11
+    & $fill $lite ($ox + 8) ($oy + 10 + $pulse) 16 5
+    & $fill $dark ($ox + 6) ($oy + 21 + $pulse) 20 2
+    & $fill $palette.Red ($ox + 20) ($oy + 15 + $pulse) 5 4
+    & $fill $palette.Yellow ($ox + 22) ($oy + 16 + $pulse) 2 2
+}
+Save-Sprite "enemies/stalker.png" 128 64 {
+    param($fill)
+    for ($frame = 0; $frame -lt 4; $frame++) { Draw-Stalker $fill ($frame * 32) 0 $frame $true }
+    for ($frame = 0; $frame -lt 2; $frame++) { Draw-Stalker $fill ($frame * 32) 32 $frame $false }
 }
 
 $sampleRate = 48000

@@ -91,8 +91,18 @@ int playerFrame(const Player& player, Uint64 ticks) noexcept {
 } // namespace
 
 bool Renderer::create() noexcept {
+#ifdef __PROSPERO__
+    // The PS5 video backend scans out a fixed display-sized surface and only centres smaller
+    // windows; a display-sized window fills the screen without changing the video mode.
+    SDL_DisplayMode display{};
+    const bool hasDisplay = SDL_GetDesktopDisplayMode(0, &display) == 0 &&
+                            display.w >= 640 && display.h >= 360;
+    window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                               hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080, 0);
+#else
     window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                1280, 720, SDL_WINDOW_RESIZABLE);
+#endif
     if (window_ == nullptr) {
         return false;
     }
@@ -138,6 +148,23 @@ void Renderer::releaseSprites() noexcept {
             texture = nullptr;
         }
     }
+}
+
+bool Renderer::applyDisplayMode(DisplayMode mode) noexcept {
+#ifdef __PROSPERO__
+    (void)mode;
+    return true;
+#else
+    if (window_ == nullptr || mode >= DisplayMode::Count) return false;
+    if (mode == DisplayMode::Fullscreen) {
+        return SDL_SetWindowFullscreen(window_, SDL_WINDOW_FULLSCREEN_DESKTOP) == 0;
+    }
+    if (SDL_SetWindowFullscreen(window_, 0) != 0) return false;
+    const bool large = mode == DisplayMode::Window1080;
+    SDL_SetWindowSize(window_, large ? 1920 : 1280, large ? 1080 : 720);
+    SDL_SetWindowPosition(window_, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    return true;
+#endif
 }
 
 int Renderer::loadSprites(const char* assetDirectory) noexcept {
@@ -223,11 +250,12 @@ int Renderer::loadWorldSprites(const char* assetDirectory, const WorldLayout& wo
     };
     const WorldArchetypes& archetypes = world.archetypes;
     for (const framework::ObjectDefinition* object :
-         {archetypes.player, archetypes.engineer, archetypes.pickup, archetypes.projectile,
-          archetypes.enemyProjectile, archetypes.loot}) {
+         {archetypes.player, archetypes.playerIso, archetypes.engineer, archetypes.pickup,
+          archetypes.projectile, archetypes.enemyProjectile, archetypes.loot}) {
         loadObject(object);
     }
     for (const EnemySpawn& enemy : world.enemies) loadObject(enemy.archetype);
+    for (const EnemySpawn& roamer : world.roamerList()) loadObject(roamer.archetype);
     for (const DoorLayout& door : world.doorList()) {
         if (door.visible) loadObject(door.archetype);
     }
@@ -448,7 +476,7 @@ void Renderer::drawMenu(int selection, bool continueAvailable) noexcept {
 void Renderer::drawOptions(int selection, int volume,
                            framework::DialogueLanguage language, bool waitingForKey,
                            std::string_view jumpKey, std::string_view shootKey,
-                           std::string_view interactKey) noexcept {
+                           std::string_view interactKey, DisplayMode display) noexcept {
     SDL_SetRenderDrawColor(renderer_, kBackground.r, kBackground.g, kBackground.b, 255);
     SDL_RenderClear(renderer_);
     panel({74, 38, 492, 284}, kPanel);
@@ -458,11 +486,13 @@ void Renderer::drawOptions(int selection, int volume,
         text(110, 94, "FIXED CONTROLLER BUTTONS", 1, kMuted);
     }
 
-    const std::array<std::string_view, 6> rows{
-        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "BACK"
+    std::array<std::string_view, 7> rows{
+        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "DISPLAY", "BACK"
     };
-    for (int index = 0; index < static_cast<int>(rows.size()); ++index) {
-        const int y = 110 + index * 28;
+    rows[static_cast<std::size_t>(optionCount() - 1)] = "BACK";
+    const int spacing = optionCount() > 6 ? 25 : 28;
+    for (int index = 0; index < optionCount(); ++index) {
+        const int y = 110 + index * spacing;
         if (selection == index) {
             panel({102, y - 5, 436, 25}, kPanelLight);
             panel({102, y - 5, 3, 25}, kCyan);
@@ -485,6 +515,10 @@ void Renderer::drawOptions(int selection, int volume,
         } else if (index == 4) {
             text(390, y, language == framework::DialogueLanguage::Czech ? "CS" : "EN",
                  2, kText);
+        } else if (index == kDisplayOption && optionCount() > 6) {
+            text(390, y, display == DisplayMode::Fullscreen ? "FULLSCREEN"
+                         : display == DisplayMode::Window1080 ? "1920X1080" : "1280X720",
+                 2, kText);
         }
     }
     if (controls_ == ControlScheme::PlayStation) {
@@ -496,18 +530,10 @@ void Renderer::drawOptions(int selection, int volume,
     SDL_RenderPresent(renderer_);
 }
 
-void Renderer::drawGame(const Game& game, bool showMap, bool paused,
-                        std::string_view jumpKey, std::string_view shootKey,
-                        std::string_view interactKey) noexcept {
-    SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
-    SDL_RenderClear(renderer_);
-
+void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
     const float cameraX = game.cameraX();
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
-    panel({0, 0, 640, 360},
-          SDL_Color{room.background[0], room.background[1], room.background[2], 255});
-
     const bool layered = drawRoomLayers(room, cameraX);
     for (int column = 0; !layered && column < game.roomColumns(); ++column) {
         const int screenX = static_cast<int>(column * kTileSize - cameraX);
@@ -681,6 +707,242 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         panel({playerX + 5, playerY + 27, 4, 3}, SDL_Color{35, 52, 65, 255});
         panel({playerX + 12, playerY + 27, 4, 3}, SDL_Color{35, 52, 65, 255});
     }
+}
+
+void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
+    constexpr float kActorWidth = 20.0F;
+    constexpr float kActorHeight = 28.0F;
+    const RoomLayout& room = game.currentRoom();
+    const WorldLayout& world = game.world();
+    const framework::RoomDefinition* definition = room.definition;
+    const Player& player = game.player();
+    const Uint64 ticks = SDL_GetTicks64();
+
+    // Grid (x, y) maps to screen (x - y, (x + y) / 2): one 32 px cell is a 64x32 diamond.
+    const auto project = [](float x, float y) noexcept {
+        return SDL_FPoint{x - y, (x + y) * 0.5F};
+    };
+    const SDL_FPoint focus = project(player.position.x + kActorWidth * 0.5F,
+                                     player.position.y + kActorHeight * 0.5F);
+    const float cameraX = std::floor(focus.x - 320.0F);
+    const float cameraY = std::floor(focus.y - 196.0F);
+    const auto screenOf = [&](float x, float y) noexcept {
+        const SDL_FPoint point = project(x, y);
+        return SDL_Point{static_cast<int>(std::floor(point.x - cameraX)),
+                         static_cast<int>(std::floor(point.y - cameraY))};
+    };
+    const auto visible = [](const SDL_Rect& rect) noexcept {
+        return rect.x + rect.w > 0 && rect.x < 640 && rect.y + rect.h > 0 && rect.y < 360;
+    };
+    const auto cellColor = [](Tile tile) noexcept {
+        return tile == Tile::Hazard ? SDL_Color{86, 196, 74, 255}
+             : tile == Tile::Solid  ? SDL_Color{60, 84, 98, 255}
+                                    : SDL_Color{34, 48, 58, 255};
+    };
+
+    // Tiles are bottom-aligned to their cell diamond, so taller tiles rise as blocks.
+    const auto drawTile = [&](std::size_t layer, int column, int row, Uint8 alpha) noexcept {
+        const SDL_Point top = screenOf(static_cast<float>(column * kTileSize),
+                                       static_cast<float>(row * kTileSize));
+        const framework::TileType* tile =
+            definition != nullptr ? definition->tile(layer, column, row) : nullptr;
+        if (tile == nullptr) {
+            if (definition != nullptr) return;
+            const Tile cell = game.tileAt(column, row);
+            if (layer == 0) {
+                panel({top.x - 16, top.y + 8, 32, 16}, cellColor(cell == Tile::Solid ? Tile::Empty : cell));
+            } else if (cell == Tile::Solid) {
+                panel({top.x - 24, top.y - 24, 48, 48}, cellColor(cell));
+            }
+            return;
+        }
+        const framework::TilesetSpec& tileset = definition->tilesets()[tile->tilesetIndex];
+        const WorldSheet* sheet = worldSheet(tileset.sheet.data());
+        const SDL_Rect destination{top.x - tileset.tileWidth / 2,
+                                   top.y + kTileSize - tileset.tileHeight,
+                                   tileset.tileWidth, tileset.tileHeight};
+        if (!visible(destination)) return;
+        const SDL_Rect source{
+            tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
+            tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
+            tileset.tileWidth, tileset.tileHeight};
+        if (sheet == nullptr || source.x + source.w > sheet->width ||
+            source.y + source.h > sheet->height) {
+            const Tile cell = tile->collision == framework::TileCollision::Hazard ? Tile::Hazard
+                            : tile->collision == framework::TileCollision::Solid  ? Tile::Solid
+                                                                                   : Tile::Empty;
+            panel(layer == 0 ? SDL_Rect{top.x - 16, top.y + 8, 32, 16}
+                             : SDL_Rect{top.x - 24, top.y - 24, 48, 48},
+                  cellColor(cell));
+            return;
+        }
+        SDL_SetTextureAlphaMod(sheet->texture, alpha);
+        SDL_RenderCopy(renderer_, sheet->texture, &source, &destination);
+        if (alpha != 255) SDL_SetTextureAlphaMod(sheet->texture, 255);
+    };
+
+    const int rows = kRoomRows;
+    const int columns = game.roomColumns();
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) drawTile(0, column, row, 255);
+    }
+
+    // Everything standing on the floor is sorted by the front corner of its footprint.
+    enum class Kind : std::uint8_t { Block, Roamer, Projectile, Player };
+    struct Drawable {
+        float depth;
+        Kind kind;
+        std::uint16_t index;
+        std::uint8_t layer;
+    };
+    std::array<Drawable, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows * 2 + 32> drawables{};
+    std::size_t count = 0;
+    const auto push = [&](float depth, Kind kind, std::size_t index, std::size_t layer) noexcept {
+        if (count == drawables.size()) return;
+        drawables[count++] = {depth, kind, static_cast<std::uint16_t>(index),
+                              static_cast<std::uint8_t>(layer)};
+    };
+    const std::size_t layerCount = definition != nullptr ? definition->layers().size() : 2U;
+    for (std::size_t layer = 1; layer < layerCount; ++layer) {
+        for (int row = 0; row < rows; ++row) {
+            for (int column = 0; column < columns; ++column) {
+                const bool present = definition != nullptr
+                    ? definition->tile(layer, column, row) != nullptr
+                    : game.tileAt(column, row) == Tile::Solid;
+                if (present) {
+                    push(static_cast<float>((column + row + 2) * kTileSize), Kind::Block,
+                         static_cast<std::size_t>(row * kMaxLayoutColumns + column), layer);
+                }
+            }
+        }
+    }
+    const auto frontDepth = [](const Rect& bounds) noexcept {
+        return bounds.x + bounds.width + bounds.y + bounds.height;
+    };
+    const std::span<const Enemy> roamers = game.roamers();
+    for (std::size_t index = 0; index < roamers.size(); ++index) {
+        if (roamers[index].alive) push(frontDepth(roamers[index].bounds), Kind::Roamer, index, 0);
+    }
+    for (std::size_t index = 0; index < game.projectiles().size(); ++index) {
+        const Projectile& projectile = game.projectiles()[index];
+        if (projectile.active && projectile.room == game.roomId()) {
+            push(frontDepth(projectile.bounds), Kind::Projectile, index, 0);
+        }
+    }
+    const Rect playerBounds{player.position.x, player.position.y, kActorWidth, kActorHeight};
+    const float playerDepth = frontDepth(playerBounds);
+    if (player.health > 0) push(playerDepth, Kind::Player, 0, 0);
+    std::sort(drawables.begin(), drawables.begin() + static_cast<std::ptrdiff_t>(count),
+              [](const Drawable& left, const Drawable& right) noexcept {
+                  if (left.depth != right.depth) return left.depth < right.depth;
+                  if (left.kind != right.kind) return left.kind < right.kind;
+                  if (left.layer != right.layer) return left.layer < right.layer;
+                  return left.index < right.index;
+              });
+
+    const auto anchorOf = [&](const Rect& bounds) noexcept {
+        return screenOf(bounds.x + bounds.width * 0.5F, bounds.y + bounds.height * 0.5F);
+    };
+    const SDL_Point playerAnchor = anchorOf(playerBounds);
+    const SDL_Rect playerScreen{playerAnchor.x - 16, playerAnchor.y - 44, 32, 48};
+    const bool flashing = (ticks / 90U) % 2U == 0U;
+    for (std::size_t item = 0; item < count; ++item) {
+        const Drawable& drawable = drawables[item];
+        switch (drawable.kind) {
+        case Kind::Block: {
+            const int column = drawable.index % kMaxLayoutColumns;
+            const int row = drawable.index / kMaxLayoutColumns;
+            const SDL_Point top = screenOf(static_cast<float>(column * kTileSize),
+                                           static_cast<float>(row * kTileSize));
+            // Like Diablo II, blocks in front of the player fade so the hero stays visible.
+            const SDL_Rect blockScreen{top.x - 32, top.y - 32, 64, 64};
+            const bool occludes = player.health > 0 && drawable.depth > playerDepth &&
+                                  SDL_HasIntersection(&blockScreen, &playerScreen) == SDL_TRUE;
+            drawTile(drawable.layer, column, row, occludes ? 110 : 255);
+            break;
+        }
+        case Kind::Roamer: {
+            const Enemy& roamer = roamers[drawable.index];
+            const framework::ObjectDefinition* archetype = nullptr;
+            std::size_t ordinal = 0;
+            for (const EnemySpawn& spawn : world.roamerList()) {
+                if (spawn.room != game.roomId()) continue;
+                if (ordinal++ == drawable.index) {
+                    archetype = spawn.archetype;
+                    break;
+                }
+            }
+            const SDL_Point anchor = anchorOf(roamer.bounds);
+            const float dx = (player.position.x - player.position.y) -
+                             (roamer.bounds.x - roamer.bounds.y);
+            const float distance = std::hypot(player.position.x - roamer.bounds.x,
+                                              player.position.y - roamer.bounds.y);
+            panel({anchor.x - 10, anchor.y - 2, 20, 4}, SDL_Color{0, 0, 0, 90});
+            if (!drawObject(archetype, distance < 300.0F ? "walk" : "idle", ticks,
+                            {static_cast<float>(anchor.x), static_cast<float>(anchor.y), 0.0F, 0.0F},
+                            0.0F, dx < 0.0F)) {
+                panel({anchor.x - 11, anchor.y - 18, 22, 14}, SDL_Color{110, 76, 150, 255});
+                panel({anchor.x + 4, anchor.y - 14, 4, 4}, kRed);
+            }
+            break;
+        }
+        case Kind::Projectile: {
+            const SDL_Point anchor = anchorOf(game.projectiles()[drawable.index].bounds);
+            panel({anchor.x - 2, anchor.y - 1, 4, 2}, SDL_Color{0, 0, 0, 110});
+            panel({anchor.x - 3, anchor.y - 17, 6, 6}, kOrange);
+            panel({anchor.x - 1, anchor.y - 15, 2, 2}, kText);
+            break;
+        }
+        case Kind::Player: {
+            if (!flashing && paused) break;
+            const float aimX = player.aim.x - player.aim.y;
+            const float aimY = (player.aim.x + player.aim.y) * 0.5F;
+            constexpr float kEighth = 0.78539816F;
+            int sector = static_cast<int>(std::lround(std::atan2(aimY, aimX) / kEighth));
+            if (sector < -3) sector = 4;
+            // Sectors run clockwise from east; western rows mirror their eastern twins.
+            constexpr std::array<std::string_view, 8> kDirections{"e", "se", "s", "se",
+                                                                  "e", "ne", "n", "ne"};
+            const std::size_t slot = static_cast<std::size_t>((sector + 8) % 8);
+            const bool flip = slot >= 3 && slot <= 5;
+            const bool walking = std::abs(player.velocity.x) + std::abs(player.velocity.y) > 1.0F;
+            std::array<char, 12> animation{};
+            std::snprintf(animation.data(), animation.size(), "%s_%.*s",
+                          walking ? "walk" : "idle",
+                          static_cast<int>(kDirections[slot].size()), kDirections[slot].data());
+            panel({playerAnchor.x - 9, playerAnchor.y - 2, 18, 4}, SDL_Color{0, 0, 0, 90});
+            if (!drawObject(world.archetypes.playerIso, animation.data(), ticks,
+                            {static_cast<float>(playerAnchor.x),
+                             static_cast<float>(playerAnchor.y), 0.0F, 0.0F},
+                            0.0F, flip)) {
+                panel({playerAnchor.x - 8, playerAnchor.y - 30, 16, 28},
+                      SDL_Color{105, 163, 172, 255});
+                panel({playerAnchor.x - 6, playerAnchor.y - 36, 12, 10},
+                      SDL_Color{174, 211, 207, 255});
+            }
+            break;
+        }
+        }
+    }
+}
+
+void Renderer::drawGame(const Game& game, bool showMap, bool paused,
+                        std::string_view jumpKey, std::string_view shootKey,
+                        std::string_view interactKey) noexcept {
+    SDL_SetRenderDrawColor(renderer_, 8, 15, 26, 255);
+    SDL_RenderClear(renderer_);
+
+    const RoomLayout& room = game.currentRoom();
+    const WorldLayout& world = game.world();
+    panel({0, 0, 640, 360},
+          SDL_Color{room.background[0], room.background[1], room.background[2], 255});
+
+    if (game.isometric()) {
+        drawIsometricWorld(game, paused);
+    } else {
+        drawSideWorld(game, paused);
+    }
+    const Player& player = game.player();
 
     panel({12, 12, 184, 38}, SDL_Color{4, 10, 17, 218});
     text(22, 19, "VITALS", 1, kMuted);
@@ -754,16 +1016,21 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (controls_ == ControlScheme::PlayStation) {
-        text(12, 340, "\x05 MOVE  \x01 JUMP  \x02 FIRE  \x03 USE  \x07 MAP  \x06 PAUSE", 2, kMuted);
+        text(12, 340, game.isometric()
+                          ? "\x05 MOVE 8-WAY  \x02 FIRE  \x03 USE  \x07 MAP  \x06 PAUSE"
+                          : "\x05 MOVE  \x01 JUMP  \x02 FIRE  \x03 USE  \x07 MAP  \x06 PAUSE",
+             2, kMuted);
     } else {
         int hintX = 12;
         const auto hint = [&](std::string_view value) {
             text(hintX, 340, value, 1, kMuted);
             hintX += static_cast<int>(value.size()) * 6;
         };
-        hint("ARROWS MOVE  ");
-        hint(jumpKey);
-        hint(" JUMP  ");
+        hint(game.isometric() ? "ARROWS MOVE 8-WAY  " : "ARROWS MOVE  ");
+        if (!game.isometric()) {
+            hint(jumpKey);
+            hint(" JUMP  ");
+        }
         hint(shootKey);
         hint(" FIRE  ");
         hint(interactKey);
@@ -773,13 +1040,14 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     if (showMap) {
         panel({151, 92, 338, 172}, SDL_Color{4, 10, 17, 238});
         text(174, 109, "FACILITY MAP", 2, kText);
-        constexpr std::array<SDL_Rect, 5> rooms{{
+        constexpr std::array<SDL_Rect, kRoomCount> rooms{{
             {170, 170, 48, 28}, {236, 170, 65, 28}, {320, 170, 58, 28},
-            {236, 124, 65, 28}, {397, 170, 74, 28},
+            {236, 124, 65, 28}, {397, 170, 74, 28}, {176, 210, 36, 20},
         }};
         panel({218, 182, 18, 3}, kMuted);
         panel({301, 182, 19, 3}, kMuted);
         panel({269, 152, 3, 18}, kMuted);
+        panel({192, 198, 3, 12}, kMuted);
         panel({378, 182, 19, 3}, player.hasDoubleJump ? kCyan : kRed);
         for (int index = 0; index < static_cast<int>(rooms.size()); ++index) {
             panel(rooms[static_cast<std::size_t>(index)],

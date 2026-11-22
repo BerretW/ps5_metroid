@@ -3,6 +3,7 @@
 #include "game/game.hpp"
 #include "input/dualsense_diagnostics.hpp"
 #include "platform/sdl/inventory_menu.hpp"
+#include "platform/sdl/settings_persistence.hpp"
 
 #include <SDL.h>
 
@@ -20,6 +21,18 @@ public:
     explicit Renderer(ControlScheme controls) noexcept : controls_(controls) {}
     [[nodiscard]] bool create() noexcept;
     void destroy() noexcept;
+    // Resizes or fullscreens the Windows window; the 640x360 logical view is kept.
+    // PS5 always fills its display, so this is a no-op there.
+    bool applyDisplayMode(DisplayMode mode) noexcept;
+    // Options rows: Windows lists DISPLAY before BACK, PS5 omits it.
+    [[nodiscard]] static constexpr int optionCount() noexcept {
+#ifdef __PROSPERO__
+        return 6;
+#else
+        return 7;
+#endif
+    }
+    static constexpr int kDisplayOption = 5;
     // Loads PNG sprites from `assetDirectory` (trailing separator required).
     // Missing sprites keep the built-in rectangle art. Returns the number loaded.
     int loadSprites(const char* assetDirectory) noexcept;
@@ -32,7 +45,8 @@ public:
     void drawOptions(int selection, int volume, framework::DialogueLanguage language,
                      bool waitingForKey,
                      std::string_view jumpKey, std::string_view shootKey,
-                     std::string_view interactKey) noexcept;
+                     std::string_view interactKey,
+                     DisplayMode display = DisplayMode::Window720) noexcept;
     void drawGame(const Game& game, bool showMap, bool paused,
                   std::string_view jumpKey, std::string_view shootKey,
                   std::string_view interactKey) noexcept;
@@ -60,6 +74,9 @@ private:
     bool drawObject(const framework::ObjectDefinition* object, std::string_view animation,
                     Uint64 ticks, Rect bounds, float cameraX, bool flip) noexcept;
     bool drawRoomLayers(const RoomLayout& room, float cameraX) noexcept;
+    void drawSideWorld(const Game& game, bool paused) noexcept;
+    // Diablo-style 2:1 projection with depth-sorted blocks, actors and shots.
+    void drawIsometricWorld(const Game& game, bool paused) noexcept;
     ControlScheme controls_;
     SDL_Window* window_{};
     SDL_Renderer* renderer_{};

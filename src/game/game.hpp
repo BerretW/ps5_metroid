@@ -45,6 +45,7 @@ enum class RoomId : std::uint8_t {
     PowerStation,
     ResearchLab,
     CentralChamber,
+    CargoHold,
     Count
 };
 
@@ -63,6 +64,8 @@ struct TileSpan {
 
 struct Input {
     int moveX{};
+    // Vertical stick/D-pad direction (-1 up, 1 down); only isometric rooms use it.
+    int moveY{};
     bool jumpPressed{};
     bool jumpHeld{};
     bool shootHeld{};
@@ -77,9 +80,12 @@ struct Player {
     int facing{1};
     bool onGround{};
     bool hasDoubleJump{};
+    // Normalized room-space aim used by isometric rooms; side rooms aim along `facing`.
+    Vec2 aim{1.0F, 0.0F};
 };
 
-enum class EnemyType : std::uint8_t { Patrol, Charger, Armored, Sentry };
+// Stalkers roam isometric rooms; they are not saved and respawn on room entry.
+enum class EnemyType : std::uint8_t { Patrol, Charger, Armored, Sentry, Stalker };
 
 struct Enemy {
     RoomId room{};
@@ -98,6 +104,7 @@ struct Projectile {
     Rect bounds{};
     float velocityX{};
     bool active{};
+    float velocityY{};
 };
 
 enum class ItemId : std::uint8_t {
@@ -125,6 +132,7 @@ inline constexpr std::size_t kRoomCount = static_cast<std::size_t>(RoomId::Count
 inline constexpr int kMaxLayoutColumns = framework::kMaxRoomColumns;
 inline constexpr std::size_t kMaxWorldDoors = 8;
 inline constexpr std::size_t kMaxWorldProps = 24;
+inline constexpr std::size_t kMaxRoamers = 6;
 
 // Save format v6 identifies enemies by slot, so each slot keeps its room.
 inline constexpr std::array<RoomId, kEnemyCount> kEnemySlotRooms{
@@ -132,7 +140,7 @@ inline constexpr std::array<RoomId, kEnemyCount> kEnemySlotRooms{
     RoomId::PowerStation, RoomId::ResearchLab};
 inline constexpr std::array<std::string_view, kRoomCount> kRoomResourceIds{
     "echo:room/landing_bay", "echo:room/maintenance_tunnel", "echo:room/power_station",
-    "echo:room/research_lab", "echo:room/central_chamber"};
+    "echo:room/research_lab", "echo:room/central_chamber", "echo:room/cargo_hold"};
 
 struct RoomExitLayout {
     bool open{};
@@ -148,6 +156,8 @@ struct RoomLayout {
     std::array<std::uint8_t, 3> background{13, 30, 43};
     RoomExitLayout left{};
     RoomExitLayout right{};
+    // Isometric rooms use top-down movement without gravity; x/y are grid-plane coordinates.
+    bool isometric{};
     // Visual tile layers; null for the built-in layout.
     const framework::RoomDefinition* definition{};
 
@@ -187,6 +197,8 @@ struct PropLayout {
 
 struct WorldArchetypes {
     const framework::ObjectDefinition* player{};
+    // Directional sprite set used while the player walks an isometric room.
+    const framework::ObjectDefinition* playerIso{};
     const framework::ObjectDefinition* engineer{};
     const framework::ObjectDefinition* pickup{};
     const framework::ObjectDefinition* projectile{};
@@ -201,6 +213,8 @@ struct WorldLayout {
     std::size_t doorCount{};
     std::array<PropLayout, kMaxWorldProps> props{};
     std::size_t propCount{};
+    std::array<EnemySpawn, kMaxRoamers> roamers{};
+    std::size_t roamerCount{};
     RoomId startRoom{RoomId::LandingBay};
     Vec2 playerStart{};
     // The engineer stands in the start room; position and size come from her object.
@@ -214,6 +228,9 @@ struct WorldLayout {
     }
     [[nodiscard]] std::span<const PropLayout> propList() const noexcept {
         return {props.data(), propCount};
+    }
+    [[nodiscard]] std::span<const EnemySpawn> roamerList() const noexcept {
+        return {roamers.data(), roamerCount};
     }
 };
 
@@ -296,6 +313,7 @@ public:
     }
     [[nodiscard]] int roomColumns() const noexcept { return currentRoom().columns; }
     [[nodiscard]] float roomWidth() const noexcept { return currentRoom().width(); }
+    [[nodiscard]] bool isometric() const noexcept { return currentRoom().isometric; }
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
         float interactionReach = kDefaultInteractionReach,
@@ -332,6 +350,10 @@ public:
     [[nodiscard]] std::string_view roomName() const noexcept;
     [[nodiscard]] const Player& player() const noexcept { return player_; }
     [[nodiscard]] std::span<const Enemy> enemies() const noexcept { return enemies_; }
+    // Room-local isometric enemies of the current room.
+    [[nodiscard]] std::span<const Enemy> roamers() const noexcept {
+        return {roamers_.data(), roamerCount_};
+    }
     [[nodiscard]] std::span<const LootDrop> lootDrops() const noexcept { return lootDrops_; }
     [[nodiscard]] std::span<const Projectile> projectiles() const noexcept { return projectiles_; }
     [[nodiscard]] std::span<const Projectile> enemyProjectiles() const noexcept { return enemyProjectiles_; }
@@ -389,6 +411,9 @@ public:
 
 private:
     void updatePlayer(const Input& input, float deltaSeconds) noexcept;
+    void updateIsometricPlayer(const Input& input, float deltaSeconds) noexcept;
+    void updateRoamers(float deltaSeconds) noexcept;
+    void spawnRoamers() noexcept;
     void updateEnemies(float deltaSeconds) noexcept;
     void updateProjectiles(const Input& input, float deltaSeconds) noexcept;
     void damageEnemy(std::size_t index, int amount) noexcept;
@@ -415,6 +440,8 @@ private:
     const WorldLayout* world_{&defaultWorldLayout()};
     Player player_{};
     std::array<Enemy, kEnemyCount> enemies_{};
+    std::array<Enemy, kMaxRoamers> roamers_{};
+    std::size_t roamerCount_{};
     std::array<LootDrop, kLootDropCount> lootDrops_{};
     std::array<Projectile, 12> projectiles_{};
     std::array<Projectile, 6> enemyProjectiles_{};

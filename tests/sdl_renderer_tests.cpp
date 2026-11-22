@@ -76,6 +76,31 @@ void testSettingsPersistence() {
           "invalid dialogue language fixture is stored");
     check(!echo::platform::decodeSettings(invalidLanguage, volume, bindings, language),
           "settings decoder rejects unknown dialogue languages");
+
+    using echo::platform::DisplayMode;
+    GameState video{};
+    check(static_cast<bool>(echo::platform::encodeSettings(70, original, czech, video,
+                                                           DisplayMode::Fullscreen)),
+          "settings encode the display mode");
+    auto display = DisplayMode::Window720;
+    check(static_cast<bool>(echo::platform::decodeSettings(video, volume, bindings, language,
+                                                           display)) &&
+              display == DisplayMode::Fullscreen,
+          "settings round-trip the display mode");
+    GameState legacyVideo = video;
+    check(legacyVideo.erase({StateScope::Global, {}, "video.display"}) &&
+              static_cast<bool>(echo::platform::decodeSettings(legacyVideo, volume, bindings,
+                                                               language, display)) &&
+              display == DisplayMode::Window720,
+          "settings without a display mode default to the 1280x720 window");
+    GameState invalidVideo = video;
+    display = DisplayMode::Window1080;
+    check(static_cast<bool>(invalidVideo.set({StateScope::Global, {}, "video.display"},
+                                             StateValue::fromInteger(3))) &&
+              !echo::platform::decodeSettings(invalidVideo, volume, bindings, language,
+                                              display) &&
+              display == DisplayMode::Window1080,
+          "settings decoder rejects unknown display modes without applying them");
 }
 
 void testBitmapFontUtf8() {
@@ -621,9 +646,9 @@ int main() {
         pad.drawOptions(0, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");
         const auto padOptions = capture(padWindow, {74, 38, 492, 284});
-        const auto cross = capture(padWindow, {390, 138, 10, 14});
-        const auto square = capture(padWindow, {390, 166, 10, 14});
-        const auto triangle = capture(padWindow, {390, 194, 10, 14});
+        const auto cross = capture(padWindow, {390, 135, 10, 14});
+        const auto square = capture(padWindow, {390, 160, 10, 14});
+        const auto triangle = capture(padWindow, {390, 185, 10, 14});
         const auto visibleSymbol = [](const std::vector<Uint32>& pixels) {
             return !pixels.empty() && std::any_of(pixels.begin(), pixels.end(),
                 [first = pixels.front()](Uint32 pixel) { return pixel != first; });
@@ -638,11 +663,20 @@ int main() {
               "PlayStation options do not show keyboard bindings or rebinding instructions");
         pad.drawOptions(4, 60, echo::framework::DialogueLanguage::Czech,
                         false, "SPACE", "J", "E");
-        const auto czechOptions = capture(padWindow, {390, 222, 20, 14});
+        const auto czechOptions = capture(padWindow, {390, 210, 20, 14});
         pad.drawOptions(4, 60, echo::framework::DialogueLanguage::English,
                         false, "SPACE", "J", "E");
-        check(czechOptions != capture(padWindow, {390, 222, 20, 14}),
+        check(czechOptions != capture(padWindow, {390, 210, 20, 14}),
               "Options displays the selected dialogue language");
+
+        keyboard.drawOptions(5, 60, echo::framework::DialogueLanguage::English,
+                             false, "SPACE", "J", "E", echo::platform::DisplayMode::Window720);
+        const auto windowedRow = capture(keyboardWindow, {390, 235, 160, 14});
+        keyboard.drawOptions(5, 60, echo::framework::DialogueLanguage::English,
+                             false, "SPACE", "J", "E", echo::platform::DisplayMode::Fullscreen);
+        check(echo::platform::Renderer::optionCount() == 7 &&
+                  windowedRow != capture(keyboardWindow, {390, 235, 160, 14}),
+              "Windows Options lists the selected display mode");
 
         for (int tick = 0; tick < 2400; ++tick) {
             if (game.roomId() == echo::RoomId::MaintenanceTunnel &&
@@ -732,8 +766,8 @@ int main() {
             echo::Game worldGame;
             check(static_cast<bool>(worldGame.configureWorld(*worldLayout)),
                   "the packaged world layout configures a game");
-            check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 16 &&
-                      pad.worldSheetCount() == 16,
+            check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 20 &&
+                      pad.worldSheetCount() == 20,
                   "every world sprite sheet and tileset referenced by JSON decodes");
             const SDL_Rect floorRegion{0, 320, 640, 32};
             pad.drawGame(game, false, false, "SPACE", "J", "E");
@@ -741,6 +775,24 @@ int main() {
             pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
             check(builtInFloor != capture(padWindow, floorRegion),
                   "JSON tile layers draw the room from its tilesets");
+
+            echo::GameCheckpoint cargo = worldGame.checkpoint();
+            cargo.room = echo::RoomId::CargoHold;
+            cargo.playerPosition = {600.0F, 170.0F};
+            echo::Game cargoGame;
+            check(static_cast<bool>(cargoGame.configureWorld(*worldLayout)) &&
+                      cargoGame.restore(cargo) && cargoGame.isometric(),
+                  "the JSON Cargo Hold is an isometric room");
+            const SDL_Rect centre{260, 120, 120, 120};
+            pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
+            const auto sideCentre = capture(padWindow, centre);
+            pad.drawGame(cargoGame, false, false, "SPACE", "J", "E");
+            const auto isoCentre = capture(padWindow, centre);
+            cargo.playerPosition = {200.0F, 280.0F};
+            check(cargoGame.restore(cargo), "isometric camera fixture moves the player");
+            pad.drawGame(cargoGame, false, false, "SPACE", "J", "E");
+            check(isoCentre != sideCentre && isoCentre != capture(padWindow, centre),
+                  "isometric rooms render a player-following diamond grid");
         }
 
         echo::platform::SoundBuffer sound;

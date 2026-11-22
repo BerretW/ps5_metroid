@@ -35,6 +35,8 @@ enum class ObjectCategory : std::uint8_t {
 enum class Facing : std::uint8_t { Right, Left };
 enum class ObjectPropertyType : std::uint8_t { Integer, Number, Boolean, String };
 enum class TileCollision : std::uint8_t { None, Solid, Hazard };
+// Side rooms are viewed in profile; isometric rooms are a top-down grid drawn as 2:1 diamonds.
+enum class RoomProjection : std::uint8_t { Side, Isometric };
 
 struct ObjectProperty {
     std::array<char, 32> key{};
@@ -186,6 +188,7 @@ public:
     [[nodiscard]] int columns() const noexcept { return columns_; }
     [[nodiscard]] int rows() const noexcept { return rows_; }
     [[nodiscard]] std::array<std::uint8_t, 3> background() const noexcept { return background_; }
+    [[nodiscard]] RoomProjection projection() const noexcept { return projection_; }
     [[nodiscard]] std::span<const TilesetSpec> tilesets() const noexcept {
         return {tilesets_.data(), tilesetCount_};
     }
@@ -221,6 +224,7 @@ private:
     std::array<ObjectPlacement, kMaxRoomPlacements> placements_{};
     std::size_t placementCount_{};
     std::array<std::uint8_t, 3> background_{};
+    RoomProjection projection_{RoomProjection::Side};
     int columns_{};
     int rows_{};
     std::uint32_t present_{};

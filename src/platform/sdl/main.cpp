@@ -803,6 +803,9 @@ int main(int, char**) {
     int volume = 60;
     echo::framework::DialogueLanguage dialogueLanguage =
         echo::framework::DialogueLanguage::English;
+    echo::platform::DisplayMode displayMode = echo::platform::DisplayMode::Window720;
+    constexpr int kOptionCount = echo::platform::Renderer::optionCount();
+    constexpr int kDisplayOption = echo::platform::Renderer::kDisplayOption;
     bool pendingJump = false;
     bool pendingInteract = false;
     bool pendingUseItem = false;
@@ -1308,7 +1311,7 @@ int main(int, char**) {
         }
         echo::framework::GameState settings{};
         echo::framework::Status status =
-            echo::platform::encodeSettings(volume, bindings, dialogueLanguage, settings);
+            echo::platform::encodeSettings(volume, bindings, dialogueLanguage, settings, displayMode);
         if (!status) {
             logMessage("Settings encoding failed");
             logMessage(status.detail);
@@ -1343,9 +1346,10 @@ int main(int, char**) {
         int restoredVolume = volume;
         Bindings restoredBindings = bindings;
         auto restoredLanguage = dialogueLanguage;
+        auto restoredDisplay = displayMode;
         const echo::framework::Status decoded =
             echo::platform::decodeSettings(settings, restoredVolume, restoredBindings,
-                                           restoredLanguage);
+                                           restoredLanguage, restoredDisplay);
         if (!decoded) {
             logMessage("Settings validation failed; defaults retained");
             logMessage(decoded.detail);
@@ -1361,6 +1365,10 @@ int main(int, char**) {
         volume = restoredVolume;
         bindings = restoredBindings;
         dialogueLanguage = restoredLanguage;
+        displayMode = restoredDisplay;
+        if (!renderer.applyDisplayMode(displayMode)) {
+            logMessage("Display mode could not be applied");
+        }
         logMessage("Settings loaded");
         return true;
     };
@@ -1381,6 +1389,19 @@ int main(int, char**) {
             return;
         }
         dialogueLanguage = candidate;
+        (void)saveSettings();
+    };
+
+    const auto changeDisplayMode = [&](int direction) {
+        constexpr int kModes = static_cast<int>(echo::platform::DisplayMode::Count);
+        const auto candidate = static_cast<echo::platform::DisplayMode>(
+            (static_cast<int>(displayMode) + kModes + direction) % kModes);
+        if (!renderer.applyDisplayMode(candidate)) {
+            logMessage("Display mode change failed");
+            logMessage(SDL_GetError());
+            return;
+        }
+        displayMode = candidate;
         (void)saveSettings();
     };
 
@@ -1528,9 +1549,9 @@ int main(int, char**) {
                         (void)saveSettings();
                         screen = Screen::MainMenu;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
-                        optionSelection = (optionSelection + 5) % 6;
+                        optionSelection = (optionSelection + kOptionCount - 1) % kOptionCount;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
-                        optionSelection = (optionSelection + 1) % 6;
+                        optionSelection = (optionSelection + 1) % kOptionCount;
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_LEFT && optionSelection == 0) {
                         const int adjusted = std::max(0, volume - 10);
                         if (adjusted != volume) {
@@ -1547,7 +1568,11 @@ int main(int, char**) {
                         changeDialogueLanguage(-1);
                     } else if (button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT && optionSelection == 4) {
                         changeDialogueLanguage(1);
-                    } else if (button == SDL_CONTROLLER_BUTTON_A && optionSelection == 5) {
+                    } else if ((button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
+                                button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) &&
+                               kOptionCount > 6 && optionSelection == kDisplayOption) {
+                        changeDisplayMode(button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT ? 1 : -1);
+                    } else if (button == SDL_CONTROLLER_BUTTON_A && optionSelection == kOptionCount - 1) {
                         (void)saveSettings();
                         screen = Screen::MainMenu;
                     }
@@ -1669,9 +1694,9 @@ int main(int, char**) {
                 }
             } else if (screen == Screen::Options) {
                 if (key == SDLK_UP) {
-                    optionSelection = (optionSelection + 5) % 6;
+                    optionSelection = (optionSelection + kOptionCount - 1) % kOptionCount;
                 } else if (key == SDLK_DOWN) {
-                    optionSelection = (optionSelection + 1) % 6;
+                    optionSelection = (optionSelection + 1) % kOptionCount;
                 } else if (key == SDLK_LEFT && optionSelection == 0) {
                     const int adjusted = std::max(0, volume - 10);
                     if (adjusted != volume) {
@@ -1688,6 +1713,9 @@ int main(int, char**) {
                     changeDialogueLanguage(-1);
                 } else if (key == SDLK_RIGHT && optionSelection == 4) {
                     changeDialogueLanguage(1);
+                } else if ((key == SDLK_LEFT || key == SDLK_RIGHT) && kOptionCount > 6 &&
+                           optionSelection == kDisplayOption) {
+                    changeDisplayMode(key == SDLK_RIGHT ? 1 : -1);
                 } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 1) {
                     waitingForKey = true;
                     rebindAction = RebindAction::Jump;
@@ -1697,7 +1725,7 @@ int main(int, char**) {
                 } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 3) {
                     waitingForKey = true;
                     rebindAction = RebindAction::Interact;
-                } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == 5) {
+                } else if ((key == SDLK_RETURN || key == SDLK_SPACE) && optionSelection == kOptionCount - 1) {
                     (void)saveSettings();
                     screen = Screen::MainMenu;
                 } else if (key == SDLK_ESCAPE) {
@@ -1810,6 +1838,13 @@ int main(int, char**) {
             };
             int moveX = (isDown(SDLK_RIGHT) || isDown(SDLK_d) ? 1 : 0) -
                         (isDown(SDLK_LEFT) || isDown(SDLK_a) ? 1 : 0);
+            // W/S only steer when they are not rebound to an action.
+            const auto unboundDown = [&](SDL_Keycode key) {
+                return bindings.jump != key && bindings.shoot != key &&
+                       bindings.interact != key && isDown(key);
+            };
+            int moveY = (isDown(SDLK_DOWN) || unboundDown(SDLK_s) ? 1 : 0) -
+                        (isDown(SDLK_UP) || unboundDown(SDLK_w) ? 1 : 0);
             bool jumpHeld = isDown(bindings.jump);
             bool shootHeld = isDown(bindings.shoot);
             if (controller != nullptr) {
@@ -1817,17 +1852,22 @@ int main(int, char**) {
                 moveX += axis > 8000 ? 1 : axis < -8000 ? -1 : 0;
                 moveX += (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) != 0 ? 1 : 0) -
                          (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT) != 0 ? 1 : 0);
+                const Sint16 axisY = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
+                moveY += axisY > 8000 ? 1 : axisY < -8000 ? -1 : 0;
+                moveY += (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN) != 0 ? 1 : 0) -
+                         (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0 ? 1 : 0);
                 jumpHeld = jumpHeld || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A) != 0;
                 shootHeld = shootHeld || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_X) != 0;
             }
 
             const echo::Input input{
-                std::clamp(moveX, -1, 1),
-                pendingJump,
-                jumpHeld,
-                shootHeld,
-                pendingInteract,
-                pendingUseItem,
+                .moveX = std::clamp(moveX, -1, 1),
+                .moveY = std::clamp(moveY, -1, 1),
+                .jumpPressed = pendingJump,
+                .jumpHeld = jumpHeld,
+                .shootHeld = shootHeld,
+                .interactPressed = pendingInteract,
+                .useItemPressed = pendingUseItem,
             };
             const SoundState before = captureSoundState(game);
             const echo::framework::Status gameplayStatus = game.update(input);
@@ -1890,7 +1930,7 @@ int main(int, char**) {
             const auto interact = keyName(bindings.interact);
             if (screen == Screen::Options) {
                 renderer.drawOptions(optionSelection, volume, dialogueLanguage, waitingForKey,
-                                     jump.data(), shoot.data(), interact.data());
+                                     jump.data(), shoot.data(), interact.data(), displayMode);
             } else {
                 renderer.drawGame(game, showMap, paused, jump.data(), shoot.data(), interact.data());
             }

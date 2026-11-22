@@ -22,6 +22,15 @@ Sheets are horizontal strips of equal frames, RGBA PNG. The renderer checks heig
 
 To replace art, keep the file name and frame layout. Files are limited to 4 MiB and 4096 px per side.
 
+World sheets referenced from `assets/world` JSON live in `sprites/characters`, `sprites/enemies`, `sprites/objects`, `sprites/props` and `sprites/tiles`. The isometric Cargo Hold uses its own original sheets because side-view art cannot be reprojected convincingly:
+
+| File | Frame | Content |
+| --- | --- | --- |
+| `tiles/iso_floor.png` | 64x32 | four floor diamonds (plate, grating, warning stripe, acid pool) |
+| `tiles/iso_blocks.png` | 64x64 | four blocks (wall panel, pillar, cargo container, crate) with the base diamond at the bottom |
+| `characters/player_iso.png` | 32x48 | rows `idle_`/`walk_` for e, se, s, ne, n; west is mirrored; feet at y=44 |
+| `enemies/stalker.png` | 32x32 | 4-frame low crawler; feet at y=30 |
+
 ## Sounds (`assets/sounds`)
 
 48 kHz, mono, 16-bit PCM WAV. Other WAV formats are converted at load time to the audio device format.

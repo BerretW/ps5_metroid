@@ -385,6 +385,7 @@ void Game::start() noexcept {
         enemies_[index] = {spawn.room, spawn.bounds, spawn.patrolLeft, spawn.patrolRight,
                            spawn.speed, spawn.health, true, spawn.type};
     }
+    spawnRoamers();
     lootDrops_.fill({});
     projectiles_.fill({});
     enemyProjectiles_.fill({});
@@ -589,6 +590,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     restored.player_.velocity = checkpointValue.playerVelocity;
     restored.player_.health = checkpointValue.playerHealth;
     restored.player_.facing = checkpointValue.playerFacing;
+    restored.player_.aim = {static_cast<float>(checkpointValue.playerFacing), 0.0F};
     restored.player_.onGround = checkpointValue.playerOnGround;
     restored.abilityCollected_ = checkpointValue.abilityCollected;
     restored.player_.hasDoubleJump = restored.hasAbility(kEchoStepAbilityId);
@@ -601,6 +603,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         restored.enemies_[enemy].health = checkpointValue.enemyHealth[enemy];
         restored.enemies_[enemy].alive = checkpointValue.enemyHealth[enemy] > 0;
     }
+    restored.spawnRoamers();
     if (restored.collidesWithWorld({restored.player_.position.x,
                                     restored.player_.position.y,
                                     kPlayerWidth, kPlayerHeight})) {
@@ -661,7 +664,9 @@ bool Game::collidesWithWorld(const Rect& bounds) const noexcept {
 
     for (int row = top; row <= bottom; ++row) {
         for (int column = left; column <= right; ++column) {
-            if (tileAt(column, row) != Tile::Empty) {
+            const Tile tile = tileAt(column, row);
+            // Isometric hazards are floor pools to walk through, not blocks.
+            if (tile == Tile::Solid || (tile == Tile::Hazard && !isometric())) {
                 return true;
             }
         }
@@ -682,6 +687,7 @@ bool Game::overlapsHazard(const Rect& bounds) const noexcept {
             }
         }
     }
+    if (isometric()) return false;
 
     const int supportingRow = static_cast<int>(std::floor((bounds.y + bounds.height + 0.01F) / kTileSize));
     for (int column = left; column <= right; ++column) {
@@ -744,8 +750,13 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     jumpBoostSeconds_ = std::max(0.0F, jumpBoostSeconds_ - dt);
     shieldSeconds_ = std::max(0.0F, shieldSeconds_ - dt);
 
-    updatePlayer(input, dt);
+    if (isometric()) {
+        updateIsometricPlayer(input, dt);
+    } else {
+        updatePlayer(input, dt);
+    }
     updateEnemies(dt);
+    updateRoamers(dt);
     updateProjectiles(input, dt);
     for (LootDrop& drop : lootDrops_) {
         if (!drop.active || drop.room != room_ ||
@@ -796,6 +807,14 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     for (const Enemy& enemy : enemies_) {
         if (enemy.alive && enemy.room == room_ &&
             overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, enemy.bounds)) {
+            damagePlayer();
+            break;
+        }
+    }
+    for (std::size_t index = 0; index < roamerCount_; ++index) {
+        if (roamers_[index].alive &&
+            overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight},
+                     roamers_[index].bounds)) {
             damagePlayer();
             break;
         }
@@ -921,6 +940,91 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
     }
 }
 
+// Diablo-style isometric movement: screen-relative 8-way input on a flat grid
+// plane. Screen right maps to grid (+x, -y) and screen up to grid (-x, -y).
+void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcept {
+    const float playerSpeed =
+        static_cast<float>(attributeValue(kMoveSpeedAttribute, static_cast<int>(kPlayerSpeed))) +
+        (speedBoostSeconds_ > 0 ? 25.0F : 0.0F);
+    const int screenX = std::clamp(input.moveX, -1, 1);
+    const int screenY = std::clamp(input.moveY, -1, 1);
+    Vec2 direction{static_cast<float>(screenX + screenY), static_cast<float>(screenY - screenX)};
+    const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+    if (length > 0.0F) {
+        direction = {direction.x / length, direction.y / length};
+        player_.aim = direction;
+        if (screenX != 0) player_.facing = screenX;
+    }
+    player_.velocity = {direction.x * playerSpeed, direction.y * playerSpeed};
+    player_.onGround = true;
+    jumpBufferTimer_ = 0.0F;
+    coyoteTimer_ = kCoyoteSeconds;
+    doubleJumpUsed_ = false;
+
+    const auto snap = [this](float& position, float previous, float velocity, float size,
+                             bool horizontal) {
+        if (!collidesWithWorld({player_.position.x, player_.position.y,
+                                kPlayerWidth, kPlayerHeight})) return;
+        const float edge = velocity > 0.0F ? position + size - 0.01F : position;
+        const int cell = static_cast<int>(std::floor(edge / kTileSize));
+        position = velocity > 0.0F ? static_cast<float>(cell * kTileSize) - size
+                                   : static_cast<float>((cell + 1) * kTileSize);
+        if (collidesWithWorld({player_.position.x, player_.position.y,
+                               kPlayerWidth, kPlayerHeight})) {
+            position = previous;
+        }
+        (horizontal ? player_.velocity.x : player_.velocity.y) = 0.0F;
+    };
+    const float previousX = player_.position.x;
+    player_.position.x += player_.velocity.x * deltaSeconds;
+    if (player_.velocity.x != 0.0F) {
+        snap(player_.position.x, previousX, player_.velocity.x, kPlayerWidth, true);
+    }
+    const float previousY = player_.position.y;
+    player_.position.y += player_.velocity.y * deltaSeconds;
+    if (player_.velocity.y != 0.0F) {
+        snap(player_.position.y, previousY, player_.velocity.y, kPlayerHeight, false);
+    }
+    player_.position.y = std::clamp(player_.position.y, 0.0F,
+                                    static_cast<float>(kRoomHeight) - kPlayerHeight);
+}
+
+void Game::spawnRoamers() noexcept {
+    roamers_.fill({});
+    roamerCount_ = 0;
+    for (const EnemySpawn& spawn : world_->roamerList()) {
+        if (spawn.room != room_ || roamerCount_ == roamers_.size()) continue;
+        roamers_[roamerCount_++] = {spawn.room, spawn.bounds, 0.0F, 0.0F, spawn.speed,
+                                    spawn.health, true, EnemyType::Stalker};
+    }
+}
+
+void Game::updateRoamers(float deltaSeconds) noexcept {
+    constexpr float kSightRange = 300.0F;
+    const float targetX = player_.position.x + kPlayerWidth * 0.5F;
+    const float targetY = player_.position.y + kPlayerHeight * 0.5F;
+    for (std::size_t index = 0; index < roamerCount_; ++index) {
+        Enemy& roamer = roamers_[index];
+        if (!roamer.alive) continue;
+        const float dx = targetX - (roamer.bounds.x + roamer.bounds.width * 0.5F);
+        const float dy = targetY - (roamer.bounds.y + roamer.bounds.height * 0.5F);
+        const float distance = std::sqrt(dx * dx + dy * dy);
+        if (distance > kSightRange || distance < 1.0F) continue;
+        const float stepX = dx / distance * roamer.speed * deltaSeconds;
+        const float stepY = dy / distance * roamer.speed * deltaSeconds;
+        roamer.bounds.x += stepX;
+        if (collidesWithWorld(roamer.bounds) || roamer.bounds.x < 0.0F ||
+            roamer.bounds.x + roamer.bounds.width > roomWidth()) {
+            roamer.bounds.x -= stepX;
+        }
+        roamer.bounds.y += stepY;
+        if (collidesWithWorld(roamer.bounds) || roamer.bounds.y < 0.0F ||
+            roamer.bounds.y + roamer.bounds.height > static_cast<float>(kRoomHeight)) {
+            roamer.bounds.y -= stepY;
+        }
+    }
+}
+
 void Game::updateEnemies(float deltaSeconds) noexcept {
     for (Enemy& enemy : enemies_) {
         if (!enemy.alive || enemy.room != room_) {
@@ -1004,12 +1108,27 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
             continue;
         }
         projectile.bounds.x += projectile.velocityX * deltaSeconds;
+        projectile.bounds.y += projectile.velocityY * deltaSeconds;
         if (projectile.room != room_ || projectile.bounds.x < 0.0F ||
-            projectile.bounds.x > roomWidth()) {
+            projectile.bounds.x > roomWidth() || projectile.bounds.y < 0.0F ||
+            projectile.bounds.y > static_cast<float>(kRoomHeight)) {
             projectile.active = false;
             continue;
         }
         if (collidesWithWorld(projectile.bounds)) {
+            projectile.active = false;
+            continue;
+        }
+        bool hitRoamer = false;
+        for (std::size_t index = 0; index < roamerCount_; ++index) {
+            Enemy& roamer = roamers_[index];
+            if (!roamer.alive || !overlaps(projectile.bounds, roamer.bounds)) continue;
+            roamer.health = std::max(0, roamer.health - attributeValue(kProjectileDamageAttribute, 1));
+            roamer.alive = roamer.health > 0;
+            hitRoamer = true;
+            break;
+        }
+        if (hitRoamer) {
             projectile.active = false;
             continue;
         }
@@ -1029,13 +1148,23 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
         });
         if (freeProjectile != projectiles_.end()) {
             freeProjectile->room = room_;
-            freeProjectile->bounds = {
-                player_.position.x + (player_.facing > 0 ? kPlayerWidth : -10.0F),
-                player_.position.y + 11.0F,
-                10.0F,
-                6.0F,
-            };
-            freeProjectile->velocityX = static_cast<float>(player_.facing) * 500.0F;
+            if (isometric()) {
+                freeProjectile->bounds = {
+                    player_.position.x + kPlayerWidth * 0.5F - 4.0F + player_.aim.x * 12.0F,
+                    player_.position.y + kPlayerHeight * 0.5F - 4.0F + player_.aim.y * 12.0F,
+                    8.0F, 8.0F};
+                freeProjectile->velocityX = player_.aim.x * 500.0F;
+                freeProjectile->velocityY = player_.aim.y * 500.0F;
+            } else {
+                freeProjectile->bounds = {
+                    player_.position.x + (player_.facing > 0 ? kPlayerWidth : -10.0F),
+                    player_.position.y + 11.0F,
+                    10.0F,
+                    6.0F,
+                };
+                freeProjectile->velocityX = static_cast<float>(player_.facing) * 500.0F;
+                freeProjectile->velocityY = 0.0F;
+            }
             freeProjectile->active = true;
             shotCooldown_ = 0.22F;
         }
@@ -1489,11 +1618,15 @@ void Game::resolveRoomEdges() noexcept {
 void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     room_ = destination;
     player_.position.x = fromLeft ? 16.0F : roomWidth() - kPlayerWidth - 16.0F;
-    player_.position.y = kFloorY;
+    // Isometric rooms keep their doorways in the middle rows of the grid.
+    player_.position.y = isometric()
+        ? static_cast<float>(kRoomHeight) * 0.5F - kPlayerHeight * 0.5F : kFloorY;
     player_.velocity = {};
+    player_.aim = {static_cast<float>(player_.facing), 0.0F};
     player_.onGround = true;
     coyoteTimer_ = kCoyoteSeconds;
     doubleJumpUsed_ = false;
+    spawnRoamers();
     if (destination == RoomId::CentralChamber && centralCutscene_ != nullptr) {
         cutscenePlayer_.start(*centralCutscene_);
     }

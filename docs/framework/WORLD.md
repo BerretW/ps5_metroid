@@ -57,6 +57,7 @@ bounds and at least one animation whose frames fit the sheet.
 | Field | Meaning |
 |---|---|
 | `size` | `columns` (20–64) and `rows` (at most 16; PROJECT ECHO uses 12). |
+| `projection` | `side` (default) or `isometric`; inherited like other room fields. |
 | `background` | RGB clear colour. |
 | `tilesets` | Any number (up to 16) of sheets: `id`, `sheet`, `tileWidth`, `tileHeight`, optional `margin` and `spacing`. |
 | `tiles` | Legend: one map symbol → `tileset`, `x`, `y` (cell on that sheet), optional `rotation` (0/90/180/270), `flipX`, `flipY` and `collision` (`none`, `solid`, `hazard`). |
@@ -84,13 +85,17 @@ placements per room, 8 properties per placement, 32 KiB per file.
 `src/game/world_layout.cpp` converts the resolved data into `echo::WorldLayout`
 and rejects layouts the simulation cannot represent:
 
-- The five rooms of the route, 12 rows each, are fixed; their size, tiles,
-  exits, enemies, door, pickup and props come from JSON.
+- The six rooms (the five-room route plus the isometric Cargo Hold), 12 rows
+  each, are fixed; their size, tiles, exits, enemies, door, pickup and props
+  come from JSON.
 - Enemies need `behavior` and `health` properties (`speed`, `patrolMin`,
   `patrolMax` optional). Save slots are assigned in placement order; each room
   keeps its existing enemy count so checkpoints remain compatible.
+- `behavior: "stalker"` enemies may only be placed in isometric rooms, must
+  start on open floor, are not saved and respawn whenever the room is entered.
+  Saved (side-view) enemies cannot be placed in isometric rooms.
 - Doors and triggers use `target`, `arrive` and optional `requiresItem`.
-- Exactly one pickup; `player`, `engineer`, `projectile_player`,
+- Exactly one pickup; `player`, `player_iso`, `engineer`, `projectile_player`,
   `projectile_enemy` and `loot_crate` objects must exist.
 - The engineer's `spawn.position`, `spawn.facing` and `bounds` in
   `objects/engineer.json` (or inherited from its parent) place and orient her in
@@ -104,6 +109,24 @@ error and exits instead of silently running different content. The built-in
 `defaultWorldLayout()` (identical to the shipped JSON) is used only by
 configurations that do not select `echo.world`, such as headless tests.
 
+## Isometric rooms
+
+An isometric room keeps the same 32 px simulation grid, read as a flat floor
+plane seen from above: there is no gravity, the player walks in eight screen
+directions and shoots along the last direction, solid tiles are walls, and
+hazard tiles are walkable pools that damage. The renderer projects grid point
+(x, y) to screen (x − y, (x + y) / 2), so each cell becomes a 64x32 diamond;
+the camera follows the player on both axes. Layer 0 is drawn flat as floor;
+higher layers, actors and shots are depth-sorted by their front footprint
+corner, and blocks that cover the player are drawn translucent.
+
+Tilesets for isometric rooms use bottom-aligned cells: `iso_floor.png` has
+64x32 diamonds and `iso_blocks.png` 64x64 blocks whose base diamond fills the
+bottom 32 px. Isometric objects (`player_iso`, `enemy_stalker`) set their
+sprite `offset` relative to the footprint centre. `player_iso` provides
+`idle_`/`walk_` animations for directions `e`, `se`, `s`, `ne` and `n`; the
+west-facing directions are mirrored.
+
 ## Assets
 
 `scripts/generate-assets.ps1` regenerates all original sheets, including
@@ -114,13 +137,15 @@ flips.
 
 ## Validation
 
-- `framework/tests/world_tests.cpp`: inheritance, merge rules, cycles, limits
-  and malformed data.
-- `tests/game_tests.cpp`: a wider custom room, a moved engineer spawn and
-  rejected invalid layouts.
+- `framework/tests/world_tests.cpp`: inheritance, merge rules, cycles, limits,
+  room projection and malformed data.
+- `tests/game_tests.cpp`: a wider custom room, a moved engineer spawn,
+  rejected invalid layouts and isometric movement, walls, pools, stalkers,
+  diagonal shots and the Cargo Hold doorways.
 - `tests/framework_integration_tests.cpp`: shipped JSON equals the built-in
   layout, including the engineer spawn.
-- `tests/sdl_renderer_tests.cpp`: offscreen sheet loading and tile drawing.
+- `tests/sdl_renderer_tests.cpp`: offscreen sheet loading, tile drawing and an
+  isometric frame that follows the player.
 - `scripts/test-ps5-package.ps1`: packaged manifest, IDs, sprite references
   and the engineer's object-owned spawn.
 

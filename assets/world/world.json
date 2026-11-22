@@ -9,7 +9,9 @@
     "echo:object/enemy_charger",
     "echo:object/enemy_armored",
     "echo:object/enemy_sentry",
+    "echo:object/enemy_stalker",
     "echo:object/player",
+    "echo:object/player_iso",
     "echo:object/engineer",
     "echo:object/projectile_base",
     "echo:object/projectile_player",
@@ -29,6 +31,7 @@
     "echo:room/maintenance_tunnel",
     "echo:room/power_station",
     "echo:room/research_lab",
-    "echo:room/central_chamber"
+    "echo:room/central_chamber",
+    "echo:room/cargo_hold"
   ]
 }

@@ -1,5 +1,7 @@
 #include "game/game.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -662,6 +664,92 @@ void testHazardDeathAndRespawn() {
     check(game.player().health == 5, "respawn restores player health");
 }
 
+void testIsometricCargoHold() {
+    echo::Game game;
+    check(moveUntilRoom(game, echo::RoomId::CargoHold, -1),
+          "Landing Bay west exit leads into the isometric Cargo Hold");
+    check(game.isometric() && !echo::Game{}.isometric(),
+          "only the Cargo Hold uses the isometric projection");
+    check(game.player().position.x > 700.0F && game.player().position.y > 150.0F &&
+              game.player().position.y < 210.0F,
+          "isometric entry places the player in the east doorway");
+    check(game.roamers().size() == 2, "stalkers spawn on Cargo Hold entry");
+
+    echo::Game baseline;
+    echo::WorldLayout calm = baseline.world();
+    calm.roamerCount = 0;
+    echo::Game walker;
+    check(static_cast<bool>(walker.configureWorld(calm)), "stalker-free isometric layout loads");
+    echo::GameCheckpoint entry = game.checkpoint();
+    check(walker.restore(entry) && walker.roomId() == echo::RoomId::CargoHold,
+          "checkpoints restore into the isometric room");
+
+    const echo::Vec2 start = walker.player().position;
+    step(walker, {.jumpPressed = true, .jumpHeld = true}, 60);
+    check(walker.player().position.x == start.x && walker.player().position.y == start.y,
+          "isometric rooms have no gravity or jump");
+
+    step(walker, {.moveY = -1}, 20);
+    check(walker.player().position.x < start.x && walker.player().position.y < start.y,
+          "screen-up walks diagonally into the grid (north-west)");
+    const echo::Vec2 afterUp = walker.player().position;
+    step(walker, {.moveX = -1, .moveY = 1}, 20);
+    check(walker.player().position.x == afterUp.x &&
+              walker.player().position.y > afterUp.y,
+          "screen down-left walks along one grid axis (8-way input)");
+
+    echo::GameCheckpoint corridor = entry;
+    corridor.playerPosition = {600.0F, 170.0F};
+    check(walker.restore(corridor), "wall fixture restores");
+    step(walker, {.moveX = -1, .moveY = -1}, 600);
+    check(walker.roomId() == echo::RoomId::CargoHold && walker.player().position.x == 32.0F &&
+              walker.player().position.y == 170.0F,
+          "solid wall blocks isometric movement");
+
+    check(walker.restore(entry), "doorway fixture restores");
+    check(moveUntilRoom(walker, echo::RoomId::LandingBay, 1, 120) && !walker.isometric(),
+          "Cargo Hold east doorway returns to the side-view Landing Bay");
+
+    echo::GameCheckpoint pool = entry;
+    pool.playerPosition = {320.0F, 270.0F};
+    check(walker.restore(pool), "hazard pool fixture restores");
+    const int health = walker.player().health;
+    step(walker, {}, 5);
+    check(walker.roomId() == echo::RoomId::CargoHold &&
+              walker.player().health < health,
+          "isometric hazard pools are walkable but damage the player");
+
+    echo::GameCheckpoint hunt = entry;
+    hunt.playerPosition = {470.0F, 118.0F};
+    echo::Game hunter;
+    check(hunter.restore(hunt) && hunter.roamers().size() == 2,
+          "stalker fixture restores with both stalkers");
+    const auto distance = [](const echo::Game& current) {
+        if (current.roamers().empty()) return 0.0F;
+        const echo::Enemy& stalker = current.roamers()[0];
+        return std::abs(stalker.bounds.x - current.player().position.x) +
+               std::abs(stalker.bounds.y - current.player().position.y);
+    };
+    const float initialDistance = distance(hunter);
+    step(hunter, {}, 30);
+    check(distance(hunter) < initialDistance, "stalkers chase the player in the isometric room");
+    step(hunter, {.moveX = -1, .moveY = -1});
+    step(hunter, {.shootHeld = true}, 150);
+    check(hunter.roomId() == echo::RoomId::CargoHold && !hunter.roamers().empty() &&
+              !hunter.roamers()[0].alive,
+          "isometric shots defeat a stalker");
+
+    echo::Game shooter;
+    check(static_cast<bool>(shooter.configureWorld(calm)) && shooter.restore(entry),
+          "diagonal shot fixture restores");
+    step(shooter, {.moveY = -1});
+    step(shooter, {.shootHeld = true});
+    const auto shot = std::find_if(shooter.projectiles().begin(), shooter.projectiles().end(),
+                                   [](const echo::Projectile& projectile) { return projectile.active; });
+    check(shot != shooter.projectiles().end() && shot->velocityX < 0.0F && shot->velocityY < 0.0F,
+          "isometric shots travel along the diagonal aim");
+}
+
 void testNewEnemyBehaviorsAndItems() {
     using echo::ItemId;
     echo::Game game;
@@ -990,6 +1078,7 @@ int main() {
     testLabDoorRequiresKey();
     testProjectileCombatAndDamage();
     testHazardDeathAndRespawn();
+    testIsometricCargoHold();
     testNewEnemyBehaviorsAndItems();
     testAbilityGateAndBacktracking();
 
