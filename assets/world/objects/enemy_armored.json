@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_armored",
+  "parent": "echo:object/enemy_base",
+  "sprite": {
+    "sheet": "sprites/enemies/armored.png",
+    "offset": [-1, -4]
+  },
+  "bounds": [30, 28],
+  "animations": {
+    "walk": {
+      "fps": 5
+    }
+  },
+  "properties": {
+    "behavior": "armored",
+    "health": 6,
+    "speed": 26
+  }
+}

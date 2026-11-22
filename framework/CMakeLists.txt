@@ -32,6 +32,7 @@ if(ECHO_FRAMEWORK_ENABLE_DATA)
     add_subdirectory(equipment)
     add_subdirectory(quests)
     add_subdirectory(cutscenes)
+    add_subdirectory(world)
 endif()
 
 if(ECHO_FRAMEWORK_ENABLE_NARRATIVE)

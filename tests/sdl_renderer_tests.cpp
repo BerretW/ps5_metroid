@@ -443,7 +443,7 @@ int main() {
         const auto status = integration.initialize(
             ECHO_SOURCE_ASSETS "framework/game.json",
             ECHO_SOURCE_ASSETS "framework/engineer.json",
-            ECHO_SOURCE_ASSETS "framework/items.json");
+            ECHO_SOURCE_ASSETS "framework/items.json", ECHO_SOURCE_ASSETS);
         if (!status || !integration.beginGame()) {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
@@ -725,6 +725,23 @@ int main() {
               "all packaged PNG sprite sheets decode with expected dimensions");
         pad.drawGame(game, false, false, "SPACE", "J", "E");
         check(fallbackPlayer != capture(padWindow, playerRegion), "player is drawn from the PNG sprite sheet");
+
+        const echo::WorldLayout* worldLayout = integration.worldLayout();
+        check(worldLayout != nullptr, "the packaged game selects JSON world data");
+        if (worldLayout != nullptr) {
+            echo::Game worldGame;
+            check(static_cast<bool>(worldGame.configureWorld(*worldLayout)),
+                  "the packaged world layout configures a game");
+            check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 16 &&
+                      pad.worldSheetCount() == 16,
+                  "every world sprite sheet and tileset referenced by JSON decodes");
+            const SDL_Rect floorRegion{0, 320, 640, 32};
+            pad.drawGame(game, false, false, "SPACE", "J", "E");
+            const auto builtInFloor = capture(padWindow, floorRegion);
+            pad.drawGame(worldGame, false, false, "SPACE", "J", "E");
+            check(builtInFloor != capture(padWindow, floorRegion),
+                  "JSON tile layers draw the room from its tilesets");
+        }
 
         echo::platform::SoundBuffer sound;
         check(echo::platform::loadWavMono16(ECHO_SOURCE_ASSETS "sounds/shot.wav", 48000, sound) &&

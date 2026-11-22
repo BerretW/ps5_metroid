@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_patrol_heavy",
+  "parent": "echo:object/enemy_patrol",
+  "sprite": {
+    "sheet": "sprites/enemies/heavy.png",
+    "offset": [-1, -4]
+  },
+  "bounds": [30, 28],
+  "animations": {
+    "walk": {
+      "fps": 6
+    }
+  },
+  "properties": {
+    "health": 3,
+    "speed": 52
+  }
+}

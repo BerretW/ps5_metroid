@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_charger",
+  "parent": "echo:object/enemy_base",
+  "sprite": {
+    "sheet": "sprites/enemies/charger.png"
+  },
+  "animations": {
+    "walk": {
+      "fps": 12
+    }
+  },
+  "properties": {
+    "behavior": "charger",
+    "health": 3,
+    "speed": 70
+  }
+}

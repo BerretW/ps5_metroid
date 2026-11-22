@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/landing_bay",
+  "parent": "echo:room/station_base",
+  "name": "Landing Bay",
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        " *        *        *        *        *  ",
+        " -     -     -     -     -     -     -  ",
+        " |            |            |            ",
+        " |            |            |            ",
+        " |ww          |            |        ww  ",
+        " |            |            |            ",
+        " |            |            |            ",
+        " |            |      !     |            ",
+        " |            |            |          > ",
+        "                                        ",
+        "                                        ",
+        "________________________________________"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "              =====                     ",
+        "     =====            ^^^====           ",
+        "                                        ",
+        "########################################",
+        "                                        "
+      ]
+    }
+  ],
+  "exits": {
+    "left": {},
+    "right": {
+      "room": "echo:room/maintenance_tunnel"
+    }
+  },
+  "objects": [
+    {
+      "id": "console_start",
+      "object": "echo:object/prop_console",
+      "position": [200, 288]
+    },
+    {
+      "id": "crate_dock",
+      "object": "echo:object/prop_crate",
+      "position": [1180, 288],
+      "facing": "left"
+    }
+  ]
+}

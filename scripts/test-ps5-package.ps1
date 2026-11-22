@@ -246,6 +246,19 @@ if (Test-Path -LiteralPath $assetDir) {
                     throw "Invalid item catalog: missing or mismatched item $id."
                 }
             }
+        } elseif ($asset.Extension -eq ".json" -and
+                  $asset.FullName.StartsWith((Join-Path $assetDir "world\"), [StringComparison]::OrdinalIgnoreCase)) {
+            if ($asset.Length -eq 0 -or $asset.Length -gt 32KB) {
+                throw "Invalid world data: $($asset.Name) must be between 1 byte and 32 KiB."
+            }
+            try {
+                $worldDocument = Get-Content -LiteralPath $asset.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid world data: $($asset.Name): $($_.Exception.Message)"
+            }
+            if ($worldDocument.schemaVersion -ne 1) {
+                throw "Invalid world data: $($asset.Name) must use schemaVersion 1."
+            }
         } else {
             throw "Unexpected asset type: $($asset.Name)"
         }
@@ -253,6 +266,45 @@ if (Test-Path -LiteralPath $assetDir) {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\game.json") -PathType Leaf)) {
         throw "Packaged framework game configuration is missing."
+    }
+    $packagedModules = @((Get-Content -LiteralPath (Join-Path $assetDir "framework\game.json") -Raw |
+        ConvertFrom-Json).modules)
+    if ($packagedModules -notcontains "echo.world") {
+        throw "Invalid framework game configuration: required game modules or resources are missing."
+    }
+    $worldManifestPath = Join-Path $assetDir "world\world.json"
+    if (-not (Test-Path -LiteralPath $worldManifestPath -PathType Leaf)) {
+        throw "Packaged world manifest is missing."
+    }
+    $worldManifest = Get-Content -LiteralPath $worldManifestPath -Raw | ConvertFrom-Json
+    $worldEntries = @(@($worldManifest.objects) | ForEach-Object { @{ id = $_; folder = "objects" } }) +
+                    @(@($worldManifest.rooms) | ForEach-Object { @{ id = $_; folder = "rooms" } })
+    if (@($worldManifest.rooms) -notcontains $worldManifest.startRoom) {
+        throw "Invalid world data: the start room is not listed."
+    }
+    foreach ($entry in $worldEntries) {
+        if ($entry.id -notmatch '^echo:(object|room)/([a-z0-9_]{1,40})$') {
+            throw "Invalid world data: unsupported content ID $($entry.id)."
+        }
+        $file = Join-Path $assetDir ("world\" + $entry.folder + "\" + $Matches[2] + ".json")
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            throw "Invalid world data: missing file for $($entry.id)."
+        }
+        $content = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($content.id -ne $entry.id) {
+            throw "Invalid world data: $($entry.id) file declares $($content.id)."
+        }
+        $sheets = @()
+        if ($content.sprite -and $content.sprite.sheet) { $sheets += $content.sprite.sheet }
+        foreach ($tileset in @($content.tilesets)) {
+            if ($tileset -and $tileset.sheet) { $sheets += $tileset.sheet }
+        }
+        foreach ($sheet in $sheets) {
+            if ($sheet -notmatch '^sprites/[a-z0-9_/]+\.png$' -or $sheet.Contains("..") -or
+                -not (Test-Path -LiteralPath (Join-Path $assetDir ($sheet -replace '/', '\')) -PathType Leaf)) {
+                throw "Invalid world data: $($entry.id) references missing sprite sheet $sheet."
+            }
+        }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\engineer.json") -PathType Leaf)) {
         throw "Packaged engineer dialogue is missing."

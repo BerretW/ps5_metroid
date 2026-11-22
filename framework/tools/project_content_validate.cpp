@@ -4,6 +4,7 @@
 #include "echo/framework/attributes.hpp"
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/narrative.hpp"
+#include "echo/framework/world.hpp"
 #include "game/game.hpp"
 #include "game/project_components.hpp"
 #include "platform/sdl/bitmap_font.hpp"
@@ -340,7 +341,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateGameConfig(
     JsonValue root, const ComponentTypeRegistry& components,
-    const std::array<CapabilityManifestFragment, 9>& fragments,
+    const std::array<CapabilityManifestFragment, 10>& fragments,
     const CapabilityManifestFragment& project,
     const ItemCatalog& itemCatalog,
     ContentRegistry& resources) noexcept {
@@ -353,11 +354,11 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
 
     const JsonValue modules = root.find("modules");
-    if (!modules.isArray() || modules.size() == 0 || modules.size() > 9) {
+    if (!modules.isArray() || modules.size() == 0 || modules.size() > 10) {
         return {ErrorCode::InvalidValue, "modules",
                 "Game configuration requires a bounded non-empty module list."};
     }
-    std::array<std::string_view, 9> selected{};
+    std::array<std::string_view, 10> selected{};
     for (std::size_t index = 0; index < modules.size(); ++index) {
         if (!modules.at(index).string(selected[index]) ||
             findCompiledModule(fragments, selected[index]) == nullptr) {
@@ -564,7 +565,7 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    const std::array<CapabilityManifestFragment, 9> fragments{{
+    const std::array<CapabilityManifestFragment, 10> fragments{{
         frameworkCapabilityManifestFragment(),
         narrativeCapabilityManifestFragment(),
         inventoryCapabilityManifestFragment(),
@@ -573,6 +574,7 @@ int main(int argc, char** argv) {
         abilitiesCapabilityManifestFragment(),
         questsCapabilityManifestFragment(),
         cutscenesCapabilityManifestFragment(),
+        worldCapabilityManifestFragment(),
         echo::projectCapabilityManifestFragment(),
     }};
     const CapabilityManifestFragment project =

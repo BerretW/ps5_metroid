@@ -26,13 +26,14 @@ endif()
 
 add_library(echo_game
     src/game/game.cpp
+    src/game/world_layout.cpp
 )
 target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
 target_link_libraries(echo_game PUBLIC
     EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
-    EchoFramework::Cutscenes)
+    EchoFramework::Cutscenes EchoFramework::World)
 
 if(ECHO_FRAMEWORK_BUILD_TOOLS)
     add_executable(echo_project_component_editor framework/tools/component_editor.cpp)
@@ -45,7 +46,7 @@ if(ECHO_FRAMEWORK_BUILD_TOOLS)
         ECHO_PROJECT_COMPONENTS ECHO_MANIFEST_HAS_NARRATIVE
         ECHO_MANIFEST_HAS_INVENTORY ECHO_MANIFEST_HAS_ATTRIBUTES
         ECHO_MANIFEST_HAS_EQUIPMENT ECHO_MANIFEST_HAS_ABILITIES
-        ECHO_MANIFEST_HAS_QUESTS ECHO_MANIFEST_HAS_CUTSCENES)
+        ECHO_MANIFEST_HAS_QUESTS ECHO_MANIFEST_HAS_CUTSCENES ECHO_MANIFEST_HAS_WORLD)
     target_link_libraries(echo_project_schema_export PRIVATE echo_game)
     target_compile_features(echo_project_schema_export PRIVATE cxx_std_20)
 

@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/research_lab",
+  "parent": "echo:room/station_base",
+  "name": "Research Laboratory",
+  "background": [20, 38, 42],
+  "tiles": {
+    "#": {
+      "tileset": "station",
+      "x": 0,
+      "y": 1,
+      "collision": "solid"
+    },
+    "=": {
+      "tileset": "station",
+      "x": 1,
+      "y": 1,
+      "collision": "solid"
+    }
+  },
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        "  *        *        *        *        * ",
+        "  -     -     -     -     -     -     - ",
+        "  |            |            |           ",
+        "  |            |            |           ",
+        "  |            |ssssss      | www       ",
+        "  |            |            |           ",
+        "  |            |            |           ",
+        "  |            |            |           ",
+        "  |            |            |           ",
+        "    <<                                  ",
+        "                                        ",
+        "________________________________________"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "        ======         ======           ",
+        "                                        ",
+        "########################################",
+        "                                        "
+      ]
+    }
+  ],
+  "exits": {},
+  "objects": [
+    {
+      "id": "sentry",
+      "object": "echo:object/enemy_sentry",
+      "position": [1000, 292],
+      "facing": "right",
+      "properties": {
+        "patrolMin": 960,
+        "patrolMax": 1100
+      }
+    },
+    {
+      "id": "echo_step",
+      "object": "echo:object/pickup_echo_step"
+    },
+    {
+      "id": "exit",
+      "object": "echo:object/trigger_lab_exit"
+    },
+    {
+      "id": "terminal_a",
+      "object": "echo:object/prop_console",
+      "position": [520, 288]
+    },
+    {
+      "id": "terminal_b",
+      "object": "echo:object/prop_console",
+      "position": [880, 288],
+      "facing": "left"
+    }
+  ]
+}

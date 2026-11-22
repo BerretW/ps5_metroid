@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/maintenance_tunnel",
+  "parent": "echo:room/station_base",
+  "name": "Maintenance Tunnel",
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        "    *        *        *        *        ",
+        "-   -     -     -     -     -     -     ",
+        "    |            |            |         ",
+        "p p p p p p p p p|p p p p p p p p p p p ",
+        "    |            |            |         ",
+        "    |            |            |         ",
+        "    |            |            |         ",
+        "    |            !           s|         ",
+        "    |            |            |         ",
+        "                              <         ",
+        "                                        ",
+        "________________________________________"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "              =====                     ",
+        "      ====        ^^^                   ",
+        "                                        ",
+        "########################################",
+        "                                        "
+      ]
+    }
+  ],
+  "exits": {
+    "left": {
+      "room": "echo:room/landing_bay"
+    },
+    "right": {
+      "room": "echo:room/power_station"
+    }
+  },
+  "objects": [
+    {
+      "id": "patrol",
+      "object": "echo:object/enemy_patrol",
+      "position": [760, 292],
+      "properties": {
+        "patrolMin": 700,
+        "patrolMax": 910
+      }
+    },
+    {
+      "id": "charger",
+      "object": "echo:object/enemy_charger",
+      "position": [390, 292],
+      "properties": {
+        "patrolMin": 340,
+        "patrolMax": 520
+      }
+    },
+    {
+      "id": "lab_door",
+      "object": "echo:object/door_lab"
+    },
+    {
+      "id": "crate_a",
+      "object": "echo:object/prop_crate",
+      "position": [60, 288]
+    },
+    {
+      "id": "crate_b",
+      "object": "echo:object/prop_crate",
+      "position": [1100, 288],
+      "facing": "left"
+    }
+  ]
+}

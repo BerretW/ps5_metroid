@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/station_base",
+  "abstract": true,
+  "size": {
+    "columns": 40,
+    "rows": 12
+  },
+  "background": [13, 30, 43],
+  "tilesets": [
+    {
+      "id": "station",
+      "sheet": "sprites/tiles/station.png",
+      "tileWidth": 32,
+      "tileHeight": 32
+    },
+    {
+      "id": "decor",
+      "sheet": "sprites/tiles/decor.png",
+      "tileWidth": 16,
+      "tileHeight": 16,
+      "margin": 1,
+      "spacing": 2
+    }
+  ],
+  "tiles": {
+    "#": {
+      "tileset": "station",
+      "x": 0,
+      "y": 0,
+      "collision": "solid"
+    },
+    "=": {
+      "tileset": "station",
+      "x": 1,
+      "y": 0,
+      "collision": "solid"
+    },
+    "^": {
+      "tileset": "station",
+      "x": 2,
+      "y": 0,
+      "collision": "hazard"
+    },
+    "_": {
+      "tileset": "station",
+      "x": 6,
+      "y": 1
+    },
+    "*": {
+      "tileset": "station",
+      "x": 6,
+      "y": 0
+    },
+    "-": {
+      "tileset": "decor",
+      "x": 0,
+      "y": 0
+    },
+    "|": {
+      "tileset": "decor",
+      "x": 0,
+      "y": 0,
+      "rotation": 90
+    },
+    "o": {
+      "tileset": "station",
+      "x": 3,
+      "y": 0
+    },
+    "p": {
+      "tileset": "station",
+      "x": 4,
+      "y": 0
+    },
+    "!": {
+      "tileset": "station",
+      "x": 5,
+      "y": 0
+    },
+    "w": {
+      "tileset": "station",
+      "x": 7,
+      "y": 1
+    },
+    "s": {
+      "tileset": "decor",
+      "x": 3,
+      "y": 0
+    },
+    ">": {
+      "tileset": "decor",
+      "x": 2,
+      "y": 0
+    },
+    "<": {
+      "tileset": "decor",
+      "x": 2,
+      "y": 0,
+      "flipX": true
+    },
+    "v": {
+      "tileset": "decor",
+      "x": 2,
+      "y": 0,
+      "rotation": 90
+    },
+    "l": {
+      "tileset": "decor",
+      "x": 1,
+      "y": 0
+    },
+    "u": {
+      "tileset": "decor",
+      "x": 1,
+      "y": 0,
+      "flipY": true
+    }
+  },
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        "
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        "
+      ]
+    }
+  ]
+}

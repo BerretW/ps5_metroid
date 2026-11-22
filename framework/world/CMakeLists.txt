@@ -1,0 +1,11 @@
+add_library(echo_framework_world STATIC src/world.cpp)
+add_library(EchoFramework::World ALIAS echo_framework_world)
+target_include_directories(echo_framework_world PUBLIC include)
+target_compile_features(echo_framework_world PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_world PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_world PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_world PRIVATE -Wall -Wextra -Wpedantic)
+endif()

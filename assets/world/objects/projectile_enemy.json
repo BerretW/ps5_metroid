@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/projectile_enemy",
+  "parent": "echo:object/projectile_base",
+  "sprite": {
+    "sheet": "sprites/objects/enemy_bolt.png"
+  },
+  "animations": {
+    "fly": {
+      "fps": 10
+    }
+  }
+}

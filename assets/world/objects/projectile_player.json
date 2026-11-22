@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/projectile_player",
+  "parent": "echo:object/projectile_base",
+  "sprite": {
+    "sheet": "sprites/projectile.png"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/prop_console_alert",
+  "parent": "echo:object/prop_console",
+  "animations": {
+    "idle": {
+      "row": 1,
+      "fps": 5
+    }
+  }
+}

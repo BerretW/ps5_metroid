@@ -7,7 +7,9 @@
 
 #include <SDL.h>
 
+#include <algorithm>
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <new>
 #include <string_view>
@@ -19,10 +21,10 @@ namespace {
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
 constexpr std::array<std::string_view, 2> kProjectDependencies{
     "echo.state", "echo.narrative.dialogue"};
-constexpr std::array<std::string_view, 6> kProjectOptionalModules{
+constexpr std::array<std::string_view, 7> kProjectOptionalModules{
     "echo.narrative.cutscenes", "echo.rpg.abilities",
     "echo.rpg.attributes", "echo.rpg.equipment",
-    "echo.rpg.inventory", "echo.rpg.quests"};
+    "echo.rpg.inventory", "echo.rpg.quests", "echo.world"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
 constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
@@ -123,9 +125,79 @@ FrameworkIntegration::~FrameworkIntegration() {
     shutdown();
 }
 
+framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexcept {
+    using framework::ErrorCode;
+    if (contentRoot == nullptr) {
+        return {ErrorCode::InvalidArgument, "echo.world",
+                "The selected world module requires the asset directory."};
+    }
+    worldModule_.reset(new (std::nothrow) framework::WorldModule{});
+    worldLayout_.reset(new (std::nothrow) WorldLayout{});
+    if (!worldModule_ || !worldLayout_) {
+        return {ErrorCode::CapacityExceeded, "echo.world", "World data allocation failed."};
+    }
+    // Reads one world JSON file relative to the asset root and hands its root to `apply`.
+    // Failures report the relative file path, kept alive in a member buffer.
+    const auto loadFile = [&](std::string_view relative, auto&& apply) -> framework::Status {
+        const auto fail = [&](framework::Status failure) -> framework::Status {
+            worldErrorSubject_ = {};
+            const std::size_t length = std::min(relative.size(), worldErrorSubject_.size() - 1);
+            std::copy_n(relative.data(), length, worldErrorSubject_.data());
+            failure.subject = worldErrorSubject_.data();
+            return failure;
+        };
+        std::array<char, 512> path{};
+        const int written = std::snprintf(path.data(), path.size(), "%s%.*s", contentRoot,
+                                          static_cast<int>(relative.size()), relative.data());
+        if (written <= 0 || static_cast<std::size_t>(written) >= path.size()) {
+            return fail({ErrorCode::CapacityExceeded, {}, "World content path is too long."});
+        }
+        FileBuffer data{};
+        std::size_t size{};
+        framework::Status status =
+            readContentFile(path.data(), framework::kMaxWorldJsonBytes, data, size);
+        if (!status) return fail(status);
+        framework::JsonDocument document{};
+        framework::JsonError error{};
+        status = framework::JsonDocument::parse(data.get(), size, document, error);
+        if (!status) return fail(status);
+        status = apply(document.root());
+        return status ? status : fail(status);
+    };
+    framework::Status status = loadFile("world/world.json", [&](framework::JsonValue root) {
+        return worldModule_->loadManifest(root);
+    });
+    if (!status) return status;
+    std::array<char, 160> relative{};
+    for (std::size_t index = 0; index < worldModule_->manifestObjectCount(); ++index) {
+        const std::string_view id = worldModule_->manifestObject(index);
+        if (!framework::WorldModule::contentPath(id, relative.data(), relative.size())) {
+            return {ErrorCode::InvalidValue, id, "World object ID has no content path."};
+        }
+        status = loadFile(relative.data(), [&](framework::JsonValue root) {
+            return worldModule_->addObject(id, root);
+        });
+        if (!status) return status;
+    }
+    for (std::size_t index = 0; index < worldModule_->manifestRoomCount(); ++index) {
+        const std::string_view id = worldModule_->manifestRoom(index);
+        if (!framework::WorldModule::contentPath(id, relative.data(), relative.size())) {
+            return {ErrorCode::InvalidValue, id, "World room ID has no content path."};
+        }
+        status = loadFile(relative.data(), [&](framework::JsonValue root) {
+            return worldModule_->addRoom(id, root);
+        });
+        if (!status) return status;
+    }
+    status = worldModule_->finalize();
+    if (!status) return status;
+    return buildWorldLayout(*worldModule_, *worldLayout_);
+}
+
 framework::Status FrameworkIntegration::initialize(const char* configPath,
                                                     const char* dialoguePath,
-                                                    const char* itemCatalogPath) noexcept {
+                                                    const char* itemCatalogPath,
+                                                    const char* contentRoot) noexcept {
     if (initialized_) {
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration is already initialized."};
@@ -151,7 +223,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     std::string_view gameId;
     const framework::JsonValue moduleList = root.find("modules");
     if (!root.isObject() || !root.find("game").string(gameId) ||
-        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 9) {
+        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 10) {
         return {framework::ErrorCode::InvalidValue, configPath,
                 "Configuration requires game echo.project_echo and a bounded modules array."};
     }
@@ -164,6 +236,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     bool abilitiesSelected = false;
     bool questsSelected = false;
     bool cutscenesSelected = false;
+    bool worldSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
         if (!moduleList.at(index).string(moduleId)) {
@@ -174,7 +247,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
             moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory" &&
             moduleId != "echo.rpg.attributes" && moduleId != "echo.rpg.equipment" &&
             moduleId != "echo.rpg.abilities" && moduleId != "echo.rpg.quests" &&
-            moduleId != "echo.narrative.cutscenes") {
+            moduleId != "echo.narrative.cutscenes" && moduleId != "echo.world") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
@@ -188,6 +261,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         questsSelected = questsSelected || moduleId == "echo.rpg.quests";
         cutscenesSelected = cutscenesSelected ||
                             moduleId == "echo.narrative.cutscenes";
+        worldSelected = worldSelected || moduleId == "echo.world";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
             (void)moduleList.at(previous).string(previousId);
@@ -200,6 +274,15 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!stateSelected || !dialogueSelected || !projectSelected) {
         return {framework::ErrorCode::MissingDependency, "echo.project_echo",
                 "The game configuration must select state, dialogue, and PROJECT ECHO modules."};
+    }
+    if (worldSelected) {
+        status = loadWorld(contentRoot);
+        if (!status) {
+            return status;
+        }
+    } else {
+        worldLayout_.reset();
+        worldModule_.reset();
     }
     if (questsSelected) {
         status = questModule_.load(root.find("quests"));
@@ -429,6 +512,12 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
+    if (worldModule_) {
+        status = modules_.add(*worldModule_, true);
+        if (!status) {
+            return status;
+        }
+    }
     framework::ModuleContext context{this};
     status = modules_.initializeAll(context);
     if (!status) {
@@ -461,7 +550,12 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration must initialize before configuring the game."};
     }
-    framework::Status status = game.configureDialogue(
+    framework::Status status = framework::Status::success();
+    if (worldLayout_) {
+        status = game.configureWorld(*worldLayout_);
+        if (!status) return status;
+    }
+    status = game.configureDialogue(
         dialogueModule_, stateModule_.state,
         {technicianPosition_[0], technicianPosition_[1]}, technicianInteractionReach_,
         inventoryModule_.initialized() ? &inventoryModule_ : nullptr);

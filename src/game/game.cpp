@@ -6,55 +6,6 @@
 namespace echo {
 namespace {
 
-constexpr TileSpan kLandingTiles[] = {
-    {0, 10, kRoomColumns, Tile::Solid},
-    {5, 8, 5, Tile::Solid},
-    {14, 7, 5, Tile::Solid},
-    {25, 8, 4, Tile::Solid},
-    {22, 8, 3, Tile::Hazard},
-};
-
-constexpr TileSpan kMaintenanceTiles[] = {
-    {0, 10, kRoomColumns, Tile::Solid},
-    {6, 8, 4, Tile::Solid},
-    {14, 7, 5, Tile::Solid},
-    {18, 8, 3, Tile::Hazard},
-};
-
-constexpr TileSpan kPowerTiles[] = {
-    {0, 10, kRoomColumns, Tile::Solid},
-    {4, 8, 5, Tile::Solid},
-    {13, 7, 5, Tile::Solid},
-    {23, 8, 5, Tile::Solid},
-    {31, 8, 3, Tile::Hazard},
-};
-
-constexpr TileSpan kLabTiles[] = {
-    {0, 10, kRoomColumns, Tile::Solid},
-    {8, 8, 6, Tile::Solid},
-    {23, 8, 6, Tile::Solid},
-};
-
-constexpr TileSpan kCentralTiles[] = {
-    {0, 10, kRoomColumns, Tile::Solid},
-    {7, 8, 5, Tile::Solid},
-    {18, 7, 5, Tile::Solid},
-    {29, 8, 5, Tile::Solid},
-};
-
-struct RoomDefinition {
-    std::string_view name;
-    std::span<const TileSpan> tiles;
-};
-
-const std::array<RoomDefinition, static_cast<std::size_t>(RoomId::Count)> kRooms{{
-    {"Landing Bay", kLandingTiles},
-    {"Maintenance Tunnel", kMaintenanceTiles},
-    {"Power Station", kPowerTiles},
-    {"Research Laboratory", kLabTiles},
-    {"Central Chamber", kCentralTiles},
-}};
-
 constexpr float kPlayerWidth = 20.0F;
 constexpr float kPlayerHeight = 28.0F;
 constexpr float kFloorY = static_cast<float>(10 * kTileSize) - kPlayerHeight;
@@ -143,6 +94,23 @@ constexpr std::array<ProjectItemMapping, 14> kProjectItems{{
 
 Game::Game() noexcept {
     start();
+}
+
+framework::Status Game::configureWorld(const WorldLayout& layout) noexcept {
+    if (dialogueSession_.active() || cutscenePlayer_.active()) {
+        return {framework::ErrorCode::InvalidState, "echo.world",
+                "The world cannot change during dialogue or a cutscene."};
+    }
+    framework::Status status = validateWorldLayout(layout);
+    if (!status) return status;
+    const float landingWidth = layout.rooms[roomIndex(RoomId::LandingBay)].width();
+    if (technician_.x + technician_.width > landingWidth) {
+        return {framework::ErrorCode::InvalidValue, "technician.transform",
+                "The engineer position must fit inside the Landing Bay."};
+    }
+    world_ = &layout;
+    start();
+    return framework::Status::success();
 }
 
 framework::Status Game::configureAttributes(
@@ -366,7 +334,8 @@ framework::Status Game::configureDialogue(
     }
     if (!std::isfinite(technicianPosition.x) || !std::isfinite(technicianPosition.y) ||
         technicianPosition.x < 0.0F || technicianPosition.y < 0.0F ||
-        technicianPosition.x > static_cast<float>(kRoomWidth) - technician_.width ||
+        technicianPosition.x > world_->rooms[roomIndex(RoomId::LandingBay)].width() -
+                                   technician_.width ||
         technicianPosition.y > static_cast<float>(kRoomHeight) - technician_.height) {
         return {ErrorCode::InvalidValue, "technician.transform",
                 "The engineer position must fit inside the Landing Bay."};
@@ -423,19 +392,17 @@ framework::Status Game::configureDialogue(
 void Game::start() noexcept {
     if (attributesConfigured_) attributes_ = baseAttributes_;
     equipment_.resetAfterAttributesReset();
-    room_ = RoomId::LandingBay;
-    player_ = {{42.0F, kFloorY}, {}, maximumHealth(), 1, true, false};
-    enemies_ = {{
-        {RoomId::MaintenanceTunnel, {760.0F, kFloorY, 28.0F, 28.0F}, 700.0F, 910.0F, 45.0F, 2, true},
-        {RoomId::PowerStation, {790.0F, kFloorY, 30.0F, 28.0F}, 720.0F, 940.0F, 52.0F, 3, true},
-        {RoomId::MaintenanceTunnel, {390.0F, kFloorY, 28.0F, 28.0F}, 340.0F, 520.0F, 70.0F, 3, true, EnemyType::Charger},
-        {RoomId::PowerStation, {530.0F, kFloorY, 30.0F, 28.0F}, 480.0F, 650.0F, 26.0F, 6, true, EnemyType::Armored},
-        {RoomId::ResearchLab, {1000.0F, kFloorY, 28.0F, 28.0F}, 960.0F, 1100.0F, 0.0F, 4, true, EnemyType::Sentry},
-    }};
+    room_ = world_->startRoom;
+    player_ = {world_->playerStart, {}, maximumHealth(), 1, true, false};
+    for (std::size_t index = 0; index < enemies_.size(); ++index) {
+        const EnemySpawn& spawn = world_->enemies[index];
+        enemies_[index] = {spawn.room, spawn.bounds, spawn.patrolLeft, spawn.patrolRight,
+                           spawn.speed, spawn.health, true, spawn.type};
+    }
     lootDrops_.fill({});
     projectiles_.fill({});
     enemyProjectiles_.fill({});
-    abilityPickup_ = {690.0F, kFloorY + 2.0F, 20.0F, 24.0F};
+    abilityPickup_ = world_->abilityPickup;
     coyoteTimer_ = 0.0F;
     jumpBufferTimer_ = 0.0F;
     invulnerabilityTimer_ = 0.0F;
@@ -495,13 +462,13 @@ GameCheckpoint Game::checkpoint() const noexcept {
 
 bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     const std::size_t index = roomIndex(checkpointValue.room);
-    if (index >= kRooms.size() ||
+    if (index >= kRoomCount ||
         !std::isfinite(checkpointValue.playerPosition.x) ||
         !std::isfinite(checkpointValue.playerPosition.y) ||
         !std::isfinite(checkpointValue.playerVelocity.x) ||
         !std::isfinite(checkpointValue.playerVelocity.y) ||
         checkpointValue.playerPosition.x < 0.0F ||
-        checkpointValue.playerPosition.x > static_cast<float>(kRoomWidth) - kPlayerWidth ||
+        checkpointValue.playerPosition.x > world_->rooms[index].width() - kPlayerWidth ||
         checkpointValue.playerPosition.y < 0.0F ||
         checkpointValue.playerPosition.y > static_cast<float>(kRoomHeight) - kPlayerHeight ||
         checkpointValue.playerHealth < 1 ||
@@ -601,25 +568,30 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     }
 
     for (std::size_t enemy = 0; enemy < checkpointValue.enemyHealth.size(); ++enemy) {
-        constexpr std::array<int, kEnemyCount> maximumHealth{2, 3, 3, 6, 4};
         if (checkpointValue.enemyHealth[enemy] < 0 ||
-            checkpointValue.enemyHealth[enemy] > maximumHealth[enemy]) {
+            checkpointValue.enemyHealth[enemy] > world_->enemies[enemy].health) {
             return false;
         }
     }
     for (std::size_t lootIndex = 0; lootIndex < checkpointValue.lootDrops.size(); ++lootIndex) {
         const LootDrop& drop = checkpointValue.lootDrops[lootIndex];
-        if (!std::isfinite(drop.position.x) || !std::isfinite(drop.position.y) ||
+        const std::size_t dropRoom = roomIndex(drop.room);
+        if (dropRoom >= kRoomCount ||
+            !std::isfinite(drop.position.x) || !std::isfinite(drop.position.y) ||
             drop.position.x < 0.0F ||
-            drop.position.x > static_cast<float>(kRoomWidth) - 16.0F ||
+            drop.position.x > world_->rooms[dropRoom].width() - 16.0F ||
             drop.position.y < 0.0F ||
             drop.position.y > static_cast<float>(kRoomHeight) - 16.0F) return false;
         if (drop.active) {
             if (checkpointValue.enemyHealth[lootEnemy(lootIndex)] != 0 ||
                 drop.stack != expectedLoot(lootIndex) ||
-                drop.room != expectedLootRoom(lootIndex) ||
-                (lootIndex >= 2 && drop.position.y != kFloorY + 12.0F)) {
+                drop.room != expectedLootRoom(lootIndex)) {
                 return false;
+            }
+            // Saves do not store extra loot height; it follows the enemy spawn.
+            if (lootIndex >= 2) {
+                restored.lootDrops_[lootIndex].position.y =
+                    world_->enemies[lootEnemy(lootIndex)].bounds.y + 12.0F;
             }
         } else if (drop.stack != ItemStack{}) {
             return false;
@@ -653,32 +625,22 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
 }
 
 std::string_view Game::roomName() const noexcept {
-    return kRooms[roomIndex(room_)].name;
+    return currentRoom().name;
 }
 
 Tile Game::tileAt(int column, int row) const noexcept {
     if (row >= kRoomRows) {
         return Tile::Solid;
     }
-    if (column < 0 || column >= kRoomColumns || row < 0) {
+    if (column < 0 || column >= roomColumns() || row < 0) {
         return Tile::Empty;
     }
-
-    Tile result = Tile::Empty;
-    for (const TileSpan& span : kRooms[roomIndex(room_)].tiles) {
-        if (row == span.row && column >= span.column && column < span.column + span.length) {
-            if (span.tile == Tile::Hazard) {
-                return Tile::Hazard;
-            }
-            result = span.tile;
-        }
-    }
-    return result;
+    return currentRoom().tiles[static_cast<std::size_t>(row * kMaxLayoutColumns + column)];
 }
 
 float Game::cameraX() const noexcept {
     const float centered = player_.position.x + kPlayerWidth * 0.5F - 320.0F;
-    return std::clamp(centered, 0.0F, static_cast<float>(kRoomWidth) - 640.0F);
+    return std::clamp(centered, 0.0F, roomWidth() - 640.0F);
 }
 
 int Game::livingEnemies(RoomId room) const noexcept {
@@ -853,7 +815,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
         }
     }
 
-    if (!hasAbility(kEchoStepAbilityId) && room_ == RoomId::ResearchLab &&
+    if (!hasAbility(kEchoStepAbilityId) && room_ == world_->abilityRoom &&
         overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, abilityPickup_)) {
         if (abilityModule_ != nullptr) {
             const framework::Status unlocked =
@@ -1031,7 +993,7 @@ void Game::damageEnemy(std::size_t index, int amount) noexcept {
         lootDrops_[loot] = {
             enemy.room,
             {std::clamp(enemy.bounds.x + (enemy.bounds.width - 16.0F) * 0.5F + offset,
-                        0.0F, static_cast<float>(kRoomWidth) - 16.0F),
+                        0.0F, world_->rooms[roomIndex(enemy.room)].width() - 16.0F),
              enemy.bounds.y + 12.0F},
             expectedLoot(loot), true};
     }
@@ -1042,7 +1004,7 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
         if (!projectile.active) continue;
         projectile.bounds.x += projectile.velocityX * deltaSeconds;
         if (projectile.room != room_ || projectile.bounds.x < 0.0F ||
-            projectile.bounds.x > static_cast<float>(kRoomWidth) ||
+            projectile.bounds.x > roomWidth() ||
             collidesWithWorld(projectile.bounds)) {
             projectile.active = false;
         } else if (overlaps(projectile.bounds,
@@ -1057,7 +1019,7 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
         }
         projectile.bounds.x += projectile.velocityX * deltaSeconds;
         if (projectile.room != room_ || projectile.bounds.x < 0.0F ||
-            projectile.bounds.x > static_cast<float>(kRoomWidth)) {
+            projectile.bounds.x > roomWidth()) {
             projectile.active = false;
             continue;
         }
@@ -1496,15 +1458,14 @@ framework::Status Game::interact(int moveDirection) noexcept {
         }
         return status;
     }
-    if (room_ == RoomId::MaintenanceTunnel &&
-        overlaps(playerBounds, {970.0F, 272.0F, 44.0F, 48.0F})) {
-        if (inventory_.contains(ItemId::MaintenanceKey)) {
-            enterRoom(RoomId::ResearchLab, true);
-        } else {
+    for (const DoorLayout& door : world_->doorList()) {
+        if (door.room != room_ || !overlaps(playerBounds, door.bounds)) continue;
+        if (door.requiresKey && !inventory_.contains(ItemId::MaintenanceKey)) {
             accessBlocked_ = true;
+        } else {
+            enterRoom(door.destination, door.arriveFromLeft);
         }
-    } else if (room_ == RoomId::ResearchLab && player_.position.x < 120.0F) {
-        enterRoom(RoomId::MaintenanceTunnel, false);
+        break;
     }
     return framework::Status::success();
 }
@@ -1515,38 +1476,33 @@ bool Game::hasAbility(std::string_view id) const noexcept {
 }
 
 void Game::resolveRoomEdges() noexcept {
+    const float width = roomWidth();
     if (player_.position.x < 0.0F) {
-        if (room_ == RoomId::MaintenanceTunnel) {
-            enterRoom(RoomId::LandingBay, false);
-        } else if (room_ == RoomId::PowerStation) {
-            enterRoom(RoomId::MaintenanceTunnel, false);
-        } else if (room_ == RoomId::CentralChamber) {
-            enterRoom(RoomId::PowerStation, false);
+        const RoomExitLayout& exit = currentRoom().left;
+        if (exit.open && !exit.completesGame &&
+            (!exit.requiresEchoStep || hasAbility(kEchoStepAbilityId))) {
+            enterRoom(exit.room, false);
         } else {
             player_.position.x = 0.0F;
+            if (exit.open && exit.completesGame) completed_ = true;
+            if (exit.open && exit.requiresEchoStep) gateBlocked_ = true;
         }
-    } else if (player_.position.x + kPlayerWidth > static_cast<float>(kRoomWidth)) {
-        if (room_ == RoomId::LandingBay) {
-            enterRoom(RoomId::MaintenanceTunnel, true);
-        } else if (room_ == RoomId::MaintenanceTunnel) {
-            enterRoom(RoomId::PowerStation, true);
-        } else if (room_ == RoomId::PowerStation && hasAbility(kEchoStepAbilityId)) {
-            enterRoom(RoomId::CentralChamber, true);
-        } else if (room_ == RoomId::CentralChamber) {
-            completed_ = true;
-            player_.position.x = static_cast<float>(kRoomWidth) - kPlayerWidth;
+    } else if (player_.position.x + kPlayerWidth > width) {
+        const RoomExitLayout& exit = currentRoom().right;
+        if (exit.open && !exit.completesGame &&
+            (!exit.requiresEchoStep || hasAbility(kEchoStepAbilityId))) {
+            enterRoom(exit.room, true);
         } else {
-            player_.position.x = static_cast<float>(kRoomWidth) - kPlayerWidth;
-            if (room_ == RoomId::PowerStation) {
-                gateBlocked_ = true;
-            }
+            player_.position.x = width - kPlayerWidth;
+            if (exit.open && exit.completesGame) completed_ = true;
+            if (exit.open && exit.requiresEchoStep && !exit.completesGame) gateBlocked_ = true;
         }
     }
 }
 
 void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     room_ = destination;
-    player_.position.x = fromLeft ? 16.0F : static_cast<float>(kRoomWidth) - kPlayerWidth - 16.0F;
+    player_.position.x = fromLeft ? 16.0F : roomWidth() - kPlayerWidth - 16.0F;
     player_.position.y = kFloorY;
     player_.velocity = {};
     player_.onGround = true;

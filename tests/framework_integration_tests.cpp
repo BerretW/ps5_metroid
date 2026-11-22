@@ -47,7 +47,7 @@ int main() {
     }
     {
         auto missingModule = std::make_unique<echo::platform::FrameworkIntegration>();
-        const auto status = missingModule->initialize(fixturePath, dialoguePath);
+        const auto status = missingModule->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS);
         check(status.code == echo::framework::ErrorCode::MissingDependency &&
                   status.subject == "echo.project_echo",
               "single-module configuration rejects the missing PROJECT ECHO adapter");
@@ -59,7 +59,7 @@ int main() {
         fixture.close();
         check(static_cast<bool>(fixture), "invalid dialogue fixture is written");
         auto malformedDialogue = std::make_unique<echo::platform::FrameworkIntegration>();
-        check(malformedDialogue->initialize(configPath, fixturePath, itemCatalogPath).code ==
+        check(malformedDialogue->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS).code ==
                   echo::framework::ErrorCode::ParseError,
               "malformed dialogue content fails startup explicitly");
     }
@@ -81,7 +81,7 @@ int main() {
             invalid.replace(position, original.size(), replacement);
             check(writeFixture(invalid), "invalid quest configuration is written");
             auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
-            check(!integration->initialize(fixturePath, dialoguePath, itemCatalogPath),
+            check(!integration->initialize(fixturePath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS),
                   "runtime rejects unsupported quest or cutscene content");
         }
     }
@@ -99,7 +99,7 @@ int main() {
         check(writeFixture(shiftedConfig), "shifted engineer configuration is written");
         auto shifted = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game shiftedGame;
-        check(shifted->initialize(fixturePath, dialoguePath) &&
+        check(shifted->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   shifted->configureGame(shiftedGame) &&
                   shiftedGame.technicianBounds().x == 250.0F &&
                   !shiftedGame.technicianNearby(),
@@ -126,14 +126,14 @@ int main() {
               "narrow interaction config is written");
         auto narrow = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game narrowGame;
-        check(narrow->initialize(fixturePath, dialoguePath) &&
+        check(narrow->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   narrow->configureGame(narrowGame) && !narrowGame.technicianNearby(),
               "configured narrow reach changes gameplay");
         check(writeFixture(configForInteraction(R"({"horizontalReach":47})")),
               "wide interaction config is written");
         auto wide = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game wideGame;
-        check(wide->initialize(fixturePath, dialoguePath) &&
+        check(wide->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   wide->configureGame(wideGame) && wideGame.technicianNearby(),
               "configured wider reach allows talking from the same position");
         const auto checkpoint = wideGame.checkpoint();
@@ -144,14 +144,14 @@ int main() {
               "minimum interaction reach config is written");
         auto minimum = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game minimumGame;
-        check(minimum->initialize(fixturePath, dialoguePath) &&
+        check(minimum->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   minimum->configureGame(minimumGame) && !minimumGame.technicianNearby(),
               "minimum interaction reach is accepted");
         check(writeFixture(configForInteraction(R"({"horizontalReach":128})")),
               "maximum interaction reach config is written");
         auto maximum = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game maximumGame;
-        check(maximum->initialize(fixturePath, dialoguePath) &&
+        check(maximum->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   maximum->configureGame(maximumGame) && maximumGame.technicianNearby(),
               "maximum interaction reach is accepted");
         for (const std::string_view invalid : {
@@ -161,14 +161,14 @@ int main() {
             check(writeFixture(configForInteraction(invalid)),
                   "invalid interaction config is written");
             auto invalidInteraction = std::make_unique<echo::platform::FrameworkIntegration>();
-            check(invalidInteraction->initialize(fixturePath, dialoguePath).code ==
+            check(invalidInteraction->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
                       echo::framework::ErrorCode::InvalidValue,
                   "invalid interaction component is rejected before gameplay");
         }
         check(writeFixture(configForInteraction("{}")), "default interaction config is written");
         auto defaults = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game defaultGame;
-        check(defaults->initialize(fixturePath, dialoguePath) &&
+        check(defaults->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   defaults->configureGame(defaultGame) && defaultGame.technicianNearby(),
               "omitted component property uses the legacy reach");
         constexpr std::string_view legacyConfig = R"({
@@ -183,7 +183,7 @@ int main() {
         check(writeFixture(legacyConfig), "legacy configuration is written");
         auto legacy = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game legacyGame;
-        check(legacy->initialize(fixturePath, dialoguePath) &&
+        check(legacy->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS) &&
                   legacy->configureGame(legacyGame) && legacyGame.technicianNearby(),
               "legacy configurations without the component retain the original reach");
     }
@@ -200,7 +200,7 @@ int main() {
         })";
         check(writeFixture(unsupportedTransform), "unsupported transform fixture is written");
         auto invalidTransform = std::make_unique<echo::platform::FrameworkIntegration>();
-        check(invalidTransform->initialize(fixturePath, dialoguePath).code ==
+        check(invalidTransform->initialize(fixturePath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
                   echo::framework::ErrorCode::InvalidValue,
               "unsupported engineer transform fields fail rather than being ignored");
     }
@@ -226,7 +226,7 @@ int main() {
         check(writeFixture(unsupportedAction), "unsupported dialogue action fixture is written");
         auto invalidAction = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game invalidGame;
-        check(invalidAction->initialize(configPath, fixturePath, itemCatalogPath) &&
+        check(invalidAction->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS) &&
                   invalidAction->configureGame(invalidGame).code ==
                       echo::framework::ErrorCode::InvalidValue &&
                   !invalidGame.inventory().contains(echo::ItemId::MaintenanceKey),
@@ -248,7 +248,7 @@ int main() {
                 return echo::framework::ErrorCode::StorageFailure;
             }
             auto candidate = std::make_unique<echo::platform::FrameworkIntegration>();
-            return candidate->initialize(configPath, fixturePath, itemCatalogPath).code;
+            return candidate->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS).code;
         };
         check(displayStatus(std::string(39, 'A'), std::string(80, 'A'),
                             std::string(72, 'A')) == echo::framework::ErrorCode::None,
@@ -269,22 +269,91 @@ int main() {
     }
     check(std::remove(fixturePath) == 0, "dialogue display fixture is removed");
     auto missingItemCatalog = std::make_unique<echo::platform::FrameworkIntegration>();
-    check(missingItemCatalog->initialize(configPath, dialoguePath).code ==
+    check(missingItemCatalog->initialize(configPath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::InvalidArgument,
           "selected inventory module requires its external item catalog");
     auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
-    check(integration->initialize("missing-framework-config.json", dialoguePath).code ==
+    check(integration->initialize("missing-framework-config.json", dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::NotFound,
           "missing game configuration is reported");
-    check(integration->initialize(configPath, "missing-engineer-dialogue.json",
-                                  itemCatalogPath).code ==
+    check(integration->initialize(configPath, "missing-engineer-dialogue.json", itemCatalogPath, ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::NotFound,
           "missing dialogue content is reported");
-    check(integration->initialize(configPath, dialoguePath, itemCatalogPath),
+    check(integration->initialize(configPath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS),
           "PROJECT ECHO module configuration initializes");
     check(integration->beginGame(), "framework state resets at a new game");
     echo::Game game;
     check(integration->configureGame(game), "game binds the initialized dialogue module");
+    {
+        const echo::WorldLayout* loaded = integration->worldLayout();
+        const echo::WorldLayout& expected = echo::defaultWorldLayout();
+        check(loaded != nullptr && &game.world() == loaded,
+              "the selected world module configures the game layout from JSON");
+        if (loaded != nullptr) {
+            bool roomsMatch = true;
+            for (std::size_t index = 0; index < echo::kRoomCount; ++index) {
+                const echo::RoomLayout& room = loaded->rooms[index];
+                const echo::RoomLayout& reference = expected.rooms[index];
+                const auto sameExit = [](const echo::RoomExitLayout& a,
+                                         const echo::RoomExitLayout& b) {
+                    return a.open == b.open && a.completesGame == b.completesGame &&
+                           a.requiresEchoStep == b.requiresEchoStep &&
+                           (!a.open || a.completesGame || a.room == b.room);
+                };
+                roomsMatch = roomsMatch && room.name == reference.name &&
+                             room.columns == reference.columns && room.tiles == reference.tiles &&
+                             room.background == reference.background &&
+                             sameExit(room.left, reference.left) &&
+                             sameExit(room.right, reference.right) && room.definition != nullptr;
+            }
+            check(roomsMatch, "JSON rooms reproduce the compiled collision, exits and backgrounds");
+            bool enemiesMatch = true;
+            for (std::size_t index = 0; index < echo::kEnemyCount; ++index) {
+                const echo::EnemySpawn& enemy = loaded->enemies[index];
+                const echo::EnemySpawn& reference = expected.enemies[index];
+                enemiesMatch = enemiesMatch && enemy.room == reference.room &&
+                               enemy.bounds.x == reference.bounds.x &&
+                               enemy.bounds.y == reference.bounds.y &&
+                               enemy.bounds.width == reference.bounds.width &&
+                               enemy.bounds.height == reference.bounds.height &&
+                               enemy.patrolLeft == reference.patrolLeft &&
+                               enemy.patrolRight == reference.patrolRight &&
+                               enemy.speed == reference.speed && enemy.health == reference.health &&
+                               enemy.type == reference.type && enemy.archetype != nullptr;
+            }
+            check(enemiesMatch, "JSON enemy placements reproduce every save slot");
+            bool doorsMatch = loaded->doorCount == expected.doorCount;
+            for (std::size_t index = 0; doorsMatch && index < loaded->doorCount; ++index) {
+                const echo::DoorLayout& door = loaded->doors[index];
+                const echo::DoorLayout& reference = expected.doors[index];
+                doorsMatch = door.room == reference.room && door.destination == reference.destination &&
+                             door.bounds.x == reference.bounds.x && door.bounds.y == reference.bounds.y &&
+                             door.bounds.width == reference.bounds.width &&
+                             door.bounds.height == reference.bounds.height &&
+                             door.arriveFromLeft == reference.arriveFromLeft &&
+                             door.requiresKey == reference.requiresKey &&
+                             door.visible == reference.visible;
+            }
+            check(doorsMatch, "JSON doors and triggers reproduce the compiled transitions");
+            check(loaded->playerStart.x == expected.playerStart.x &&
+                      loaded->playerStart.y == expected.playerStart.y &&
+                      loaded->abilityRoom == expected.abilityRoom &&
+                      loaded->abilityPickup.x == expected.abilityPickup.x &&
+                      loaded->abilityPickup.y == expected.abilityPickup.y &&
+                      loaded->abilityPickup.width == expected.abilityPickup.width &&
+                      loaded->abilityPickup.height == expected.abilityPickup.height &&
+                      loaded->propCount > 0,
+                  "JSON player start, pickup and decorative props are loaded");
+            const echo::framework::ObjectDefinition* heavy =
+                loaded->enemies[1].archetype;
+            check(heavy != nullptr && heavy->id() == "echo:object/enemy_patrol_heavy" &&
+                      std::string_view{heavy->sprite().sheet.data()} == "sprites/enemies/heavy.png" &&
+                      heavy->findAnimation("walk") != nullptr &&
+                      heavy->findAnimation("walk")->frames == 4 &&
+                      heavy->findAnimation("walk")->fps == 6,
+                  "the heavy patrol inherits animations from the patrol enemy and overrides its sheet");
+        }
+    }
     check(game.technicianBounds().x == 108.0F && game.technicianBounds().y == 280.0F,
           "schema-instantiated transform positions the engineer in the game");
     const auto greetingStatus = game.update({.interactPressed = true});

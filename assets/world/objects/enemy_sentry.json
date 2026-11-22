@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_sentry",
+  "parent": "echo:object/enemy_base",
+  "sprite": {
+    "sheet": "sprites/enemies/sentry.png"
+  },
+  "defaultAnimation": "idle",
+  "properties": {
+    "behavior": "sentry",
+    "health": 4,
+    "speed": 0
+  }
+}

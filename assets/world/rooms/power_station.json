@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/power_station",
+  "parent": "echo:room/station_base",
+  "name": "Power Station",
+  "background": [28, 27, 47],
+  "tiles": {
+    "#": {
+      "tileset": "station",
+      "x": 2,
+      "y": 1,
+      "collision": "solid"
+    },
+    "=": {
+      "tileset": "station",
+      "x": 3,
+      "y": 1,
+      "collision": "solid"
+    }
+  },
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        "       *        *        *        *     ",
+        "   -   -     -     -     -     -     -  ",
+        "       |  oooooooooooooooooooo   |      ",
+        "       |            |            |      ",
+        "       |            |            |      ",
+        "       |            |            |      ",
+        "       |            |            |      ",
+        "       |            |            | !!   ",
+        "       |            |            |      ",
+        "                                      v ",
+        "                                        ",
+        "________________________________________"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "             =====                      ",
+        "    =====              =====   ^^^      ",
+        "                                        ",
+        "########################################",
+        "                                        "
+      ]
+    }
+  ],
+  "exits": {
+    "left": {
+      "room": "echo:room/maintenance_tunnel"
+    },
+    "right": {
+      "room": "echo:room/central_chamber",
+      "requiresAbility": "echo:ability/echo_step"
+    }
+  },
+  "objects": [
+    {
+      "id": "heavy",
+      "object": "echo:object/enemy_patrol_heavy",
+      "position": [790, 292],
+      "properties": {
+        "patrolMin": 720,
+        "patrolMax": 940
+      }
+    },
+    {
+      "id": "armored",
+      "object": "echo:object/enemy_armored",
+      "position": [530, 292],
+      "properties": {
+        "patrolMin": 480,
+        "patrolMax": 650
+      }
+    },
+    {
+      "id": "alarm",
+      "object": "echo:object/prop_console_alert",
+      "position": [1060, 288],
+      "facing": "left"
+    }
+  ]
+}

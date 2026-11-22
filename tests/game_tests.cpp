@@ -300,6 +300,31 @@ void testRoomTransition() {
     check(game.roomName() == "Maintenance Tunnel", "room transition loads the destination name");
 }
 
+void testDataDrivenWorldLayout() {
+    static echo::WorldLayout wide = echo::defaultWorldLayout();
+    echo::RoomLayout& landing = wide.rooms[static_cast<std::size_t>(echo::RoomId::LandingBay)];
+    landing.columns = 48;
+    for (int column = 40; column < 48; ++column) {
+        landing.tiles[static_cast<std::size_t>(10 * echo::kMaxLayoutColumns + column)] = echo::Tile::Solid;
+    }
+    echo::Game game;
+    check(static_cast<bool>(game.configureWorld(wide)) && game.roomColumns() == 48,
+          "a data-driven layout can widen a room beyond the built-in 40 columns");
+    check(moveUntilX(game, 1300.0F, 1) && game.roomId() == echo::RoomId::LandingBay,
+          "the player keeps walking past the old room edge in the wider room");
+    check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1),
+          "the wider room still exits through its configured right edge");
+
+    static echo::WorldLayout invalid = echo::defaultWorldLayout();
+    invalid.rooms[0].columns = echo::kMaxLayoutColumns + 1;
+    echo::Game rejected;
+    check(!rejected.configureWorld(invalid) && rejected.roomColumns() == echo::kRoomColumns,
+          "an out-of-bounds layout is rejected and the previous world is kept");
+    static echo::WorldLayout weakEnemy = echo::defaultWorldLayout();
+    weakEnemy.enemies[0].health = 0;
+    check(!rejected.configureWorld(weakEnemy), "enemy spawns outside the save contract are rejected");
+}
+
 void testTechnicianDialogueAndInventory() {
     echo::Game unconfigured;
     check(unconfigured.update({.interactPressed = true}).code ==
@@ -936,6 +961,7 @@ int main() {
     testCheckpointRoundTrip();
     testEnemyLootDrops();
     testRoomTransition();
+    testDataDrivenWorldLayout();
     testTechnicianDialogueAndInventory();
     testHealthCellDialogueAndUse();
     testKineticCoilDialogueAndCheckpoint();

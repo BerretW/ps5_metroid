@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "startRoom": "echo:room/landing_bay",
+  "objects": [
+    "echo:object/actor_base",
+    "echo:object/enemy_base",
+    "echo:object/enemy_patrol",
+    "echo:object/enemy_patrol_heavy",
+    "echo:object/enemy_charger",
+    "echo:object/enemy_armored",
+    "echo:object/enemy_sentry",
+    "echo:object/player",
+    "echo:object/engineer",
+    "echo:object/projectile_base",
+    "echo:object/projectile_player",
+    "echo:object/projectile_enemy",
+    "echo:object/pickup_echo_step",
+    "echo:object/door_lab",
+    "echo:object/loot_crate",
+    "echo:object/prop_base",
+    "echo:object/prop_console",
+    "echo:object/prop_console_alert",
+    "echo:object/prop_crate",
+    "echo:object/trigger_lab_exit"
+  ],
+  "rooms": [
+    "echo:room/station_base",
+    "echo:room/landing_bay",
+    "echo:room/maintenance_tunnel",
+    "echo:room/power_station",
+    "echo:room/research_lab",
+    "echo:room/central_chamber"
+  ]
+}

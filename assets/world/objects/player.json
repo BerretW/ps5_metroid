@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/player",
+  "parent": "echo:object/actor_base",
+  "category": "player",
+  "sprite": {
+    "sheet": "sprites/player.png",
+    "frameWidth": 24,
+    "frameHeight": 32,
+    "offset": [-2, -2]
+  },
+  "bounds": [20, 28],
+  "spawn": {
+    "position": [42, 292]
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 2,
+      "loop": true
+    },
+    "run": {
+      "row": 0,
+      "column": 2,
+      "frames": 4,
+      "fps": 11,
+      "loop": true
+    },
+    "jump": {
+      "row": 0,
+      "column": 6,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    },
+    "fall": {
+      "row": 0,
+      "column": 7,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    }
+  }
+}

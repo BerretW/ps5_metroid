@@ -120,6 +120,7 @@ bool Renderer::create() noexcept {
 
 void Renderer::destroy() noexcept {
     releaseSprites();
+    releaseWorldSprites();
     if (renderer_ != nullptr) {
         SDL_DestroyRenderer(renderer_);
         renderer_ = nullptr;
@@ -169,6 +170,146 @@ int Renderer::loadSprites(const char* assetDirectory) noexcept {
 
 bool Renderer::hasSprite(Sprite sprite) const noexcept {
     return sprites_[static_cast<std::size_t>(sprite)] != nullptr;
+}
+
+void Renderer::releaseWorldSprites() noexcept {
+    for (WorldSheet& sheet : worldSheets_) {
+        if (sheet.texture != nullptr) SDL_DestroyTexture(sheet.texture);
+        sheet = {};
+    }
+    worldSheetCount_ = 0;
+}
+
+const Renderer::WorldSheet* Renderer::worldSheet(std::string_view path) const noexcept {
+    for (int index = 0; index < worldSheetCount_; ++index) {
+        const WorldSheet& sheet = worldSheets_[static_cast<std::size_t>(index)];
+        if (std::string_view(sheet.path.data()) == path) return &sheet;
+    }
+    return nullptr;
+}
+
+bool Renderer::loadWorldSheet(const char* assetDirectory, std::string_view path) noexcept {
+    if (path.empty() || worldSheet(path) != nullptr) return true;
+    if (worldSheetCount_ == kMaxWorldSheets || path.size() >= WorldSheet{}.path.size() ||
+        !framework::WorldModule::validSpritePath(path)) {
+        return false;
+    }
+    char fullPath[512];
+    const int written = std::snprintf(fullPath, sizeof(fullPath), "%s%.*s", assetDirectory,
+                                      static_cast<int>(path.size()), path.data());
+    if (written <= 0 || written >= static_cast<int>(sizeof(fullPath))) return false;
+    SDL_Texture* texture = loadPngTexture(renderer_, fullPath);
+    int width = 0;
+    int height = 0;
+    if (texture == nullptr ||
+        SDL_QueryTexture(texture, nullptr, nullptr, &width, &height) != 0) {
+        if (texture != nullptr) SDL_DestroyTexture(texture);
+        SDL_Log("World sprite sheet could not be loaded: %s", fullPath);
+        return false;
+    }
+    WorldSheet& sheet = worldSheets_[static_cast<std::size_t>(worldSheetCount_++)];
+    std::copy(path.begin(), path.end(), sheet.path.begin());
+    sheet.texture = texture;
+    sheet.width = width;
+    sheet.height = height;
+    return true;
+}
+
+int Renderer::loadWorldSprites(const char* assetDirectory, const WorldLayout& world) noexcept {
+    releaseWorldSprites();
+    if (renderer_ == nullptr || assetDirectory == nullptr) return 0;
+    const auto loadObject = [&](const framework::ObjectDefinition* object) {
+        if (object != nullptr) (void)loadWorldSheet(assetDirectory, object->sprite().sheet.data());
+    };
+    const WorldArchetypes& archetypes = world.archetypes;
+    for (const framework::ObjectDefinition* object :
+         {archetypes.player, archetypes.engineer, archetypes.pickup, archetypes.projectile,
+          archetypes.enemyProjectile, archetypes.loot}) {
+        loadObject(object);
+    }
+    for (const EnemySpawn& enemy : world.enemies) loadObject(enemy.archetype);
+    for (const DoorLayout& door : world.doorList()) {
+        if (door.visible) loadObject(door.archetype);
+    }
+    for (const PropLayout& prop : world.propList()) loadObject(prop.archetype);
+    for (const RoomLayout& room : world.rooms) {
+        if (room.definition == nullptr) continue;
+        for (const framework::TilesetSpec& tileset : room.definition->tilesets()) {
+            (void)loadWorldSheet(assetDirectory, tileset.sheet.data());
+        }
+    }
+    return worldSheetCount_;
+}
+
+bool Renderer::drawObject(const framework::ObjectDefinition* object,
+                          std::string_view animationName, Uint64 ticks, Rect bounds,
+                          float cameraX, bool flip) noexcept {
+    if (object == nullptr) return false;
+    const framework::SpriteSheetSpec& spec = object->sprite();
+    const WorldSheet* sheet = worldSheet(spec.sheet.data());
+    const framework::AnimationSpec* animation = object->animationOrDefault(animationName);
+    if (sheet == nullptr || animation == nullptr || animation->frames <= 0 ||
+        spec.frameWidth <= 0 || spec.frameHeight <= 0) {
+        return false;
+    }
+    const auto frames = static_cast<Uint64>(animation->frames);
+    const Uint64 frame = animation->loop
+        ? (ticks * static_cast<Uint64>(std::max(animation->fps, 0)) / 1000U) % frames
+        : frames - 1U;
+    const SDL_Rect source{(animation->column + static_cast<int>(frame)) * spec.frameWidth,
+                          animation->row * spec.frameHeight, spec.frameWidth, spec.frameHeight};
+    if (source.x < 0 || source.y < 0 || source.x + source.w > sheet->width ||
+        source.y + source.h > sheet->height) {
+        return false;
+    }
+    // Mirroring keeps the frame aligned with the collision box.
+    const int offsetX = flip
+        ? static_cast<int>(bounds.width) - spec.frameWidth - spec.offsetX
+        : spec.offsetX;
+    const SDL_Rect destination{static_cast<int>(bounds.x - cameraX) + offsetX,
+                               static_cast<int>(bounds.y) + spec.offsetY,
+                               spec.frameWidth, spec.frameHeight};
+    return SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination, 0.0, nullptr,
+                            flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE) == 0;
+}
+
+bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
+    const framework::RoomDefinition* definition = room.definition;
+    if (definition == nullptr) return false;
+    const int firstColumn = std::max(0, static_cast<int>(cameraX) / kTileSize);
+    const int lastColumn = std::min(room.columns - 1, firstColumn + 640 / kTileSize + 1);
+    for (std::size_t layer = 0; layer < definition->layers().size(); ++layer) {
+        for (int row = 0; row < definition->rows(); ++row) {
+            for (int column = firstColumn; column <= lastColumn; ++column) {
+                const framework::TileType* tile = definition->tile(layer, column, row);
+                if (tile == nullptr) continue;
+                const framework::TilesetSpec& tileset = definition->tilesets()[tile->tilesetIndex];
+                const WorldSheet* sheet = worldSheet(tileset.sheet.data());
+                const SDL_Rect source{
+                    tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
+                    tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
+                    tileset.tileWidth, tileset.tileHeight};
+                const SDL_Rect destination{static_cast<int>(column * kTileSize - cameraX),
+                                           row * kTileSize, kTileSize, kTileSize};
+                if (sheet == nullptr || source.x + source.w > sheet->width ||
+                    source.y + source.h > sheet->height) {
+                    // Keep collision visible when a tileset is missing.
+                    if (tile->collision == framework::TileCollision::Hazard) {
+                        panel(destination, SDL_Color{121, 43, 51, 255});
+                    } else if (tile->collision == framework::TileCollision::Solid) {
+                        panel(destination, SDL_Color{37, 61, 74, 255});
+                    }
+                    continue;
+                }
+                const int flags = (tile->flipX ? SDL_FLIP_HORIZONTAL : 0) |
+                                  (tile->flipY ? SDL_FLIP_VERTICAL : 0);
+                SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination,
+                                 static_cast<double>(tile->rotation), nullptr,
+                                 static_cast<SDL_RendererFlip>(flags));
+            }
+        }
+    }
+    return true;
 }
 
 bool Renderer::sprite(Sprite sprite, int frame, SDL_Rect destination, bool flip) noexcept {
@@ -362,13 +503,13 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     SDL_RenderClear(renderer_);
 
     const float cameraX = game.cameraX();
-    const int roomTone = static_cast<int>(game.roomId());
-    const SDL_Color roomTint = roomTone == 3 ? SDL_Color{20, 38, 42, 255}
-                                : roomTone == 2 ? SDL_Color{28, 27, 47, 255}
-                                                : SDL_Color{13, 30, 43, 255};
-    panel({0, 0, 640, 360}, roomTint);
+    const RoomLayout& room = game.currentRoom();
+    const WorldLayout& world = game.world();
+    panel({0, 0, 640, 360},
+          SDL_Color{room.background[0], room.background[1], room.background[2], 255});
 
-    for (int column = 0; column < kRoomColumns; ++column) {
+    const bool layered = drawRoomLayers(room, cameraX);
+    for (int column = 0; !layered && column < game.roomColumns(); ++column) {
         const int screenX = static_cast<int>(column * kTileSize - cameraX);
         if (screenX < -kTileSize || screenX > 640) {
             continue;
@@ -396,17 +537,29 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     }
 
     const Uint64 ticks = SDL_GetTicks64();
-    if (game.roomId() == RoomId::MaintenanceTunnel) {
-        const int doorX = static_cast<int>(970.0F - cameraX);
-        if (!sprite(Sprite::Door, 0, {doorX, 272, 44, 48})) {
-            panel({doorX, 272, 44, 48}, SDL_Color{32, 63, 76, 255});
-            panel({doorX + 5, 278, 34, 36}, SDL_Color{19, 39, 49, 255});
-            panel({doorX + 32, 294, 3, 3}, kCyan);
+    for (const PropLayout& prop : world.propList()) {
+        if (prop.room != game.roomId() || prop.archetype == nullptr) continue;
+        (void)drawObject(prop.archetype, "idle", ticks,
+                         {prop.position.x, prop.position.y, prop.archetype->width(),
+                          prop.archetype->height()},
+                         cameraX, prop.facingLeft);
+    }
+    for (const DoorLayout& door : world.doorList()) {
+        if (door.room != game.roomId() || !door.visible) continue;
+        const int doorX = static_cast<int>(door.bounds.x - cameraX);
+        const int doorY = static_cast<int>(door.bounds.y);
+        if (!drawObject(door.archetype, "idle", ticks, door.bounds, cameraX, false) &&
+            !sprite(Sprite::Door, 0, {doorX, doorY, 44, 48})) {
+            panel({doorX, doorY, 44, 48}, SDL_Color{32, 63, 76, 255});
+            panel({doorX + 5, doorY + 6, 34, 36}, SDL_Color{19, 39, 49, 255});
+            panel({doorX + 32, doorY + 22, 3, 3}, kCyan);
         }
-    } else if (game.roomId() == RoomId::ResearchLab && !game.abilityCollected()) {
+    }
+    if (game.roomId() == world.abilityRoom && !game.abilityCollected()) {
         const Rect pickup = game.abilityPickup();
         const int pickupX = static_cast<int>(pickup.x - cameraX);
-        if (!sprite(Sprite::Pickup, static_cast<int>((ticks / 300U) % 2U),
+        if (!drawObject(world.archetypes.pickup, "idle", ticks, pickup, cameraX, false) &&
+            !sprite(Sprite::Pickup, static_cast<int>((ticks / 300U) % 2U),
                     {pickupX - 6, static_cast<int>(pickup.y) - 10, 32, 32})) {
             panel({pickupX - 7, static_cast<int>(pickup.y) - 7, 34, 34}, SDL_Color{23, 59, 67, 255});
             panel({pickupX, static_cast<int>(pickup.y), 20, 20}, kCyan);
@@ -418,25 +571,39 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         const Rect technician = game.technicianBounds();
         const int x = static_cast<int>(technician.x - cameraX);
         const int y = static_cast<int>(technician.y);
-        panel({x + 4, y + 12, 20, 28}, SDL_Color{45, 122, 129, 255});
-        panel({x + 6, y + 1, 16, 15}, SDL_Color{190, 166, 132, 255});
-        panel({x + 7, y, 14, 5}, SDL_Color{55, 53, 65, 255});
-        panel({x + 8, y + 7, 3, 3}, kText);
-        panel({x + 17, y + 7, 3, 3}, kText);
-        panel({x + 7, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
-        panel({x + 16, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
+        const bool talking = game.dialogueActive();
+        if (!drawObject(world.archetypes.engineer, talking ? "talk" : "idle", ticks,
+                        technician, cameraX, false)) {
+            panel({x + 4, y + 12, 20, 28}, SDL_Color{45, 122, 129, 255});
+            panel({x + 6, y + 1, 16, 15}, SDL_Color{190, 166, 132, 255});
+            panel({x + 7, y, 14, 5}, SDL_Color{55, 53, 65, 255});
+            panel({x + 8, y + 7, 3, 3}, kText);
+            panel({x + 17, y + 7, 3, 3}, kText);
+            panel({x + 7, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
+            panel({x + 16, y + 38, 6, 2}, SDL_Color{35, 52, 65, 255});
+        }
         if (game.technicianNearby() && !game.dialogueActive()) {
             text(x - 1, y - 12, "ENGINEER", 1, kCyan);
         }
     }
 
-    for (const Enemy& enemy : game.enemies()) {
+    for (std::size_t index = 0; index < game.enemies().size(); ++index) {
+        const Enemy& enemy = game.enemies()[index];
         if (!enemy.alive || enemy.room != game.roomId()) {
             continue;
         }
         const int x = static_cast<int>(enemy.bounds.x - cameraX);
         const int y = static_cast<int>(enemy.bounds.y);
         const int width = static_cast<int>(enemy.bounds.width);
+        const bool guarding = enemy.type == EnemyType::Armored && enemy.attackCooldown >= 2.0F;
+        const std::string_view animation =
+            enemy.type == EnemyType::Sentry ? "idle" : guarding ? "guard" : "walk";
+        const bool flip = enemy.type == EnemyType::Sentry
+            ? game.player().position.x < enemy.bounds.x : enemy.speed < 0.0F;
+        if (drawObject(world.enemies[index].archetype, animation, ticks, enemy.bounds,
+                       cameraX, flip)) {
+            continue;
+        }
         if (!sprite(Sprite::Enemy, static_cast<int>((ticks / 180U) % 2U),
                     {x + (width - 32) / 2, y + static_cast<int>(enemy.bounds.height) - 32, 32, 32})) {
             panel({x, y + 8, width, 20}, SDL_Color{135, 80, 99, 255});
@@ -457,10 +624,13 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         if (!drop.active || drop.room != game.roomId()) continue;
         const int x = static_cast<int>(drop.position.x - cameraX);
         const int y = static_cast<int>(drop.position.y);
-        panel({x - 2, y - 2, 20, 20}, SDL_Color{91, 67, 37, 255});
-        panel({x, y, 16, 16}, SDL_Color{190, 133, 57, 255});
-        panel({x + 3, y + 3, 10, 4}, SDL_Color{235, 190, 93, 255});
-        panel({x + 5, y + 9, 8, 3}, SDL_Color{111, 77, 42, 255});
+        if (!drawObject(world.archetypes.loot, "idle", ticks,
+                        {drop.position.x, drop.position.y, 16.0F, 16.0F}, cameraX, false)) {
+            panel({x - 2, y - 2, 20, 20}, SDL_Color{91, 67, 37, 255});
+            panel({x, y, 16, 16}, SDL_Color{190, 133, 57, 255});
+            panel({x + 3, y + 3, 10, 4}, SDL_Color{235, 190, 93, 255});
+            panel({x + 5, y + 9, 8, 3}, SDL_Color{111, 77, 42, 255});
+        }
         std::array<char, 8> amount{};
         std::snprintf(amount.data(), amount.size(), "x%u",
                       static_cast<unsigned>(drop.stack.quantity));
@@ -471,7 +641,9 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         if (projectile.active && projectile.room == game.roomId()) {
             const SDL_Rect bounds{static_cast<int>(projectile.bounds.x - cameraX), static_cast<int>(projectile.bounds.y),
                                   static_cast<int>(projectile.bounds.width), static_cast<int>(projectile.bounds.height)};
-            if (!sprite(Sprite::Projectile, static_cast<int>((ticks / 60U) % 2U),
+            if (!drawObject(world.archetypes.projectile, "fly", ticks, projectile.bounds,
+                            cameraX, projectile.velocityX < 0.0F) &&
+                !sprite(Sprite::Projectile, static_cast<int>((ticks / 60U) % 2U),
                         {bounds.x + bounds.w / 2 - 6, bounds.y + bounds.h / 2 - 4, 12, 8},
                         projectile.velocityX < 0.0F)) {
                 panel(bounds, kOrange);
@@ -479,7 +651,9 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
         }
     }
     for (const Projectile& projectile : game.enemyProjectiles()) {
-        if (projectile.active && projectile.room == game.roomId()) {
+        if (projectile.active && projectile.room == game.roomId() &&
+            !drawObject(world.archetypes.enemyProjectile, "fly", ticks, projectile.bounds,
+                        cameraX, projectile.velocityX < 0.0F)) {
             panel({static_cast<int>(projectile.bounds.x - cameraX),
                    static_cast<int>(projectile.bounds.y),
                    static_cast<int>(projectile.bounds.width),
@@ -491,7 +665,13 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     const int playerX = static_cast<int>(player.position.x - cameraX);
     const int playerY = static_cast<int>(player.position.y);
     const bool flashing = (ticks / 90U) % 2U == 0U;
+    const std::string_view playerAnimation =
+        !player.onGround ? (player.velocity.y < 0.0F ? "jump" : "fall")
+        : std::abs(player.velocity.x) > 20.0F ? "run" : "idle";
     if (player.health > 0 && (flashing || !paused) &&
+        !drawObject(world.archetypes.player, playerAnimation, ticks,
+                    {player.position.x, player.position.y, 20.0F, 28.0F},
+                    cameraX, player.facing < 0) &&
         !sprite(Sprite::Player, playerFrame(player, ticks), {playerX - 2, playerY - 2, 24, 32}, player.facing < 0)) {
         panel({playerX, playerY + 5, 20, 23}, SDL_Color{105, 163, 172, 255});
         panel({playerX + 3, playerY, 14, 10}, SDL_Color{174, 211, 207, 255});
@@ -562,8 +742,13 @@ void Renderer::drawGame(const Game& game, bool showMap, bool paused,
     if (game.technicianNearby() && !game.dialogueActive()) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
-    if (game.roomId() == RoomId::MaintenanceTunnel && player.position.x > 900.0F &&
-        player.position.x < 1040.0F) {
+    bool nearDoor = false;
+    for (const DoorLayout& door : world.doorList()) {
+        nearDoor = nearDoor || (door.room == game.roomId() && door.visible &&
+                                player.position.x > door.bounds.x - 70.0F &&
+                                player.position.x < door.bounds.x + door.bounds.width + 26.0F);
+    }
+    if (nearDoor) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (controls_ == ControlScheme::PlayStation) {

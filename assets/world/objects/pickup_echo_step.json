@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/pickup_echo_step",
+  "category": "pickup",
+  "sprite": {
+    "sheet": "sprites/pickup.png",
+    "frameWidth": 32,
+    "frameHeight": 32,
+    "offset": [-6, -10]
+  },
+  "bounds": [20, 24],
+  "spawn": {
+    "position": [690, 294]
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 3,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle",
+  "properties": {
+    "ability": "echo:ability/echo_step"
+  }
+}

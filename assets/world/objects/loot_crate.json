@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/loot_crate",
+  "category": "loot",
+  "sprite": {
+    "sheet": "sprites/objects/loot.png",
+    "frameWidth": 16,
+    "frameHeight": 16
+  },
+  "bounds": [16, 16],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 2,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}

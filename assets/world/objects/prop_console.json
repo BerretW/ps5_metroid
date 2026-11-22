@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/prop_console",
+  "parent": "echo:object/prop_base",
+  "sprite": {
+    "sheet": "sprites/props/console.png"
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 2,
+      "loop": true
+    }
+  }
+}

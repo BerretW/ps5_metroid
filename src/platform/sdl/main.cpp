@@ -673,7 +673,7 @@ int main(int, char**) {
     echo::platform::FrameworkIntegration framework;
     const echo::framework::Status frameworkStatus =
         framework.initialize(gameConfigPath.data(), dialoguePath.data(),
-                             itemCatalogPath.data());
+                             itemCatalogPath.data(), assetsRoot.data());
     if (!frameworkStatus) {
         logMessage("Framework initialization failed");
         logMessage(frameworkStatus.detail);
@@ -747,9 +747,12 @@ int main(int, char**) {
         std::array<char, 512> assets{};
         if (echo::platform::assetRoot(assets.data(), assets.size())) {
             const int sprites = renderer.loadSprites(assets.data());
+            const int worldSheets = renderer.loadWorldSprites(assets.data(), game.world());
             const int sounds = audio.loadSounds(assets.data());
             std::array<char, 160> summary{};
-            std::snprintf(summary.data(), summary.size(), "Assets loaded: %d/6 sprites, %d/8 sounds", sprites, sounds);
+            std::snprintf(summary.data(), summary.size(),
+                          "Assets loaded: %d/6 sprites, %d world sheets, %d/8 sounds",
+                          sprites, worldSheets, sounds);
             logMessage(summary.data());
         } else {
             logMessage("Asset directory unavailable; using built-in art");

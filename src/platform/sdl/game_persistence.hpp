@@ -222,13 +222,15 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
     }
     for (std::size_t index = 0; index < candidate.enemyHealth.size(); ++index) {
         const std::string_view key = game_persistence_detail::kEnemyKeys[index];
-        constexpr std::array<int, kEnemyCount> maximumHealth{2, 3, 3, 6, 4};
+        constexpr std::int64_t kMaximumEnemyHealth = 99;
         std::int64_t value{};
-        if (!getInteger(key, value) || value < 0 || value > maximumHealth[index]) {
+        if (!getInteger(key, value) || value < 0 || value > kMaximumEnemyHealth) {
             return {ErrorCode::CorruptData, key, "Autosave enemy health is invalid."};
         }
         candidate.enemyHealth[index] = static_cast<int>(value);
     }
+    // Game::restore checks loot against the actual room width.
+    constexpr float kMaxLootX = static_cast<float>(kMaxLayoutColumns * kTileSize) - 16.0F;
     for (std::size_t index = 0; index < 2; ++index) {
         bool active{};
         std::int64_t lootRoomValue{};
@@ -252,7 +254,7 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
                                  static_cast<std::uint16_t>(index == 0 ? 2 : 3)};
         if ((active && (candidate.enemyHealth[index] != 0 || stack != expected)) ||
             (!active && stack != ItemStack{}) ||
-            x < 0.0F || x > static_cast<float>(kRoomWidth) - 16.0F ||
+            x < 0.0F || x > kMaxLootX ||
             y < 0.0F || y > static_cast<float>(kRoomHeight) - 16.0F) {
             return {ErrorCode::CorruptData, "loot", "Autosave loot drop is inconsistent."};
         }
@@ -264,7 +266,7 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         float x{};
         if (!getBoolean(game_persistence_detail::kExtraLootActiveKeys[index - 2], active) ||
             !getNumber(game_persistence_detail::kExtraLootXKeys[index - 2], x) ||
-            x < 0.0F || x > static_cast<float>(kRoomWidth) - 16.0F ||
+            x < 0.0F || x > kMaxLootX ||
             (active && candidate.enemyHealth[Game::lootEnemy(index)] != 0)) {
             return {ErrorCode::CorruptData, "loot", "Autosave loot drop is inconsistent."};
         }

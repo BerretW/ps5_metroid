@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/engineer",
+  "parent": "echo:object/actor_base",
+  "category": "npc",
+  "sprite": {
+    "sheet": "sprites/characters/engineer.png",
+    "frameWidth": 28,
+    "frameHeight": 40
+  },
+  "bounds": [28, 40],
+  "spawn": {
+    "position": [108, 280],
+    "facing": "right"
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 2,
+      "loop": true
+    },
+    "talk": {
+      "row": 1,
+      "column": 0,
+      "frames": 2,
+      "fps": 6,
+      "loop": true
+    }
+  },
+  "properties": {
+    "role": "maintenance engineer"
+  }
+}

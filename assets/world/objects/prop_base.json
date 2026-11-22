@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/prop_base",
+  "abstract": true,
+  "category": "prop",
+  "sprite": {
+    "frameWidth": 32,
+    "frameHeight": 32
+  },
+  "bounds": [32, 32],
+  "spawn": {
+    "position": [0, 288],
+    "facing": "right"
+  },
+  "defaultAnimation": "idle"
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/actor_base",
+  "abstract": true,
+  "spawn": {
+    "facing": "right"
+  },
+  "defaultAnimation": "idle"
+}

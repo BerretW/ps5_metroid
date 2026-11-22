@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:room/central_chamber",
+  "parent": "echo:room/station_base",
+  "name": "Central Chamber",
+  "tiles": {
+    "#": {
+      "tileset": "station",
+      "x": 4,
+      "y": 1,
+      "collision": "solid"
+    },
+    "=": {
+      "tileset": "station",
+      "x": 5,
+      "y": 1,
+      "collision": "solid"
+    }
+  },
+  "layers": [
+    {
+      "name": "back",
+      "rows": [
+        "     *        *        *        *       ",
+        " -   -     -     -     -     -     -    ",
+        "     |            |            |        ",
+        "     |        wwwwwwwwwwww     |        ",
+        "     |            |            |        ",
+        "     |            |            |        ",
+        "     |            |            |        ",
+        "     |            |            |        ",
+        "     |            |            |      > ",
+        "  u                                  u  ",
+        "                                        ",
+        "________________________________________"
+      ]
+    },
+    {
+      "name": "main",
+      "rows": [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                  =====                 ",
+        "       =====                 =====      ",
+        "                                        ",
+        "########################################",
+        "                                        "
+      ]
+    }
+  ],
+  "exits": {
+    "left": {
+      "room": "echo:room/power_station"
+    },
+    "right": {
+      "completesGame": true
+    }
+  },
+  "objects": [
+    {
+      "id": "console_core",
+      "object": "echo:object/prop_console_alert",
+      "position": [800, 288]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_patrol",
+  "parent": "echo:object/enemy_base",
+  "sprite": {
+    "sheet": "sprites/enemies/patrol.png"
+  },
+  "properties": {
+    "behavior": "patrol",
+    "health": 2,
+    "speed": 45
+  }
+}

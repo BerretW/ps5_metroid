@@ -198,6 +198,23 @@ try {
     Remove-Item -LiteralPath $itemCatalog -Force
     Expect-Rejection "Packaged item catalog is missing"
     [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $enemySheet = Join-Path $fixture "assets\sprites\enemies\heavy.png"
+    $originalEnemySheet = [IO.File]::ReadAllBytes($enemySheet)
+    Remove-Item -LiteralPath $enemySheet -Force
+    Expect-Rejection "references missing sprite sheet"
+    [IO.File]::WriteAllBytes($enemySheet, $originalEnemySheet)
+    $roomFile = Join-Path $fixture "assets\world\rooms\power_station.json"
+    $originalRoom = [IO.File]::ReadAllBytes($roomFile)
+    $roomText = [Text.Encoding]::UTF8.GetString($originalRoom)
+    [IO.File]::WriteAllText($roomFile, $roomText.Replace('"echo:room/power_station"', '"echo:room/other_room"'),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "file declares"
+    [IO.File]::WriteAllBytes($roomFile, $originalRoom)
+    $worldManifest = Join-Path $fixture "assets\world\world.json"
+    $originalManifest = [IO.File]::ReadAllBytes($worldManifest)
+    Remove-Item -LiteralPath $worldManifest -Force
+    Expect-Rejection "Packaged world manifest is missing"
+    [IO.File]::WriteAllBytes($worldManifest, $originalManifest)
     $eboot = Join-Path $fixture "eboot.bin"
     $inspection = & $tool self --inspect --file $eboot
     if ($LASTEXITCODE -ne 0) { throw "Fixture inspection failed." }
@@ -231,4 +248,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, digest corruption, signed misaligned ELF."

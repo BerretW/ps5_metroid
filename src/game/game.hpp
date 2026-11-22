@@ -6,6 +6,7 @@
 #include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
 #include "echo/framework/cutscenes.hpp"
+#include "echo/framework/world.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
 #include "game/project_quests.hpp"
@@ -120,6 +121,107 @@ enum class ItemId : std::uint8_t {
 
 inline constexpr std::size_t kEnemyCount = 5;
 inline constexpr std::size_t kLootDropCount = 12;
+inline constexpr std::size_t kRoomCount = static_cast<std::size_t>(RoomId::Count);
+inline constexpr int kMaxLayoutColumns = framework::kMaxRoomColumns;
+inline constexpr std::size_t kMaxWorldDoors = 8;
+inline constexpr std::size_t kMaxWorldProps = 24;
+
+// Save format v6 identifies enemies by slot, so each slot keeps its room.
+inline constexpr std::array<RoomId, kEnemyCount> kEnemySlotRooms{
+    RoomId::MaintenanceTunnel, RoomId::PowerStation, RoomId::MaintenanceTunnel,
+    RoomId::PowerStation, RoomId::ResearchLab};
+inline constexpr std::array<std::string_view, kRoomCount> kRoomResourceIds{
+    "echo:room/landing_bay", "echo:room/maintenance_tunnel", "echo:room/power_station",
+    "echo:room/research_lab", "echo:room/central_chamber"};
+
+struct RoomExitLayout {
+    bool open{};
+    bool completesGame{};
+    bool requiresEchoStep{};
+    RoomId room{};
+};
+
+struct RoomLayout {
+    std::string_view name;
+    int columns{kRoomColumns};
+    std::array<Tile, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows> tiles{};
+    std::array<std::uint8_t, 3> background{13, 30, 43};
+    RoomExitLayout left{};
+    RoomExitLayout right{};
+    // Visual tile layers; null for the built-in layout.
+    const framework::RoomDefinition* definition{};
+
+    [[nodiscard]] float width() const noexcept {
+        return static_cast<float>(columns * kTileSize);
+    }
+};
+
+struct EnemySpawn {
+    RoomId room{};
+    Rect bounds{};
+    float patrolLeft{};
+    float patrolRight{};
+    float speed{};
+    int health{1};
+    EnemyType type{EnemyType::Patrol};
+    const framework::ObjectDefinition* archetype{};
+};
+
+// A door is drawn; a trigger is an invisible interaction area.
+struct DoorLayout {
+    RoomId room{};
+    Rect bounds{};
+    RoomId destination{};
+    bool arriveFromLeft{true};
+    bool requiresKey{};
+    bool visible{true};
+    const framework::ObjectDefinition* archetype{};
+};
+
+struct PropLayout {
+    RoomId room{};
+    Vec2 position{};
+    bool facingLeft{};
+    const framework::ObjectDefinition* archetype{};
+};
+
+struct WorldArchetypes {
+    const framework::ObjectDefinition* player{};
+    const framework::ObjectDefinition* engineer{};
+    const framework::ObjectDefinition* pickup{};
+    const framework::ObjectDefinition* projectile{};
+    const framework::ObjectDefinition* enemyProjectile{};
+    const framework::ObjectDefinition* loot{};
+};
+
+struct WorldLayout {
+    std::array<RoomLayout, kRoomCount> rooms{};
+    std::array<EnemySpawn, kEnemyCount> enemies{};
+    std::array<DoorLayout, kMaxWorldDoors> doors{};
+    std::size_t doorCount{};
+    std::array<PropLayout, kMaxWorldProps> props{};
+    std::size_t propCount{};
+    RoomId startRoom{RoomId::LandingBay};
+    Vec2 playerStart{};
+    RoomId abilityRoom{RoomId::ResearchLab};
+    Rect abilityPickup{};
+    WorldArchetypes archetypes{};
+
+    [[nodiscard]] std::span<const DoorLayout> doorList() const noexcept {
+        return {doors.data(), doorCount};
+    }
+    [[nodiscard]] std::span<const PropLayout> propList() const noexcept {
+        return {props.data(), propCount};
+    }
+};
+
+// The compiled layout used when no world data is configured (and by tests).
+[[nodiscard]] const WorldLayout& defaultWorldLayout() noexcept;
+// Converts finalized world data into gameplay layout. The layout keeps
+// non-owning pointers into `world`, which must outlive it.
+[[nodiscard]] framework::Status buildWorldLayout(const framework::WorldModule& world,
+                                                 WorldLayout& layout) noexcept;
+[[nodiscard]] framework::Status validateWorldLayout(const WorldLayout& layout) noexcept;
 
 struct ItemStack {
     ItemId item{};
@@ -184,6 +286,14 @@ class Game {
 public:
     Game() noexcept;
 
+    // Selects the room layout; restarts the game. The layout must outlive the game.
+    [[nodiscard]] framework::Status configureWorld(const WorldLayout& layout) noexcept;
+    [[nodiscard]] const WorldLayout& world() const noexcept { return *world_; }
+    [[nodiscard]] const RoomLayout& currentRoom() const noexcept {
+        return world_->rooms[static_cast<std::size_t>(room_)];
+    }
+    [[nodiscard]] int roomColumns() const noexcept { return currentRoom().columns; }
+    [[nodiscard]] float roomWidth() const noexcept { return currentRoom().width(); }
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
         Vec2 technicianPosition,
@@ -301,6 +411,7 @@ private:
     [[nodiscard]] static bool overlaps(const Rect& first, const Rect& second) noexcept;
 
     RoomId room_{RoomId::LandingBay};
+    const WorldLayout* world_{&defaultWorldLayout()};
     Player player_{};
     std::array<Enemy, kEnemyCount> enemies_{};
     std::array<LootDrop, kLootDropCount> lootDrops_{};

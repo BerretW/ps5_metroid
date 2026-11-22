@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/enemy_base",
+  "parent": "echo:object/actor_base",
+  "abstract": true,
+  "category": "enemy",
+  "sprite": {
+    "frameWidth": 32,
+    "frameHeight": 32,
+    "offset": [-2, -4]
+  },
+  "bounds": [28, 28],
+  "spawn": {
+    "position": [0, 292]
+  },
+  "animations": {
+    "walk": {
+      "row": 0,
+      "column": 0,
+      "frames": 4,
+      "fps": 8,
+      "loop": true
+    },
+    "idle": {
+      "row": 1,
+      "column": 0,
+      "frames": 2,
+      "fps": 3,
+      "loop": true
+    },
+    "guard": {
+      "row": 1,
+      "column": 2,
+      "frames": 2,
+      "fps": 6,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "walk",
+  "properties": {
+    "health": 2,
+    "speed": 0
+  }
+}
