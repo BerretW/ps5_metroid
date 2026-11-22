@@ -11,6 +11,20 @@
 #include <cstdio>
 #include <string>
 
+#if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
+extern "C" void echo_ps5_video_checkpoint(const char* message);
+#define ECHO_RENDER_CHECKPOINT(...)                                         \
+    do {                                                                    \
+        char echoDiagnostic[192];                                           \
+        std::snprintf(echoDiagnostic, sizeof(echoDiagnostic), __VA_ARGS__); \
+        echo_ps5_video_checkpoint(echoDiagnostic);                          \
+    } while (false)
+#else
+#define ECHO_RENDER_CHECKPOINT(...) \
+    do {                            \
+    } while (false)
+#endif
+
 namespace echo::platform {
 namespace {
 
@@ -95,10 +109,17 @@ bool Renderer::create() noexcept {
     // The PS5 video backend scans out a fixed display-sized surface and only centres smaller
     // windows; a display-sized window fills the screen without changing the video mode.
     SDL_DisplayMode display{};
-    const bool hasDisplay = SDL_GetDesktopDisplayMode(0, &display) == 0 &&
-                            display.w >= 640 && display.h >= 360;
+    const int displayResult = SDL_GetDesktopDisplayMode(0, &display);
+    const bool hasDisplay = displayResult == 0 && display.w >= 640 && display.h >= 360;
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06a: desktop mode result=%d %dx%d@%d fmt=0x%X",
+                           displayResult, display.w, display.h, display.refresh_rate,
+                           static_cast<unsigned>(display.format));
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06b: before window %dx%d",
+                           hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080);
     window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080, 0);
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06c: window=%s %s", window_ != nullptr ? "ok" : "null",
+                           window_ != nullptr ? "" : SDL_GetError());
 #else
     window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                1280, 720, SDL_WINDOW_RESIZABLE);
@@ -108,7 +129,10 @@ bool Renderer::create() noexcept {
     }
 
 #ifdef __PROSPERO__
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06d: before software renderer");
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06e: renderer=%s %s", renderer_ != nullptr ? "ok" : "null",
+                           renderer_ != nullptr ? "" : SDL_GetError());
 #else
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (renderer_ == nullptr) {
@@ -125,6 +149,7 @@ bool Renderer::create() noexcept {
     SDL_RenderSetLogicalSize(renderer_, 640, 360);
     SDL_RenderSetIntegerScale(renderer_, SDL_TRUE);
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06f: logical size/blend configured");
     return true;
 }
 
@@ -241,12 +266,14 @@ bool Renderer::loadWorldSheet(const char* assetDirectory, std::string_view path)
     const int written = std::snprintf(fullPath, sizeof(fullPath), "%s%.*s", assetDirectory,
                                       static_cast<int>(path.size()), path.data());
     if (written <= 0 || written >= static_cast<int>(sizeof(fullPath))) return false;
+    ECHO_RENDER_CHECKPOINT("ECHO DIAG 08s: sheet %d %s", worldSheetCount_, fullPath);
     SDL_Texture* texture = loadPngTexture(renderer_, fullPath);
     int width = 0;
     int height = 0;
     if (texture == nullptr ||
         SDL_QueryTexture(texture, nullptr, nullptr, &width, &height) != 0) {
         if (texture != nullptr) SDL_DestroyTexture(texture);
+        ECHO_RENDER_CHECKPOINT("ECHO DIAG 08s: sheet failed %s", SDL_GetError());
         SDL_Log("World sprite sheet could not be loaded: %s", fullPath);
         return false;
     }

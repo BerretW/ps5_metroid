@@ -104,6 +104,16 @@ void diagnosticCheckpoint(std::string_view message) noexcept {
         (void)sceKernelUsleep(1000000);
     }
 }
+#define ECHO_DIAG(...)                                                \
+    do {                                                              \
+        char echoDiagnostic[192];                                     \
+        std::snprintf(echoDiagnostic, sizeof(echoDiagnostic), __VA_ARGS__); \
+        diagnosticCheckpoint(echoDiagnostic);                         \
+    } while (false)
+#else
+#define ECHO_DIAG(...) \
+    do {               \
+    } while (false)
 #endif
 
 enum class Screen {
@@ -671,24 +681,31 @@ int main(int, char**) {
         return 1;
     }
     echo::platform::FrameworkIntegration framework;
+    ECHO_DIAG("ECHO DIAG 05a: before framework (%s)", gameConfigPath.data());
     const echo::framework::Status frameworkStatus =
         framework.initialize(gameConfigPath.data(), dialoguePath.data(),
                              itemCatalogPath.data(), assetsRoot.data());
     if (!frameworkStatus) {
+        ECHO_DIAG("ECHO DIAG ERROR 05a: framework %.*s",
+                  static_cast<int>(frameworkStatus.detail.size()), frameworkStatus.detail.data());
         logMessage("Framework initialization failed");
         logMessage(frameworkStatus.detail);
         SDL_Quit();
         return 1;
     }
+    ECHO_DIAG("ECHO DIAG 05b: framework ready; before world/game content");
     echo::Game game;
     const echo::framework::Status gameSetup = framework.configureGame(game);
     if (!gameSetup) {
+        ECHO_DIAG("ECHO DIAG ERROR 05b: game content %.*s",
+                  static_cast<int>(gameSetup.detail.size()), gameSetup.detail.data());
         logMessage("Game content initialization failed");
         logMessage(gameSetup.detail);
         framework.shutdown();
         SDL_Quit();
         return 1;
     }
+    ECHO_DIAG("ECHO DIAG 05c: game content ready; before save storage");
     logMessage("Echo Framework and engineer dialogue initialized from assets/framework");
 #if defined(__PROSPERO__)
     echo::framework::Ps5SaveStorage saveProvider{};
@@ -747,8 +764,11 @@ int main(int, char**) {
         std::array<char, 512> assets{};
         if (echo::platform::assetRoot(assets.data(), assets.size())) {
             const int sprites = renderer.loadSprites(assets.data());
+            ECHO_DIAG("ECHO DIAG 08b: %d sprites; before world sheets", sprites);
             const int worldSheets = renderer.loadWorldSprites(assets.data(), game.world());
+            ECHO_DIAG("ECHO DIAG 08c: %d world sheets; before sounds", worldSheets);
             const int sounds = audio.loadSounds(assets.data());
+            ECHO_DIAG("ECHO DIAG 08d: %d sounds", sounds);
             std::array<char, 160> summary{};
             std::snprintf(summary.data(), summary.size(),
                           "Assets loaded: %d/6 sprites, %d world sheets, %d/8 sounds",
@@ -844,6 +864,8 @@ int main(int, char**) {
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
     diagnosticCheckpoint("ECHO DIAG 09: game/controller enumeration ready; before clock");
     bool diagnosticFirstFrame = true;
+    int diagnosticScreen = -1;
+    int diagnosticRoom = -1;
 #endif
 
     const auto stopLabOutput = [&]() {
@@ -1380,6 +1402,8 @@ int main(int, char**) {
     };
 
     (void)loadSavedSettings();
+    ECHO_DIAG("ECHO DIAG 09a: settings attempted; continue=%d settings=%d",
+              continueAvailable ? 1 : 0, settingsAvailable ? 1 : 0);
 
     const auto changeDialogueLanguage = [&](int direction) {
         const auto candidate = dialogueLanguage == echo::framework::DialogueLanguage::English
@@ -1413,6 +1437,7 @@ int main(int, char**) {
 
     const auto selectMenu = [&]() {
         if (menuSelection == 0) {
+            ECHO_DIAG("ECHO DIAG M0: new game selected");
             const echo::framework::Status status = framework.beginGame();
             if (!status) {
                 logMessage("Framework game-state reset failed");
@@ -1420,14 +1445,20 @@ int main(int, char**) {
                 running = false;
                 return;
             }
+            ECHO_DIAG("ECHO DIAG M1: framework reset; before game start");
             game.start();
             gameSessionActive = true;
             screen = Screen::Playing;
             paused = false;
+            ECHO_DIAG("ECHO DIAG M2: game started; before autosave");
             (void)saveCurrentGame();
+            ECHO_DIAG("ECHO DIAG M3: new game autosave attempted");
             logMessage("New game started");
         } else if (menuSelection == 1) {
-            (void)loadSavedGame();
+            ECHO_DIAG("ECHO DIAG M0: continue selected");
+            const bool loaded = loadSavedGame();
+            (void)loaded;
+            ECHO_DIAG("ECHO DIAG M3: continue result=%d", loaded ? 1 : 0);
         } else if (menuSelection == 2) {
             screen = Screen::Options;
         } else if (menuSelection == 3) {
@@ -1925,7 +1956,16 @@ int main(int, char**) {
                 .aimY = aimY,
             };
             const SoundState before = captureSoundState(game);
+#if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
+            const int roomBeforeUpdate = static_cast<int>(game.roomId());
+#endif
             const echo::framework::Status gameplayStatus = game.update(input);
+#if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
+            if (static_cast<int>(game.roomId()) != roomBeforeUpdate) {
+                ECHO_DIAG("ECHO DIAG U: update moved room %d -> %d iso=%d", roomBeforeUpdate,
+                          static_cast<int>(game.roomId()), game.isometric() ? 1 : 0);
+            }
+#endif
             if (!gameplayStatus) {
                 logMessage("Gameplay interaction failed");
                 logMessage(gameplayStatus.detail);
@@ -1982,6 +2022,17 @@ int main(int, char**) {
             }
             renderer.setMouseAim(captureMouse, cursorX, cursorY);
         }
+#if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
+        const int frameScreen = static_cast<int>(screen);
+        const int frameRoom = static_cast<int>(game.roomId());
+        const bool diagnosticTransition =
+            frameScreen != diagnosticScreen || (screen == Screen::Playing && frameRoom != diagnosticRoom);
+        if (diagnosticTransition) {
+            ECHO_DIAG("ECHO DIAG R1: before render screen=%d room=%d iso=%d paused=%d map=%d",
+                      frameScreen, frameRoom, game.isometric() ? 1 : 0, paused ? 1 : 0,
+                      showMap ? 1 : 0);
+        }
+#endif
         if (screen == Screen::MainMenu) {
             renderer.drawMenu(menuSelection, continueAvailable);
         } else if (screen == Screen::DualSenseLab) {
@@ -2004,6 +2055,11 @@ int main(int, char**) {
         if (diagnosticFirstFrame) {
             diagnosticCheckpoint("ECHO DIAG 12: first frame rendered");
             diagnosticFirstFrame = false;
+        }
+        if (diagnosticTransition) {
+            ECHO_DIAG("ECHO DIAG R2: rendered screen=%d room=%d", frameScreen, frameRoom);
+            diagnosticScreen = frameScreen;
+            diagnosticRoom = frameRoom;
         }
 #endif
         SDL_Delay(1);
