@@ -106,34 +106,63 @@ int playerFrame(const Player& player, Uint64 ticks) noexcept {
 
 bool Renderer::create() noexcept {
 #ifdef __PROSPERO__
-    // The PS5 video backend scans out a fixed display-sized surface and only centres smaller
-    // windows; a display-sized window fills the screen without changing the video mode.
+    // The PS5 backend scans out a fixed display-sized surface and centres smaller windows.
+    // Prefer a display-sized window so the game fills the screen, but a full-size software
+    // framebuffer failed on hardware (CE-108255-1 at 06e), so fall back to the 1280x720 window
+    // that is hardware-verified.
     SDL_DisplayMode display{};
     const int displayResult = SDL_GetDesktopDisplayMode(0, &display);
     const bool hasDisplay = displayResult == 0 && display.w >= 640 && display.h >= 360;
     ECHO_RENDER_CHECKPOINT("ECHO DIAG 06a: desktop mode result=%d %dx%d@%d fmt=0x%X",
                            displayResult, display.w, display.h, display.refresh_rate,
                            static_cast<unsigned>(display.format));
-    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06b: before window %dx%d",
-                           hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080);
-    window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                               hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080, 0);
-    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06c: window=%s %s", window_ != nullptr ? "ok" : "null",
-                           window_ != nullptr ? "" : SDL_GetError());
-#else
-    window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                               1280, 720, SDL_WINDOW_RESIZABLE);
-#endif
+
+    // An explicit driver index makes SDL report the driver's real error instead of the
+    // generic "Couldn't find matching render driver".
+    int softwareIndex = -1;
+    for (int index = 0; index < SDL_GetNumRenderDrivers(); ++index) {
+        SDL_RendererInfo info{};
+        if (SDL_GetRenderDriverInfo(index, &info) == 0 && info.name != nullptr &&
+            SDL_strcmp(info.name, "software") == 0) {
+            softwareIndex = index;
+            break;
+        }
+    }
+
+    const int sizes[2][2] = {{hasDisplay ? display.w : 1920, hasDisplay ? display.h : 1080},
+                             {1280, 720}};
+    for (const auto& size : sizes) {
+        ECHO_RENDER_CHECKPOINT("ECHO DIAG 06b: before window %dx%d", size[0], size[1]);
+        window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                   size[0], size[1], 0);
+        ECHO_RENDER_CHECKPOINT("ECHO DIAG 06c: window=%s %s", window_ != nullptr ? "ok" : "null",
+                               window_ != nullptr ? "" : SDL_GetError());
+        if (window_ == nullptr) {
+            continue;
+        }
+        ECHO_RENDER_CHECKPOINT("ECHO DIAG 06d: before software renderer (driver %d)",
+                               softwareIndex);
+        renderer_ = SDL_CreateRenderer(window_, softwareIndex, SDL_RENDERER_SOFTWARE);
+        ECHO_RENDER_CHECKPOINT("ECHO DIAG 06e: renderer=%s %dx%d %s",
+                               renderer_ != nullptr ? "ok" : "null", size[0], size[1],
+                               renderer_ != nullptr ? "" : SDL_GetError());
+        if (renderer_ != nullptr) {
+            break;
+        }
+        SDL_Log("PS5 software renderer failed for %dx%d window: %s", size[0], size[1],
+                SDL_GetError());
+        SDL_DestroyWindow(window_);
+        window_ = nullptr;
+    }
     if (window_ == nullptr) {
         return false;
     }
-
-#ifdef __PROSPERO__
-    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06d: before software renderer");
-    renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
-    ECHO_RENDER_CHECKPOINT("ECHO DIAG 06e: renderer=%s %s", renderer_ != nullptr ? "ok" : "null",
-                           renderer_ != nullptr ? "" : SDL_GetError());
 #else
+    window_ = SDL_CreateWindow("PROJECT ECHO", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                               1280, 720, SDL_WINDOW_RESIZABLE);
+    if (window_ == nullptr) {
+        return false;
+    }
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (renderer_ == nullptr) {
         SDL_Log("Accelerated renderer unavailable, using SDL software renderer: %s", SDL_GetError());
