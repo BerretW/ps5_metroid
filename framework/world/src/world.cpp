@@ -13,10 +13,24 @@ constexpr ModuleInfo kModuleInfo{"echo.world", "World objects and rooms", 1, {},
 constexpr std::array<ManifestModuleDescriptor, 1> kModules{{
     {"echo.world", "World objects and rooms", 1, {}, {}, kServices, {}},
 }};
-constexpr std::array<ManifestSchemaDescriptor, 3> kSchemas{{
+constexpr std::array<ManifestSchemaDescriptor, 4> kSchemas{{
     {"echo.world.manifest_json", 1},
     {"echo.world.object_json", 1},
     {"echo.world.room_json", 1},
+    {"echo.world.lighting_config_json", 1},
+}};
+constexpr std::array<std::string_view, 6> kLightingConstraints{{
+    "Active 2D GPU light accumulation is bounded to four lights per frame.",
+    "Object sprites and tilesets may bind normal/emissive maps; SDL fallback lighting, shadows and HDR bloom are not advertised.",
+    "World ambient supports a smooth bounded day/night cycle; room ambient overrides it.",
+    "A player-attached spotlight may follow the current player aim direction.",
+    "Room lights may define bounded intensity fades on enabled or circuit-state changes.",
+    "Static placement-parent transforms are precomputed; circuit and persistence state remain live.",
+}};
+constexpr std::array<ManifestFeatureDescriptor, 1> kWorldFeatures{{
+    {"echo.world.lighting_data",
+     "Room JSON defines ambient/directional, point and spot lights; lights can fade on state changes, player-attached spotlights can follow aim, and object/tileset materials support 2D normal/emissive maps.",
+     kLightingConstraints},
 }};
 
 enum ObjectField : std::uint32_t {
@@ -32,6 +46,7 @@ enum ObjectField : std::uint32_t {
     kSpawnY = 1U << 9U,
     kFacing = 1U << 10U,
     kDefaultAnimation = 1U << 11U,
+    kMaterial = 1U << 12U,
 };
 
 enum AnimationField : std::uint8_t {
@@ -50,20 +65,22 @@ enum RoomField : std::uint32_t {
     kExitLeft = 1U << 4U,
     kExitRight = 1U << 5U,
     kProjection = 1U << 6U,
+    kLighting = 1U << 7U,
 };
 
 constexpr std::array<std::string_view, 11> kObjectFields{
     "schemaVersion", "id", "parent", "abstract", "category", "sprite",
     "bounds", "spawn", "animations", "defaultAnimation", "properties"};
-constexpr std::array<std::string_view, 4> kSpriteFields{"sheet", "frameWidth", "frameHeight", "offset"};
+constexpr std::array<std::string_view, 5> kSpriteFields{
+    "sheet", "frameWidth", "frameHeight", "offset", "material"};
 constexpr std::array<std::string_view, 2> kSpawnFields{"position", "facing"};
 constexpr std::array<std::string_view, 5> kAnimationFields{"row", "column", "frames", "fps", "loop"};
-constexpr std::array<std::string_view, 13> kRoomFields{
+constexpr std::array<std::string_view, 14> kRoomFields{
     "schemaVersion", "id", "parent", "abstract", "name", "size", "background",
-    "projection", "tilesets", "tiles", "layers", "exits", "objects"};
+    "projection", "tilesets", "tiles", "layers", "exits", "objects", "lighting"};
 constexpr std::array<std::string_view, 2> kSizeFields{"columns", "rows"};
-constexpr std::array<std::string_view, 6> kTilesetFields{
-    "id", "sheet", "tileWidth", "tileHeight", "margin", "spacing"};
+constexpr std::array<std::string_view, 7> kTilesetFields{
+    "id", "sheet", "tileWidth", "tileHeight", "margin", "spacing", "material"};
 constexpr std::array<std::string_view, 7> kTileFields{
     "tileset", "x", "y", "rotation", "flipX", "flipY", "collision"};
 constexpr std::array<std::string_view, 3> kLayerFields{"name", "rows", "scrollFactorX"};
@@ -71,6 +88,19 @@ constexpr std::array<std::string_view, 2> kExitSides{"left", "right"};
 constexpr std::array<std::string_view, 3> kExitFields{"room", "requiresAbility", "completesGame"};
 constexpr std::array<std::string_view, 5> kPlacementFields{
     "id", "object", "position", "facing", "properties"};
+constexpr std::array<std::string_view, 3> kLightingFields{"ambient", "directional", "lights"};
+constexpr std::array<std::string_view, 3> kAmbientFields{"color", "intensity", "dayNight"};
+constexpr std::array<std::string_view, 3> kDirectionalFields{"direction", "color", "intensity"};
+constexpr std::array<std::string_view, 4> kDayNightFields{
+    "nightColor", "nightIntensity", "periodSeconds", "phaseSeconds"};
+constexpr std::array<std::string_view, 2> kWorldLightingFields{"ambient", "directional"};
+constexpr std::array<std::string_view, 5> kMaterialFields{
+    "normalSheet", "emissiveSheet", "emissiveColor", "emissiveIntensity", "emissiveCircuit"};
+constexpr std::array<std::string_view, 2> kFlickerFields{"amount", "frequency"};
+constexpr std::array<std::string_view, 17> kLightFields{
+    "id", "type", "position", "direction", "radius", "coneAngle", "color", "intensity",
+    "attenuation", "enabled", "flicker", "parent", "circuit", "shadow", "persistence",
+    "followsAim", "fadeSeconds"};
 
 constexpr std::array<std::string_view, 10> kCategoryNames{
     "none", "player", "npc", "enemy", "projectile", "pickup", "door", "loot", "prop", "trigger"};
@@ -78,6 +108,8 @@ constexpr std::array<std::string_view, 10> kCategoryNames{
 [[nodiscard]] Status invalid(std::string_view subject, std::string_view detail) noexcept {
     return {ErrorCode::InvalidValue, subject, detail};
 }
+
+[[nodiscard]] bool hasType(std::string_view id, std::string_view type) noexcept;
 
 // Accepts only listed members and rejects duplicate keys.
 [[nodiscard]] bool allowedFields(JsonValue object,
@@ -152,6 +184,86 @@ template <std::size_t Size>
     return value.isArray() && value.size() == 2 &&
            readFloat(value.at(0), minimum, maximum, first) &&
            readFloat(value.at(1), minimum, maximum, second);
+}
+
+[[nodiscard]] bool readColor(JsonValue value, std::array<float, 3>& output) noexcept {
+    return value.isArray() && value.size() == output.size() &&
+           readFloat(value.at(0), 0.0, 1.0, output[0]) &&
+           readFloat(value.at(1), 0.0, 1.0, output[1]) &&
+           readFloat(value.at(2), 0.0, 1.0, output[2]);
+}
+
+[[nodiscard]] Status parseMaterial(JsonValue value, WorldMaterialSpec& output) noexcept {
+    if (!allowedFields(value, kMaterialFields)) {
+        return invalid("world.material", "Material maps contain an unknown field.");
+    }
+    output = {};
+    output.configured = true;
+    const JsonValue normal = value.find("normalSheet");
+    const JsonValue emissive = value.find("emissiveSheet");
+    const JsonValue color = value.find("emissiveColor");
+    const JsonValue intensity = value.find("emissiveIntensity");
+    const JsonValue circuit = value.find("emissiveCircuit");
+    std::string_view path;
+    std::string_view circuitId;
+    if ((normal.valid() &&
+         (!normal.string(path) || !WorldModule::validSpritePath(path) ||
+          !copyText(path, output.normalSheet))) ||
+        (emissive.valid() &&
+         (!emissive.string(path) || !WorldModule::validSpritePath(path) ||
+          !copyText(path, output.emissiveSheet))) ||
+        (color.valid() && !readColor(color, output.emissiveColor)) ||
+        (intensity.valid() &&
+         !readFloat(intensity, 0.0, 8.0, output.emissiveIntensity)) ||
+        (circuit.valid() &&
+         (!circuit.string(circuitId) || !isValidContentId(circuitId) ||
+          !hasType(circuitId, "power") || !copyText(circuitId, output.emissiveCircuit)))) {
+        return invalid("world.material",
+                       "Material map paths, emission color/intensity or power circuit are invalid.");
+    }
+    if ((color.valid() || intensity.valid() || circuit.valid()) &&
+        output.emissiveSheet[0] == '\0') {
+        return invalid("world.material",
+                       "Emissive color, intensity and circuit require an emissiveSheet.");
+    }
+    return Status::success();
+}
+
+[[nodiscard]] Status parseAmbient(JsonValue value, std::array<float, 3>& color,
+                                  float& intensity, DayNightCycle& cycle) noexcept {
+    if (!allowedFields(value, kAmbientFields) ||
+        !readColor(value.find("color"), color) ||
+        !readFloat(value.find("intensity"), 0.0, 8.0, intensity)) {
+        return invalid("world.lighting.ambient",
+                       "Ambient lighting needs a linear RGB color and intensity from 0 to 8.");
+    }
+    const JsonValue dayNight = value.find("dayNight");
+    if (dayNight.valid()) {
+        const JsonValue phase = dayNight.find("phaseSeconds");
+        if (!allowedFields(dayNight, kDayNightFields) ||
+            !readColor(dayNight.find("nightColor"), cycle.nightColor) ||
+            !readFloat(dayNight.find("nightIntensity"), 0.0, 8.0,
+                       cycle.nightIntensity) ||
+            !readFloat(dayNight.find("periodSeconds"), 10.0, 86400.0,
+                       cycle.periodSeconds) ||
+            (phase.valid() &&
+             !readFloat(phase, 0.0, 86400.0, cycle.phaseSeconds)) ||
+            cycle.phaseSeconds >= cycle.periodSeconds) {
+            return invalid("world.lighting.ambient.dayNight",
+                           "Day/night needs night color/intensity, a 10-86400 second period, and a phase within that period.");
+        }
+        cycle.enabled = true;
+    }
+    return Status::success();
+}
+
+[[nodiscard]] bool readAttenuation(JsonValue value,
+                                   std::array<float, 3>& output) noexcept {
+    if (!value.isArray() || value.size() != output.size() ||
+        !readFloat(value.at(0), 0.0, 10.0, output[0]) ||
+        !readFloat(value.at(1), 0.0, 10.0, output[1]) ||
+        !readFloat(value.at(2), 0.0, 10.0, output[2])) return false;
+    return output[0] > 0.0F || output[1] > 0.0F || output[2] > 0.0F;
 }
 
 [[nodiscard]] bool readFacing(JsonValue value, Facing& output) noexcept {
@@ -250,6 +362,135 @@ template <std::size_t Capacity, std::size_t Other>
 
 } // namespace
 
+Status WorldModule::parseWorldLighting(JsonValue document,
+                                      WorldLighting& output) noexcept {
+    output = {};
+    if (!document.valid()) return Status::success();
+    if (!allowedFields(document, kWorldLightingFields)) {
+        return invalid("worldLighting", "World lighting contains unknown fields.");
+    }
+    const JsonValue ambient = document.find("ambient");
+    if (ambient.valid()) {
+        const Status status = parseAmbient(ambient, output.ambientColor,
+                                           output.ambientIntensity, output.dayNight);
+        if (!status) return {status.code, "worldLighting.ambient", status.detail};
+        output.hasAmbient = true;
+    }
+    const JsonValue directional = document.find("directional");
+    if (directional.valid()) {
+        if (!allowedFields(directional, kDirectionalFields) ||
+            !readPair(directional.find("direction"), -1.0, 1.0,
+                      output.directionalX, output.directionalY) ||
+            (output.directionalX == 0.0F && output.directionalY == 0.0F) ||
+            !readColor(directional.find("color"), output.directionalColor) ||
+            !readFloat(directional.find("intensity"), 0.0, 8.0,
+                       output.directionalIntensity)) {
+            return invalid("worldLighting.directional",
+                           "Directional lighting needs a nonzero direction, linear RGB color and intensity from 0 to 8.");
+        }
+        output.hasDirectional = true;
+    }
+    return Status::success();
+}
+
+Status sampleAmbientLighting(const WorldLighting& world, const RoomLighting& room,
+                             double timeSeconds, std::array<float, 3>& color,
+                             float& intensity) noexcept {
+    if (!std::isfinite(timeSeconds)) {
+        return {ErrorCode::InvalidValue, "worldLighting.time",
+                "Ambient sampling time must be finite."};
+    }
+    const bool roomOverride = room.hasAmbient;
+    const std::array<float, 3>& dayColor = roomOverride
+        ? room.ambientColor : world.ambientColor;
+    const float dayIntensity = roomOverride ? room.ambientIntensity
+                                            : world.ambientIntensity;
+    const DayNightCycle& cycle = roomOverride ? room.dayNight : world.dayNight;
+    if (!std::isfinite(dayIntensity) || dayIntensity < 0.0F || dayIntensity > 8.0F ||
+        std::any_of(dayColor.begin(), dayColor.end(), [](float channel) noexcept {
+            return !std::isfinite(channel) || channel < 0.0F || channel > 1.0F;
+        })) {
+        return {ErrorCode::InvalidValue, "worldLighting.ambient",
+                "Ambient color and intensity are outside supported bounds."};
+    }
+    color = dayColor;
+    intensity = dayIntensity;
+    if (!cycle.enabled) return Status::success();
+    if (!std::isfinite(cycle.periodSeconds) || cycle.periodSeconds <= 0.0F ||
+        !std::isfinite(cycle.phaseSeconds) || cycle.phaseSeconds < 0.0F ||
+        cycle.phaseSeconds >= cycle.periodSeconds ||
+        !std::isfinite(cycle.nightIntensity) || cycle.nightIntensity < 0.0F ||
+        cycle.nightIntensity > 8.0F ||
+        std::any_of(cycle.nightColor.begin(), cycle.nightColor.end(),
+                    [](float channel) noexcept {
+                        return !std::isfinite(channel) || channel < 0.0F || channel > 1.0F;
+                    })) {
+        return {ErrorCode::InvalidValue, "worldLighting.dayNight",
+                "Day/night cycle values are outside supported bounds."};
+    }
+    constexpr double kTau = 6.2831853071795864769;
+    double phase = std::fmod(timeSeconds + cycle.phaseSeconds, cycle.periodSeconds);
+    if (phase < 0.0) phase += cycle.periodSeconds;
+    const float nightBlend = static_cast<float>(
+        0.5 - 0.5 * std::cos(kTau * phase / cycle.periodSeconds));
+    for (std::size_t channel = 0; channel < color.size(); ++channel) {
+        color[channel] += (cycle.nightColor[channel] - color[channel]) * nightBlend;
+    }
+    intensity += (cycle.nightIntensity - intensity) * nightBlend;
+    return Status::success();
+}
+
+bool LightFadeTransition::update(float target, float deltaSeconds, float durationSeconds,
+                                 float& intensity) noexcept {
+    if (!std::isfinite(target) || target < 0.0F || target > 8.0F ||
+        !std::isfinite(deltaSeconds) || deltaSeconds < 0.0F ||
+        !std::isfinite(durationSeconds) || durationSeconds < 0.0F ||
+        durationSeconds > 30.0F) {
+        return false;
+    }
+    if (!initialized_) {
+        current_ = start_ = target_ = target;
+        duration_ = durationSeconds;
+        initialized_ = true;
+    } else if (target != target_ || durationSeconds != duration_) {
+        start_ = current_;
+        target_ = target;
+        duration_ = durationSeconds;
+        elapsed_ = 0.0F;
+    }
+    if (duration_ == 0.0F) {
+        current_ = target_;
+    } else if (current_ != target_) {
+        elapsed_ = std::min(duration_, elapsed_ + deltaSeconds);
+        const float progress = elapsed_ / duration_;
+        const float smoothProgress = progress * progress * (3.0F - 2.0F * progress);
+        current_ = start_ + (target_ - start_) * smoothProgress;
+    }
+    intensity = current_;
+    return true;
+}
+
+bool worldLightStateKey(std::string_view roomId, std::string_view lightId,
+                        char* output, std::size_t capacity) noexcept {
+    if (output == nullptr || capacity == 0 || !isValidContentId(roomId) ||
+        !hasType(roomId, "room") || !isValidContentId(lightId) ||
+        !hasType(lightId, "light")) {
+        return false;
+    }
+    std::uint64_t hash = 14695981039346656037ULL;
+    const auto append = [&](std::string_view value) noexcept {
+        for (const unsigned char character : value) {
+            hash = (hash ^ character) * 1099511628211ULL;
+        }
+        hash = (hash ^ static_cast<unsigned char>('/')) * 1099511628211ULL;
+    };
+    append(roomId);
+    append(lightId);
+    const int written = std::snprintf(output, capacity, "echo.world_light.%016llx",
+                                      static_cast<unsigned long long>(hash));
+    return written > 0 && static_cast<std::size_t>(written) < capacity;
+}
+
 struct WorldParser {
     [[nodiscard]] static Status parseObject(JsonValue document, ObjectDefinition& output) noexcept;
     [[nodiscard]] static Status parseRoom(JsonValue document, RoomDefinition& output) noexcept;
@@ -334,6 +575,12 @@ Status WorldParser::parseObject(JsonValue document, ObjectDefinition& output) no
                 return invalid("world.object.sprite.offset", "Sprite offset must be two integers within 256 pixels.");
             }
             output.present_ |= kOffsetX | kOffsetY;
+        }
+        const JsonValue material = sprite.find("material");
+        if (material.valid()) {
+            const Status status = parseMaterial(material, output.sprite_.material);
+            if (!status) return {status.code, "world.object.sprite.material", status.detail};
+            output.present_ |= kMaterial;
         }
     }
     const JsonValue bounds = document.find("bounds");
@@ -426,6 +673,7 @@ Status WorldParser::mergeObject(const ObjectDefinition& parent, ObjectDefinition
     if ((own & kFrameHeight) != 0U) merged.sprite_.frameHeight = child.sprite_.frameHeight;
     if ((own & kOffsetX) != 0U) merged.sprite_.offsetX = child.sprite_.offsetX;
     if ((own & kOffsetY) != 0U) merged.sprite_.offsetY = child.sprite_.offsetY;
+    if ((own & kMaterial) != 0U) merged.sprite_.material = child.sprite_.material;
     if ((own & kWidth) != 0U) merged.width_ = child.width_;
     if ((own & kHeight) != 0U) merged.height_ = child.height_;
     if ((own & kSpawnX) != 0U) merged.spawnX_ = child.spawnX_;
@@ -550,12 +798,155 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
     const JsonValue projection = document.find("projection");
     if (projection.valid()) {
         std::string_view value;
-        if (!projection.string(value) || (value != "side" && value != "isometric")) {
-            return invalid("world.room.projection", "Projection must be side or isometric.");
+        if (!projection.string(value) ||
+            (value != "side" && value != "top-down" && value != "isometric")) {
+            return invalid("world.room.projection",
+                           "Projection must be side, top-down or isometric.");
         }
         output.projection_ = value == "isometric" ? RoomProjection::Isometric
-                                                  : RoomProjection::Side;
+                           : value == "top-down" ? RoomProjection::TopDown
+                                                 : RoomProjection::Side;
         output.present_ |= kProjection;
+    }
+    const JsonValue lighting = document.find("lighting");
+    if (lighting.valid()) {
+        if (!allowedFields(lighting, kLightingFields) || lighting.size() == 0) {
+            return invalid("world.room.lighting",
+                           "Lighting must contain ambient, directional or lights definitions.");
+        }
+        RoomLighting& roomLighting = output.lighting_;
+        const JsonValue ambient = lighting.find("ambient");
+        if (ambient.valid()) {
+            const Status status = parseAmbient(ambient, roomLighting.ambientColor,
+                                               roomLighting.ambientIntensity,
+                                               roomLighting.dayNight);
+            if (!status) return {status.code, "world.room.lighting.ambient", status.detail};
+            roomLighting.hasAmbient = true;
+        }
+        const JsonValue directional = lighting.find("directional");
+        if (directional.valid()) {
+            if (!allowedFields(directional, kDirectionalFields) ||
+                !readPair(directional.find("direction"), -1.0, 1.0,
+                          roomLighting.directionalX, roomLighting.directionalY) ||
+                (roomLighting.directionalX == 0.0F && roomLighting.directionalY == 0.0F) ||
+                !readColor(directional.find("color"), roomLighting.directionalColor) ||
+                !readFloat(directional.find("intensity"), 0.0, 8.0,
+                           roomLighting.directionalIntensity)) {
+                return invalid("world.room.lighting.directional",
+                               "Directional lighting needs a nonzero direction, linear RGB color and intensity from 0 to 8.");
+            }
+            roomLighting.hasDirectional = true;
+        }
+        const JsonValue lights = lighting.find("lights");
+        if (lights.valid()) {
+            if (!lights.isArray() || lights.size() > kMaxRoomLights) {
+                return {ErrorCode::CapacityExceeded, "world.room.lighting.lights",
+                        "A room may define at most 16 lights."};
+            }
+            roomLighting.hasLights = true;
+            for (std::size_t index = 0; index < lights.size(); ++index) {
+                const JsonValue entry = lights.at(index);
+                WorldLightDefinition& light = roomLighting.lights[index];
+                std::string_view lightId;
+                std::string_view type;
+                std::string_view textValue;
+                const JsonValue direction = entry.find("direction");
+                const JsonValue coneAngle = entry.find("coneAngle");
+                const JsonValue enabled = entry.find("enabled");
+                const JsonValue flicker = entry.find("flicker");
+                const JsonValue parentValue = entry.find("parent");
+                const JsonValue circuit = entry.find("circuit");
+                const JsonValue shadow = entry.find("shadow");
+                const JsonValue persistence = entry.find("persistence");
+                const JsonValue followsAim = entry.find("followsAim");
+                const JsonValue fadeSeconds = entry.find("fadeSeconds");
+                if (!allowedFields(entry, kLightFields) ||
+                    !entry.find("id").string(lightId) || !isValidContentId(lightId) ||
+                    !hasType(lightId, "light") || !copyText(lightId, light.id) ||
+                    !entry.find("type").string(type) ||
+                    (type != "point" && type != "spot") ||
+                    !readPair(entry.find("position"), 0.0, 4096.0, light.x, light.y) ||
+                    !readFloat(entry.find("radius"), 1.0, 2048.0, light.radius) ||
+                    !readColor(entry.find("color"), light.color) ||
+                    !readFloat(entry.find("intensity"), 0.0, 8.0, light.intensity) ||
+                    (entry.find("attenuation").valid() &&
+                     !readAttenuation(entry.find("attenuation"), light.attenuation)) ||
+                    (enabled.valid() && !enabled.boolean(light.enabled)) ||
+                    (shadow.valid() && !shadow.boolean(light.castsShadows)) ||
+                    (followsAim.valid() && !followsAim.boolean(light.followsAim)) ||
+                    (fadeSeconds.valid() &&
+                     !readFloat(fadeSeconds, 0.0, 30.0, light.fadeSeconds))) {
+                    return invalid("world.room.lighting.light",
+                                   "Lights need a stable light ID, point/spot type, position, radius, color and intensity.");
+                }
+                light.type = type == "spot" ? WorldLightType::Spot : WorldLightType::Point;
+                if (flicker.valid()) {
+                    if (!allowedFields(flicker, kFlickerFields) ||
+                        !readFloat(flicker.find("amount"), 0.0, 1.0, light.flickerAmount) ||
+                        !readFloat(flicker.find("frequency"), 0.0, 20.0,
+                                   light.flickerFrequency) ||
+                        (light.flickerAmount > 0.0F && light.flickerFrequency <= 0.0F)) {
+                        return invalid("world.room.lighting.flicker",
+                                       "Flicker needs amount 0-1 and a positive frequency up to 20 Hz.");
+                    }
+                }
+                if (parentValue.valid()) {
+                    if (!parentValue.string(textValue) ||
+                        !validKey(textValue, light.parent.size()) ||
+                        !copyText(textValue, light.parent)) {
+                        return invalid("world.room.lighting.parent",
+                                       "A light parent must be a placement ID in this room.");
+                    }
+                }
+                if (light.type == WorldLightType::Spot) {
+                    const bool invalidAimBinding =
+                        light.followsAim &&
+                        (std::string_view(light.parent.data()) != "player" || direction.valid());
+                    const bool invalidDirection =
+                        !light.followsAim &&
+                        (!direction.valid() ||
+                         !readPair(direction, -1.0, 1.0,
+                                   light.directionX, light.directionY) ||
+                         (light.directionX == 0.0F && light.directionY == 0.0F));
+                    if (invalidAimBinding || invalidDirection ||
+                        !readFloat(coneAngle, 1.0, 179.0, light.coneAngle)) {
+                        return invalid("world.room.lighting.spot",
+                                       "Spotlights need a direction or a player aim binding, and a cone angle from 1 to 179 degrees.");
+                    }
+                } else if (direction.valid() || coneAngle.valid() || light.followsAim) {
+                    return invalid("world.room.lighting.point",
+                                   "Point lights cannot define a direction, cone angle or player aim binding.");
+                }
+                if (circuit.valid()) {
+                    if (!circuit.string(textValue) || !isValidContentId(textValue) ||
+                        !hasType(textValue, "power") ||
+                        !copyText(textValue, light.circuit)) {
+                        return invalid("world.room.lighting.circuit",
+                                       "A light circuit must use a stable namespace:power/name ID.");
+                    }
+                }
+                if (persistence.valid()) {
+                    if (!persistence.string(textValue)) {
+                        return invalid("world.room.lighting.persistence",
+                                       "Persistence must be transient, room or persistent.");
+                    }
+                    if (textValue == "room") light.persistence = LightPersistence::Room;
+                    else if (textValue == "persistent") light.persistence = LightPersistence::Persistent;
+                    else if (textValue != "transient") {
+                        return invalid("world.room.lighting.persistence",
+                                       "Persistence must be transient, room or persistent.");
+                    }
+                }
+                for (std::size_t previous = 0; previous < index; ++previous) {
+                    if (std::string_view(roomLighting.lights[previous].id.data()) == lightId) {
+                        return {ErrorCode::DuplicateId, "world.room.lighting.light",
+                                "Light IDs must be unique within a room."};
+                    }
+                }
+                ++roomLighting.lightCount;
+            }
+        }
+        output.present_ |= kLighting;
     }
     const JsonValue tilesets = document.find("tilesets");
     if (tilesets.valid()) {
@@ -570,6 +961,7 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
             std::string_view sheet;
             const JsonValue margin = entry.find("margin");
             const JsonValue spacing = entry.find("spacing");
+            const JsonValue material = entry.find("material");
             if (!allowedFields(entry, kTilesetFields) || !entry.find("id").string(tilesetId) ||
                 !validKey(tilesetId, tileset.id.size()) || !copyText(tilesetId, tileset.id) ||
                 !entry.find("sheet").string(sheet) || !WorldModule::validSpritePath(sheet) ||
@@ -580,6 +972,11 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
                 (spacing.valid() && !readInt(spacing, 0, 64, tileset.spacing))) {
                 return invalid("world.room.tileset",
                                "Tilesets need id, sprites/*.png sheet, tile size 1-256 and margin/spacing 0-64.");
+            }
+            if (material.valid()) {
+                const Status status = parseMaterial(material, tileset.material);
+                if (!status) return {status.code, "world.room.tileset.material", status.detail};
+                tileset.hasMaterial = true;
             }
             for (std::size_t previous = 0; previous < index; ++previous) {
                 if (text(output.tilesets_[previous].id) == tilesetId) {
@@ -764,6 +1161,27 @@ Status WorldParser::mergeRoom(const RoomDefinition& parent, RoomDefinition& chil
     }
     if ((own & kBackground) != 0U) merged.background_ = child.background_;
     if ((own & kProjection) != 0U) merged.projection_ = child.projection_;
+    if ((own & kLighting) != 0U) {
+        const RoomLighting& overrides = child.lighting_;
+        if (overrides.hasAmbient) {
+            merged.lighting_.ambientColor = overrides.ambientColor;
+            merged.lighting_.ambientIntensity = overrides.ambientIntensity;
+            merged.lighting_.dayNight = overrides.dayNight;
+            merged.lighting_.hasAmbient = true;
+        }
+        if (overrides.hasDirectional) {
+            merged.lighting_.directionalColor = overrides.directionalColor;
+            merged.lighting_.directionalX = overrides.directionalX;
+            merged.lighting_.directionalY = overrides.directionalY;
+            merged.lighting_.directionalIntensity = overrides.directionalIntensity;
+            merged.lighting_.hasDirectional = true;
+        }
+        if (overrides.hasLights) {
+            merged.lighting_.lights = overrides.lights;
+            merged.lighting_.lightCount = overrides.lightCount;
+            merged.lighting_.hasLights = true;
+        }
+    }
     if ((own & kLayers) != 0U) {
         merged.layers_ = child.layers_;
         merged.layerCount_ = child.layerCount_;
@@ -777,7 +1195,12 @@ Status WorldParser::mergeRoom(const RoomDefinition& parent, RoomDefinition& chil
         if (index == kMaxRoomTilesets) {
             return {ErrorCode::CapacityExceeded, "world.room.tilesets", "Inherited tilesets exceed 16 entries."};
         }
-        merged.tilesets_[index] = tileset;
+        TilesetSpec resolvedTileset = tileset;
+        if (index < merged.tilesetCount_ && !tileset.hasMaterial) {
+            resolvedTileset.material = merged.tilesets_[index].material;
+            resolvedTileset.hasMaterial = merged.tilesets_[index].hasMaterial;
+        }
+        merged.tilesets_[index] = resolvedTileset;
         merged.tilesetCount_ = std::max(merged.tilesetCount_, index + 1);
     }
     for (const TileType& tile : child.tileTypes()) {
@@ -819,7 +1242,7 @@ Status WorldParser::validateRoom(RoomDefinition& room) noexcept {
     }
     for (std::size_t index = 0; index < room.layerCount_; ++index) {
         const TileLayer& layer = room.layers_[index];
-        if (room.projection_ == RoomProjection::Isometric && layer.scrollFactorX != 1.0F) {
+        if (room.projection_ != RoomProjection::Side && layer.scrollFactorX != 1.0F) {
             return invalid("world.room.layer.scrollFactorX",
                            "Parallax scrolling is supported only in side-view rooms.");
         }
@@ -834,6 +1257,19 @@ Status WorldParser::validateRoom(RoomDefinition& room) noexcept {
                     return {ErrorCode::MissingDependency, room.id(), "A layer uses an undefined tile symbol."};
                 }
             }
+        }
+    }
+    for (std::size_t index = 0; index < room.lighting_.lightCount; ++index) {
+        const WorldLightDefinition& light = room.lighting_.lights[index];
+        const std::string_view parent(light.parent.data());
+        if (parent.empty() || parent == "player") continue;
+        const std::string_view placementId =
+            parent.starts_with("enemy.") ? std::string_view(parent.data() + 6, parent.size() - 6) :
+            parent.starts_with("roamer.") ? std::string_view(parent.data() + 7, parent.size() - 7) :
+                                            parent;
+        if (!validKey(placementId, 32) || room.findPlacement(placementId) == nullptr) {
+            return {ErrorCode::MissingDependency, light.id.data(),
+                    "A light parent must be player or a valid placement/entity ID in the same room."};
         }
     }
     return Status::success();
@@ -1141,7 +1577,7 @@ Status WorldModule::validateReferences() noexcept {
                 "The start room must be a concrete listed room."};
     }
     for (std::size_t index = 0; index < roomCount_; ++index) {
-        const RoomDefinition& room = rooms_[index];
+        RoomDefinition& room = rooms_[index];
         if (room.isAbstract()) continue;
         const float width = static_cast<float>(room.columns() * 32);
         const float height = static_cast<float>(room.rows() * 32);
@@ -1161,6 +1597,35 @@ Status WorldModule::validateReferences() noexcept {
             const float y = placement.hasPosition ? placement.y : object->spawnY();
             if (x > width || y > height) {
                 return {ErrorCode::InvalidValue, room.id(), "A placement lies outside its room."};
+            }
+        }
+        for (std::size_t lightIndex = 0; lightIndex < room.lighting_.lightCount;
+             ++lightIndex) {
+            WorldLightDefinition& light = room.lighting_.lights[lightIndex];
+            const std::string_view parent(light.parent.data());
+            if (parent.empty() || parent == "player") continue;
+            const bool enemyAttachment = parent.starts_with("enemy.");
+            const bool roamerAttachment = parent.starts_with("roamer.");
+            const std::size_t prefixLength = enemyAttachment ? 6 : roamerAttachment ? 7 : 0;
+            const std::string_view placementId = prefixLength == 0
+                ? parent
+                : std::string_view(parent.data() + prefixLength,
+                                   parent.size() - prefixLength);
+            const ObjectPlacement* placement = room.findPlacement(placementId);
+            const ObjectDefinition* object =
+                placement != nullptr ? findRawObject(text(placement->object)) : nullptr;
+            if (object == nullptr ||
+                ((enemyAttachment || roamerAttachment) &&
+                 object->category() != ObjectCategory::Enemy)) {
+                return {ErrorCode::InvalidValue, light.id.data(),
+                        "A static or entity light parent must identify a valid placement."};
+            }
+            if (!enemyAttachment && !roamerAttachment) {
+                light.resolvedX = light.x +
+                    (placement->hasPosition ? placement->x : object->spawnX());
+                light.resolvedY = light.y +
+                    (placement->hasPosition ? placement->y : object->spawnY());
+                light.hasResolvedPosition = true;
             }
         }
     }
@@ -1197,7 +1662,8 @@ std::string_view objectCategoryName(ObjectCategory category) noexcept {
 }
 
 CapabilityManifestFragment worldCapabilityManifestFragment() noexcept {
-    return {.modules = kModules, .contentSchemas = kSchemas};
+    return {.modules = kModules, .contentSchemas = kSchemas,
+            .runtimeFeatures = kWorldFeatures};
 }
 
 } // namespace echo::framework

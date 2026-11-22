@@ -65,8 +65,35 @@ foreach ($tool in @("cmake", "ninja", "git")) {
     }
 }
 
-$configure = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE={3} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl' -f `
-    $vsDevCmd, $root, $buildDir, $Configuration
+$includeProbePath = Join-Path $logDir "include-prefix.c"
+[IO.File]::WriteAllText($includeProbePath, "#include <stddef.h>`n", [Text.Encoding]::ASCII)
+try {
+    $includeProbe = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cl /nologo /showIncludes /Zs "{1}"' -f `
+        $vsDevCmd, $includeProbePath
+    $includeProbeExitCode = Invoke-CommandLine "include-prefix" $includeProbe
+    if ($includeProbeExitCode -ne 0) {
+        throw "MSVC include-prefix detection failed with exit code $includeProbeExitCode."
+    }
+    $includeOutput = [IO.File]::ReadAllText((Join-Path $logDir "include-prefix.stdout.log"))
+    $includePrefixMatch = [regex]::Match(
+        $includeOutput, '(?m)^(.+?):\s+[A-Za-z]:[\\/]')
+    if (-not $includePrefixMatch.Success) {
+        throw "Could not detect the MSVC include prefix; header dependency tracking is unsafe."
+    }
+    $includePrefix = $includePrefixMatch.Groups[1].Value + ": "
+    if ($includePrefix -match '["&<>|]') {
+        throw "MSVC returned an unsupported include prefix."
+    }
+} finally {
+    Remove-Item -LiteralPath $includeProbePath -Force -ErrorAction SilentlyContinue
+}
+
+$testOptions = ""
+if ($RunTests) {
+    $testOptions = " -DECHO_FRAMEWORK_BUILD_TESTS=ON -DECHO_FRAMEWORK_BUILD_TOOLS=ON"
+}
+$configure = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE={3} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DECHO_MSVC_INCLUDE_PREFIX={4}"{5}' -f `
+    $vsDevCmd, $root, $buildDir, $Configuration, $includePrefix, $testOptions
 $configureExitCode = Invoke-CommandLine "configure" $configure
 if ($configureExitCode -ne 0) {
     throw "CMake configure failed with exit code $configureExitCode."

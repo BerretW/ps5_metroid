@@ -21,10 +21,10 @@ namespace {
 constexpr std::array<std::string_view, 1> kStateServices{"echo.state"};
 constexpr std::array<std::string_view, 2> kProjectDependencies{
     "echo.state", "echo.narrative.dialogue"};
-constexpr std::array<std::string_view, 7> kProjectOptionalModules{
+constexpr std::array<std::string_view, 8> kProjectOptionalModules{
     "echo.narrative.cutscenes", "echo.rpg.abilities",
     "echo.rpg.attributes", "echo.rpg.equipment",
-    "echo.rpg.inventory", "echo.rpg.quests", "echo.world"};
+    "echo.rpg.inventory", "echo.rpg.quests", "echo.world", "echo.power"};
 constexpr std::array<std::string_view, 1> kProjectServices{"echo.actions"};
 constexpr std::size_t kMaxGameConfigBytes = 16 * 1024;
 constexpr std::size_t kMaxDialogueBytes = 16 * 1024;
@@ -191,7 +191,54 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     }
     status = worldModule_->finalize();
     if (!status) return status;
-    return buildWorldLayout(*worldModule_, *worldLayout_);
+    const auto validateMaterialCircuit = [&](std::string_view circuit) noexcept -> framework::Status {
+        if (circuit.empty()) return framework::Status::success();
+        if (!powerModule_) {
+            return {ErrorCode::MissingDependency, circuit,
+                    "An emissive material circuit requires the echo.power module."};
+        }
+        if (!powerModule_->hasCircuit(circuit)) {
+            return {ErrorCode::MissingDependency, circuit,
+                    "An emissive material references an unknown power circuit."};
+        }
+        return framework::Status::success();
+    };
+    for (const framework::ObjectDefinition& object : worldModule_->objects()) {
+        status = validateMaterialCircuit(object.sprite().material.emissiveCircuit.data());
+        if (!status) return status;
+    }
+    for (const framework::RoomDefinition& room : worldModule_->rooms()) {
+        for (const framework::TilesetSpec& tileset : room.tilesets()) {
+            status = validateMaterialCircuit(tileset.material.emissiveCircuit.data());
+            if (!status) return status;
+        }
+        for (const framework::WorldLightDefinition& light : room.lighting().lights) {
+            if (light.id[0] == '\0' || light.circuit[0] == '\0') continue;
+            if (!powerModule_) {
+                return {ErrorCode::MissingDependency, light.circuit.data(),
+                        "A world light circuit requires the echo.power module."};
+            }
+            if (!powerModule_->hasCircuit(light.circuit.data())) {
+                return {ErrorCode::MissingDependency, light.circuit.data(),
+                        "A world light references an unknown power circuit."};
+            }
+        }
+    }
+    status = buildWorldLayout(*worldModule_, *worldLayout_);
+    if (!status) return status;
+    worldLayout_->worldLighting = worldLighting_;
+    for (const PropLayout& prop : worldLayout_->propList()) {
+        if (prop.interaction != "toggle_power") continue;
+        if (!powerModule_) {
+            return {ErrorCode::MissingDependency, prop.circuit,
+                    "A power-panel interaction requires the echo.power module."};
+        }
+        if (!powerModule_->hasCircuit(prop.circuit)) {
+            return {ErrorCode::MissingDependency, prop.circuit,
+                    "A power panel references an unknown circuit."};
+        }
+    }
+    return framework::Status::success();
 }
 
 framework::Status FrameworkIntegration::initialize(const char* configPath,
@@ -223,7 +270,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     std::string_view gameId;
     const framework::JsonValue moduleList = root.find("modules");
     if (!root.isObject() || !root.find("game").string(gameId) ||
-        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 10) {
+        gameId != "echo.project_echo" || !moduleList.isArray() || moduleList.size() > 11) {
         return {framework::ErrorCode::InvalidValue, configPath,
                 "Configuration requires game echo.project_echo and a bounded modules array."};
     }
@@ -237,6 +284,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     bool questsSelected = false;
     bool cutscenesSelected = false;
     bool worldSelected = false;
+    bool powerSelected = false;
     for (std::size_t index = 0; index < moduleList.size(); ++index) {
         std::string_view moduleId;
         if (!moduleList.at(index).string(moduleId)) {
@@ -247,7 +295,8 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
             moduleId != "echo.project_echo" && moduleId != "echo.rpg.inventory" &&
             moduleId != "echo.rpg.attributes" && moduleId != "echo.rpg.equipment" &&
             moduleId != "echo.rpg.abilities" && moduleId != "echo.rpg.quests" &&
-            moduleId != "echo.narrative.cutscenes" && moduleId != "echo.world") {
+            moduleId != "echo.narrative.cutscenes" && moduleId != "echo.world" &&
+            moduleId != "echo.power") {
             return {framework::ErrorCode::MissingDependency, "modules",
                     "Configured module is not compiled into this application."};
         }
@@ -262,6 +311,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         cutscenesSelected = cutscenesSelected ||
                             moduleId == "echo.narrative.cutscenes";
         worldSelected = worldSelected || moduleId == "echo.world";
+        powerSelected = powerSelected || moduleId == "echo.power";
         for (std::size_t previous = 0; previous < index; ++previous) {
             std::string_view previousId;
             (void)moduleList.at(previous).string(previousId);
@@ -274,6 +324,28 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!stateSelected || !dialogueSelected || !projectSelected) {
         return {framework::ErrorCode::MissingDependency, "echo.project_echo",
                 "The game configuration must select state, dialogue, and PROJECT ECHO modules."};
+    }
+    status = framework::WorldModule::parseWorldLighting(
+        root.find("worldLighting"), worldLighting_);
+    if (!status) return status;
+    if (!worldSelected && root.find("worldLighting").valid()) {
+        return {framework::ErrorCode::MissingDependency, "echo.world",
+                "World lighting content requires the echo.world module."};
+    }
+    if (powerSelected) {
+        powerModule_.reset(new (std::nothrow) framework::PowerModule{});
+        if (!powerModule_) {
+            return {framework::ErrorCode::CapacityExceeded, "echo.power",
+                    "Power module allocation failed."};
+        }
+        status = powerModule_->load(root.find("power"));
+        if (!status) return status;
+    } else {
+        if (root.find("power").valid()) {
+            return {framework::ErrorCode::MissingDependency, "echo.power",
+                    "Power content requires the echo.power module to be selected."};
+        }
+        powerModule_.reset();
     }
     if (worldSelected) {
         status = loadWorld(contentRoot);
@@ -510,6 +582,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
             return status;
         }
     }
+    if (powerModule_) {
+        status = modules_.add(*powerModule_, true);
+        if (!status) return status;
+    }
     framework::ModuleContext context{this};
     status = modules_.initializeAll(context);
     if (!status) {
@@ -527,6 +603,13 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         modules_.shutdownAll();
         return status;
+    }
+    if (powerModule_) {
+        status = powerModule_->registerActions(actions_);
+        if (!status) {
+            modules_.shutdownAll();
+            return status;
+        }
     }
     status = events_.subscribe(unlockListener_, unlockSubscription_);
     if (!status) {
@@ -584,6 +667,10 @@ framework::Status FrameworkIntegration::beginGame() noexcept {
     if (!cleared) {
         return cleared;
     }
+    if (powerModule_) {
+        const framework::Status restored = powerModule_->restore();
+        if (!restored) return restored;
+    }
     actions_.setGameActive(true);
     return stateModule_.state.set(
         {framework::StateScope::Global, {}, "player.echo_step_unlocked"},
@@ -599,8 +686,35 @@ framework::Status FrameworkIntegration::resumeGame(const framework::GameState& s
     if (!replaced) {
         return replaced;
     }
+    if (powerModule_) {
+        const framework::Status restored = powerModule_->restoreState(state);
+        if (!restored) return restored;
+    }
     actions_.setGameActive(true);
     return framework::Status::success();
+}
+
+framework::Status FrameworkIntegration::togglePowerCircuit(
+    std::string_view circuitId) noexcept {
+    if (!initialized_ || !powerModule_) {
+        return {framework::ErrorCode::MissingDependency, "echo.power",
+                "Power controls are not initialized."};
+    }
+    if (!powerModule_->hasCircuit(circuitId)) {
+        return {framework::ErrorCode::NotFound, circuitId,
+                "The requested power circuit is not configured."};
+    }
+    framework::StateValue circuit{};
+    if (!framework::StateValue::fromString(circuitId, circuit)) {
+        return {framework::ErrorCode::InvalidValue, circuitId,
+                "The power circuit ID exceeds the action value limit."};
+    }
+    const std::array<framework::ActionParameter, 1> parameters{{
+        {"circuit", circuit},
+    }};
+    const framework::ActionResult result =
+        actions_.execute({"echo.power.toggle", parameters});
+    return result.status;
 }
 
 framework::Status FrameworkIntegration::notifyEchoStepUnlocked() noexcept {
@@ -660,6 +774,64 @@ void FrameworkIntegration::shutdown() noexcept {
     actions_.setGameActive(false);
     modules_.shutdownAll();
     initialized_ = false;
+}
+
+framework::Status FrameworkIntegration::setWorldLightEnabled(
+    std::string_view roomId, std::string_view lightId, bool enabled) noexcept {
+    if (!initialized_ || worldModule_ == nullptr) {
+        return {framework::ErrorCode::InvalidState, "echo.world",
+                "World lighting controls are not initialized."};
+    }
+    const framework::RoomDefinition* room = worldModule_->findRoom(roomId);
+    if (room == nullptr) {
+        return {framework::ErrorCode::NotFound, roomId,
+                "The requested lighting room is not configured."};
+    }
+    const framework::WorldLightDefinition* selected = nullptr;
+    for (const framework::WorldLightDefinition& light : room->lighting().lights) {
+        if (light.id[0] != '\0' && std::string_view(light.id.data()) == lightId) {
+            selected = &light;
+            break;
+        }
+    }
+    if (selected == nullptr) {
+        return {framework::ErrorCode::NotFound, lightId,
+                "The requested world light is not configured in that room."};
+    }
+    if (selected->persistence == framework::LightPersistence::Transient) {
+        return {framework::ErrorCode::InvalidState, lightId,
+                "Transient lights cannot be stored as persistent light overrides."};
+    }
+    std::array<char, 64> key{};
+    if (!framework::worldLightStateKey(roomId, lightId, key.data(), key.size())) {
+        return {framework::ErrorCode::InvalidValue, lightId,
+                "The requested world light cannot be represented as a state key."};
+    }
+    const framework::StateScope scope =
+        selected->persistence == framework::LightPersistence::Persistent
+            ? framework::StateScope::Global : framework::StateScope::World;
+    return stateModule_.state.set({scope, {}, key.data()},
+                                  framework::StateValue::fromBoolean(enabled));
+}
+
+framework::Status FrameworkIntegration::saveWorldLightOverrides(
+    framework::GameState& state) const noexcept {
+    constexpr std::string_view kLightStatePrefix{"echo.world_light."};
+    for (std::size_t index = 0; index < stateModule_.state.size(); ++index) {
+        framework::StateEntryView entry{};
+        if (!stateModule_.state.entryAt(index, entry)) {
+            return {framework::ErrorCode::InvalidState, "echo.world_light",
+                    "Could not enumerate persistent world-light state."};
+        }
+        if (!entry.address.key.starts_with(kLightStatePrefix)) continue;
+        if (entry.value.type != framework::ValueType::Boolean) {
+            return {framework::ErrorCode::InvalidValue, entry.address.key,
+                    "Persistent world-light overrides must be boolean."};
+        }
+        const framework::Status status = state.set(entry.address, entry.value);
+        if (!status) return status;
+    }
+    return framework::Status::success();
 }
 
 std::size_t FrameworkIntegration::unlockEventCount() const noexcept {

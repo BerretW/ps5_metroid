@@ -4,12 +4,18 @@ layout(location=1) in vec3 normal;
 layout(location=2) in vec2 uv;
 layout(location=3) in vec4 color;
 layout(location=4) in vec4 tangent;
-struct PointLight { vec4 positionRadius; vec4 colorIntensity; };
+struct PointLight {
+    vec4 positionRadius;
+    vec4 colorIntensity;
+    vec4 attenuation;
+    vec4 directionCone;
+};
 layout(set=0,binding=0,std140) uniform Frame {
     mat4 viewProjection;
     vec4 cameraPosition;
     vec4 lightDirectionAmbient;
     vec4 lightColorIntensity;
+    vec4 ambientColor;
     PointLight points[4];
 } frame;
 layout(push_constant) uniform Draw {

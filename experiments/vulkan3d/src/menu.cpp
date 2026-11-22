@@ -3,10 +3,12 @@
 #include <windows.h>
 
 #include "echo/framework/canvas_batch.hpp"
+#include "echo/framework/world.hpp"
 #include "echo/framework/vulkan_backend.hpp"
 #include "platform/sdl/assets.hpp"
 #include "platform/sdl/canvas_assets.hpp"
 #include "platform/sdl/framework_integration.hpp"
+#include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/gpu_canvas.hpp"
 #include "platform/sdl/menu_glyph.hpp"
 #include "platform/sdl/renderer.hpp"
@@ -69,11 +71,115 @@ bool require(Status status) {
     return false;
 }
 
+bool recordLightingFixture(ICanvas2D& canvas,
+                           const std::array<TextureHandle, 5>& textures) noexcept {
+    if (!canvas.clear({0, 0, 0, 255})) return false;
+    FrameState lighting{};
+    lighting.lightDirectionAmbient = {-1, 0, 0, 0};
+    lighting.lightColorIntensity = {1, 1, 1, 1.5F};
+    lighting.ambientColor = {1, 1, 1, 1};
+    const std::array<echo::framework::WorldPoint, 4> centers{{
+        echo::framework::projectWorldPoint(echo::framework::RoomProjection::Side,
+            {350, 180}, {260, 100}),
+        echo::framework::projectWorldPoint(echo::framework::RoomProjection::Side,
+            {350, 180}, {120, 100}),
+        echo::framework::projectWorldPoint(echo::framework::RoomProjection::TopDown,
+            {500, 150}, {180, 70}),
+        echo::framework::projectWorldPoint(echo::framework::RoomProjection::Isometric,
+            {600, 100}, {100, 270}),
+    }};
+    const std::array<Vec4, 4> colors{{
+        {1, 0, 0, 1.5F}, {1, 0, 0, 1.5F},
+        {0, 1, 0, 1.5F}, {0, 0, 1, 1.5F},
+    }};
+    for (std::size_t index = 0; index < centers.size(); ++index) {
+        PointLight& light = lighting.pointLights[index];
+        light.positionRadius = {centers[index].x, centers[index].y, 22.5F, 45};
+        light.colorIntensity = colors[index];
+        light.attenuation = {1, 0, 0, 0};
+    }
+    const echo::framework::WorldPoint spotDirection =
+        echo::framework::projectWorldDirection(echo::framework::RoomProjection::Isometric,
+                                                {1, -1});
+    lighting.pointLights[3].directionCone = {
+        spotDirection.x / std::hypot(spotDirection.x, spotDirection.y),
+        spotDirection.y / std::hypot(spotDirection.x, spotDirection.y), 0,
+        std::cos(22.5F * 0.01745329251994329577F)};
+    if (!canvas.setWorldLighting(lighting) || !canvas.setWorldPass(true) ||
+        !canvas.fill({0, 0, 640, 360}, {255, 255, 255, 255}) ||
+        !canvas.textureWithLighting(textures[0], textures[1], {}, {},
+                                    {200, 180, 60, 60}, {0, 0, 1, 1},
+                                    {1, 1, 1, 1}) ||
+        !canvas.textureWithLighting(textures[0], textures[2], {}, {},
+                                    {280, 180, 60, 60}, {0, 0, 1, 1},
+                                    {1, 1, 1, 1}) ||
+        !canvas.textureWithLighting(textures[3], {}, textures[4], {0, 1.5F, 0},
+                                    {380, 180, 60, 60}, {0, 0, 1, 1},
+                                    {1, 1, 1, 1}) ||
+        !canvas.setWorldPass(false) ||
+        !canvas.fill({560, 300, 40, 30}, {255, 255, 255, 255})) {
+        std::fprintf(stderr, "2D lighting or material fixture recording failed\n");
+        return false;
+    }
+    return true;
+}
+
+bool recordIsometricLightMetricFixture(ICanvas2D& canvas) noexcept {
+    if (!canvas.clear({0, 0, 0, 255})) return false;
+    FrameState lighting{};
+    lighting.lightDirectionAmbient = {0, 0, 0, 0};
+    lighting.lightColorIntensity = {1, 1, 1, 0};
+    lighting.ambientColor = {1, 1, 1, 1};
+    lighting.lightScreenToWorld = {0.5F, 1.0F, -0.5F, 1.0F};
+    PointLight& light = lighting.pointLights[0];
+    light.positionRadius = {320, 180, 22.5F, 45};
+    light.colorIntensity = {1, 1, 1, 1.5F};
+    light.attenuation = {1, 0, 0, 0};
+    PointLight& spot = lighting.pointLights[1];
+    spot.positionRadius = {500, 180, 37.5F, 75};
+    spot.colorIntensity = {0, 1, 1, 1.5F};
+    spot.attenuation = {1, 0, 0, 0};
+    spot.directionCone = {
+        1, 0, 0, std::cos(45.0F * 0.01745329251994329577F)};
+    if (!canvas.setWorldLighting(lighting) || !canvas.setWorldPass(true) ||
+        !canvas.fill({0, 0, 640, 360}, {255, 255, 255, 255}) ||
+        !canvas.setWorldPass(false)) {
+        std::fprintf(stderr, "Isometric light metric fixture recording failed\n");
+        return false;
+    }
+    return true;
+}
+
+bool recordShadowFixture(ICanvas2D& canvas) noexcept {
+    if (!canvas.clear({0, 0, 0, 255})) return false;
+    FrameState lighting{};
+    lighting.lightDirectionAmbient = {0, 0, 0, 0};
+    lighting.lightColorIntensity = {1, 1, 1, 0};
+    lighting.ambientColor = {1, 1, 1, 0.05F};
+    PointLight& light = lighting.pointLights[0];
+    light.positionRadius = {180, 180, 125, 250};
+    light.colorIntensity = {1, 1, 1, 2};
+    light.attenuation = {1, 0, 0, 1};
+    lighting.shadowInfo.x = 1;
+    lighting.shadowSegments[0] = {250, 110, 250, 250};
+    if (!canvas.setWorldLighting(lighting) || !canvas.setWorldPass(true) ||
+        !canvas.fill({0, 0, 640, 360}, {255, 255, 255, 255}) ||
+        !canvas.setWorldPass(false) ||
+        !canvas.fill({560, 300, 40, 30}, {255, 255, 255, 255})) {
+        std::fprintf(stderr, "2D shadow fixture recording failed\n");
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     unsigned frameLimit{};
-    bool validation{}, motionTest{}, canvasTextureTest{}, gameSprites{}, dataWorld{};
+    bool validation{}, motionTest{}, canvasTextureTest{}, gameSprites{}, dataWorld{}, lightingTest{};
+    bool isometricLightMetricTest{};
+    bool shadowTest{};
+    bool cargoLightingSaveTest{};
     const char* capture{};
     const char* glyphRoot{};
     for (int i = 1; i < argc; ++i) {
@@ -91,6 +197,10 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--canvas-texture-test")) canvasTextureTest = true;
         else if (!std::strcmp(argv[i], "--sprites")) gameSprites = true;
         else if (!std::strcmp(argv[i], "--data-world")) dataWorld = true;
+        else if (!std::strcmp(argv[i], "--lighting-test")) lightingTest = true;
+        else if (!std::strcmp(argv[i], "--isometric-light-metric-test")) isometricLightMetricTest = true;
+        else if (!std::strcmp(argv[i], "--shadow-test")) shadowTest = true;
+        else if (!std::strcmp(argv[i], "--cargo-lighting-save-test")) cargoLightingSaveTest = true;
         else if (!std::strcmp(argv[i], "--capture") && i + 1 < argc) capture = argv[++i];
         else if (!std::strcmp(argv[i], "--glyph-root") && i + 1 < argc) glyphRoot = argv[++i];
         else { std::fprintf(stderr, "Unknown or incomplete argument: %s\n", argv[i]); return 2; }
@@ -106,6 +216,33 @@ int main(int argc, char** argv) {
     }
     if (dataWorld && (!inGame || !gameSprites)) {
         std::fprintf(stderr, "Data-world test requires --game --sprites\n");
+        return 2;
+    }
+    if (lightingTest && (inGame || motionTest || canvasTextureTest || gameSprites || dataWorld ||
+                         glyphRoot || isometricLightMetricTest)) {
+        std::fprintf(stderr, "2D lighting test cannot be combined with other scene tests\n");
+        return 2;
+    }
+    if (isometricLightMetricTest &&
+        (inGame || motionTest || canvasTextureTest || gameSprites || dataWorld ||
+         lightingTest || glyphRoot || frameLimit != 1 || !capture)) {
+        std::fprintf(stderr,
+                     "Isometric light metric test requires --frames 1 and --capture\n");
+        return 2;
+    }
+    if (shadowTest &&
+        (inGame || motionTest || canvasTextureTest || gameSprites || dataWorld ||
+         lightingTest || isometricLightMetricTest || glyphRoot || frameLimit != 1 ||
+         !capture)) {
+        std::fprintf(stderr, "Shadow test requires --frames 1 and --capture\n");
+        return 2;
+    }
+    if (cargoLightingSaveTest &&
+        (!inGame || !gameSprites || !dataWorld || !capture || frameLimit != 2 ||
+         motionTest || canvasTextureTest || lightingTest || glyphRoot)) {
+        std::fprintf(stderr,
+                     "Cargo lighting save test requires --game --sprites --data-world "
+                     "--frames 2 and --capture\n");
         return 2;
     }
 
@@ -143,6 +280,9 @@ int main(int argc, char** argv) {
         return 1;
     }
     HWND window = CreateWindowW(cls.lpszClassName,
+                                shadowTest ? L"Echo Vulkan 2D shadow test" :
+                                lightingTest ? L"Echo Vulkan 2D lighting test" :
+                                isometricLightMetricTest ? L"Echo Vulkan isometric light metric test" :
                                 gameSprites ? L"Echo Vulkan gameplay test - sprite art"
                                             : L"Echo Vulkan gameplay test - fallback art",
         style, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right-bounds.left, bounds.bottom-bounds.top,
@@ -167,9 +307,30 @@ int main(int argc, char** argv) {
         echo::platform::MenuGlyph glyph{backend};
         if (glyphRoot && !require(glyph.load(glyphRoot))) return false;
         auto& geometry = canvas.batch();
+        std::array<TextureHandle, 5> lightingTextures{};
         TextureHandle texture{};
         TextureHandle playerTexture{};
         std::uint32_t playerWidth{}, playerHeight{};
+        if (lightingTest) {
+            constexpr std::array<std::byte, 4> white{
+                std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
+            constexpr std::array<std::byte, 4> black{
+                std::byte{0}, std::byte{0}, std::byte{0}, std::byte{255}};
+            constexpr std::array<std::byte, 4> flatNormal{
+                std::byte{127}, std::byte{128}, std::byte{255}, std::byte{255}};
+            constexpr std::array<std::byte, 4> xNormal{
+                std::byte{255}, std::byte{128}, std::byte{128}, std::byte{255}};
+            for (std::size_t index = 0; index < lightingTextures.size(); ++index) {
+                const auto colorSpace = index == 1 || index == 2 || index == 4
+                    ? TextureColorSpace::Linear : TextureColorSpace::Srgb;
+                const auto& pixels = index == 0 || index == 4 ? white :
+                                     index == 1 ? flatNormal :
+                                     index == 2 ? xNormal : black;
+                if (!require(backend.createTexture(1, 1, pixels,
+                                                   lightingTextures[index], colorSpace)))
+                    return false;
+            }
+        }
         if (gameSprites) {
             std::array<char, 1200> spriteRoot{};
             const int written = std::snprintf(spriteRoot.data(), spriteRoot.size(),
@@ -192,8 +353,27 @@ int main(int argc, char** argv) {
             }
         }
         echo::platform::Renderer gameMenu{echo::platform::ControlScheme::Keyboard};
+        echo::platform::Renderer restoredGameMenu{echo::platform::ControlScheme::Keyboard};
+        echo::platform::Renderer* activeGameMenu = &gameMenu;
         echo::platform::FrameworkIntegration gameIntegration{};
         echo::Game game;
+        std::array<char, 1200> cargoPoweredCapture{}, cargoRestoredCapture{};
+        bool cargoLightingStateRestored{};
+        if (cargoLightingSaveTest) {
+            const int poweredLength = std::snprintf(
+                cargoPoweredCapture.data(), cargoPoweredCapture.size(),
+                "%s.powered.ppm", capture);
+            const int restoredLength = std::snprintf(
+                cargoRestoredCapture.data(), cargoRestoredCapture.size(),
+                "%s.restored.ppm", capture);
+            if (poweredLength <= 0 ||
+                poweredLength >= static_cast<int>(cargoPoweredCapture.size()) ||
+                restoredLength <= 0 ||
+                restoredLength >= static_cast<int>(cargoRestoredCapture.size())) {
+                std::fprintf(stderr, "Cargo lighting capture path is too long\n");
+                return false;
+            }
+        }
         if (dataWorld) {
             std::array<char, 1200> assetRoot{}, configPath{}, dialoguePath{}, itemPath{};
             const auto makePath = [&](char* out, std::size_t size, const char* suffix) {
@@ -225,8 +405,117 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "JSON world configuration or sprite upload failed\n");
                 return false;
             }
+            gameMenu.setPowerModule(gameIntegration.powerModule());
+            gameMenu.setGameState(&gameIntegration.gameState());
+            restoredGameMenu.setPowerModule(gameIntegration.powerModule());
+            restoredGameMenu.setGameState(&gameIntegration.gameState());
+            if (cargoLightingSaveTest) {
+                echo::GameCheckpoint cargoCheckpoint = game.checkpoint();
+                cargoCheckpoint.room = echo::RoomId::CargoHold;
+                cargoCheckpoint.playerPosition = {600.0F, 170.0F};
+                if (!game.restore(cargoCheckpoint)) {
+                    std::fprintf(stderr, "Cargo Hold checkpoint setup failed\n");
+                    return false;
+                }
+            }
             std::printf("Loaded %zu JSON world sprite sheets\n", canvas.worldSprites().count);
         }
+        const auto restoreCargoLightingSnapshot = [&]() noexcept {
+            const auto reportFrameworkError = [](const echo::framework::Status& status,
+                                                 const char* stage) {
+                if (status) return true;
+                std::fprintf(stderr, "%s failed [%u] %.*s: %.*s\n", stage,
+                    static_cast<unsigned>(status.code),
+                    static_cast<int>(status.subject.size()), status.subject.data(),
+                    static_cast<int>(status.detail.size()), status.detail.data());
+                return false;
+            };
+            const auto mainCircuit = std::string_view{"echo:power/cargo_main"};
+            const auto mainLight = std::string_view{"echo:light/cargo_main"};
+            if (!reportFrameworkError(gameIntegration.powerModule()->setRequested(
+                    mainCircuit, false), "Disable Cargo main circuit") ||
+                !reportFrameworkError(gameIntegration.setWorldLightEnabled(
+                    "echo:room/cargo_hold", mainLight, false),
+                    "Disable Cargo main light")) {
+                return false;
+            }
+            auto saved = std::make_unique<echo::framework::GameState>();
+            if (!reportFrameworkError(echo::platform::encodeGameCheckpoint(game, *saved),
+                                      "Encode Cargo checkpoint") ||
+                !reportFrameworkError(gameIntegration.powerModule()->saveState(*saved),
+                                      "Save Cargo circuits") ||
+                !reportFrameworkError(gameIntegration.saveWorldLightOverrides(*saved),
+                                      "Save Cargo light overrides")) {
+                return false;
+            }
+            auto serialized = std::make_unique<
+                std::array<char, echo::framework::kMaxSaveBytes>>();
+            std::size_t serializedSize{};
+            constexpr std::array<echo::framework::ModuleVersion, 3> saveModules{{
+                {"echo.state", 1, true},
+                {"echo.project_echo", 1, true},
+                {"echo.power", 1, false},
+            }};
+            if (!reportFrameworkError(echo::framework::SaveCodec::encode(
+                    "echo.project_echo", 7, saveModules, *saved,
+                    serialized->data(), serialized->size(), serializedSize),
+                    "Encode versioned Cargo save")) {
+                return false;
+            }
+            if (!reportFrameworkError(gameIntegration.powerModule()->setRequested(
+                    mainCircuit, true), "Reset Cargo main circuit") ||
+                !reportFrameworkError(gameIntegration.setWorldLightEnabled(
+                    "echo:room/cargo_hold", mainLight, true),
+                    "Reset Cargo main light")) {
+                return false;
+            }
+            auto loaded = std::make_unique<echo::framework::GameState>();
+            echo::framework::SaveHeader header{};
+            if (!reportFrameworkError(echo::framework::SaveCodec::decode(
+                    serialized->data(), serializedSize, "echo.project_echo", 7,
+                    saveModules, *loaded, header,
+                    &echo::platform::migrateGameCheckpointSave,
+                    gameIntegration.powerModule()),
+                    "Decode versioned Cargo save") ||
+                header.formatVersion != 7 ||
+                std::string_view(header.gameId.data()) != "echo.project_echo" ||
+                header.moduleCount != saveModules.size() ||
+                !reportFrameworkError(gameIntegration.resumeGame(*loaded),
+                                      "Restore Cargo power and light state")) {
+                return false;
+            }
+            echo::GameCheckpoint checkpoint{};
+            if (!reportFrameworkError(echo::platform::decodeGameCheckpoint(
+                    *loaded, checkpoint), "Decode Cargo checkpoint") ||
+                !game.restore(checkpoint)) {
+                std::fprintf(stderr, "Restore Cargo gameplay checkpoint failed\n");
+                return false;
+            }
+            bool mainPowered{};
+            bool emergencyPowered{};
+            if (!reportFrameworkError(gameIntegration.powerModule()->isPowered(
+                    mainCircuit, mainPowered), "Check restored Cargo main circuit") ||
+                !reportFrameworkError(gameIntegration.powerModule()->isPowered(
+                    "echo:power/cargo_emergency", emergencyPowered),
+                    "Check restored Cargo emergency circuit")) {
+                return false;
+            }
+            std::array<char, 64> stateKey{};
+            echo::framework::StateValue lightState{};
+            if (!echo::framework::worldLightStateKey(
+                    "echo:room/cargo_hold", mainLight, stateKey.data(), stateKey.size()) ||
+                !gameIntegration.gameState().get(
+                    {echo::framework::StateScope::Global, {}, stateKey.data()}, lightState) ||
+                lightState.type != echo::framework::ValueType::Boolean ||
+                lightState.boolean || mainPowered || !emergencyPowered ||
+                checkpoint.room != echo::RoomId::CargoHold ||
+                std::abs(game.player().position.x - 600.0F) > 0.001F ||
+                std::abs(game.player().position.y - 170.0F) > 0.001F) {
+                std::fprintf(stderr, "Restored Cargo lighting state did not match the saved outage\n");
+                return false;
+            }
+            return true;
+        };
         const float initialX = game.player().position.x;
         auto lastTick = std::chrono::steady_clock::now();
         float accumulator{};
@@ -238,25 +527,44 @@ int main(int argc, char** argv) {
                 DispatchMessageW(&message);
             }
             if (!running) break;
+            if (cargoLightingSaveTest && frames == 1) {
+                if (!restoreCargoLightingSnapshot()) return false;
+                activeGameMenu = &restoredGameMenu;
+                cargoLightingStateRestored = true;
+            }
             const auto now = std::chrono::steady_clock::now();
             if (restartGame) { game.start(); restartGame = false; accumulator = 0.0F; }
-            if (inGame) {
-                accumulator += frameLimit ? echo::kFixedStep :
-                    std::min(0.25F, std::chrono::duration<float>(now - lastTick).count());
-                while (accumulator >= echo::kFixedStep) {
-                    echo::Input input{};
-                    input.moveX = motionTest ? 1 : static_cast<int>(keys[VK_RIGHT]) - static_cast<int>(keys[VK_LEFT]);
-                    input.moveY = static_cast<int>(keys[VK_DOWN]) - static_cast<int>(keys[VK_UP]);
-                    input.jumpPressed = jumpPressed;
-                    input.jumpHeld = keys[VK_SPACE];
-                    input.shootHeld = keys['J'];
-                    if (!require(game.update(input, echo::kFixedStep))) return false;
-                    jumpPressed = false;
-                    accumulator -= echo::kFixedStep;
+            if (lightingTest) {
+                accumulator = 0.0F;
+                if (!recordLightingFixture(geometry, lightingTextures)) return false;
+            } else if (isometricLightMetricTest) {
+                accumulator = 0.0F;
+                if (!recordIsometricLightMetricFixture(geometry)) return false;
+            } else if (shadowTest) {
+                accumulator = 0.0F;
+                if (!recordShadowFixture(geometry)) return false;
+            } else if (inGame) {
+                if (cargoLightingSaveTest) {
+                    accumulator = 0.0F;
+                } else {
+                    accumulator += frameLimit ? echo::kFixedStep :
+                        std::min(0.25F, std::chrono::duration<float>(now - lastTick).count());
+                    while (accumulator >= echo::kFixedStep) {
+                        echo::Input input{};
+                        input.moveX = motionTest ? 1 : static_cast<int>(keys[VK_RIGHT]) - static_cast<int>(keys[VK_LEFT]);
+                        input.moveY = static_cast<int>(keys[VK_DOWN]) - static_cast<int>(keys[VK_UP]);
+                        input.jumpPressed = jumpPressed;
+                        input.jumpHeld = keys[VK_SPACE];
+                        input.shootHeld = keys['J'];
+                        if (!require(game.update(input, echo::kFixedStep))) return false;
+                        jumpPressed = false;
+                        accumulator -= echo::kFixedStep;
+                    }
                 }
-                if (!gameMenu.recordGame(geometry, game, false, false, "SPACE", "J", "E",
-                                         gameSprites ? &canvas.sprites() : nullptr,
-                                         dataWorld ? &canvas.worldSprites() : nullptr)) {
+                if (!activeGameMenu->recordGame(
+                        geometry, game, false, false, "SPACE", "J", "E",
+                        gameSprites ? &canvas.sprites() : nullptr,
+                        dataWorld ? &canvas.worldSprites() : nullptr)) {
                     std::fprintf(stderr, "Gameplay recording failed\n");
                     return false;
                 }
@@ -295,11 +603,22 @@ int main(int argc, char** argv) {
                 status.detail == "swapchain out of date; retry frame") continue;
             if (!require(status)) return false;
             if (glyph.ready() && !inGame && !require(glyph.submit(0.0F))) return false;
-            if (capture && frames + 1 == frameLimit && !require(backend.captureNextFrame(capture))) return false;
+            if (cargoLightingSaveTest) {
+                const char* frameCapture = frames == 0 ? cargoPoweredCapture.data()
+                                                       : cargoRestoredCapture.data();
+                if (!require(backend.captureNextFrame(frameCapture))) return false;
+            } else if (capture && frames + 1 == frameLimit &&
+                       !require(backend.captureNextFrame(capture))) {
+                return false;
+            }
             if (!require(canvas.endFrame())) return false;
             ++frames;
         }
         if (frameLimit && frames != frameLimit) { std::fprintf(stderr, "Bounded run interrupted\n"); return false; }
+        if (cargoLightingSaveTest && !cargoLightingStateRestored) {
+            std::fprintf(stderr, "Cargo lighting save/restore test did not reach its restored frame\n");
+            return false;
+        }
         if (motionTest && game.player().position.x <= initialX + 80.0F) {
             std::fprintf(stderr, "Gameplay motion test did not advance the player\n");
             return false;
@@ -308,9 +627,17 @@ int main(int argc, char** argv) {
         std::printf("{\"stage\":\"menu.complete\",\"frames\":%llu,\"drawCalls\":%u,\"triangles\":%u,\"validationErrors\":%u}\n",
                     static_cast<unsigned long long>(stats.frames), stats.drawCalls,
                     stats.triangles, stats.validationErrors);
+        if (cargoLightingSaveTest) {
+            std::printf("{\"stage\":\"cargo_lighting.save_restore\",\"room\":\"cargo_hold\","
+                        "\"main_circuit\":\"off\",\"emergency_circuit\":\"on\","
+                        "\"persistent_light_override\":\"restored\"}\n");
+        }
         if (stats.validationErrors || !require(glyph.shutdown()) || !require(canvas.shutdown())) return false;
         if (texture.valid() && !require(backend.destroyTexture(texture))) return false;
         if (playerTexture.valid() && !require(backend.destroyTexture(playerTexture))) return false;
+        for (TextureHandle handle : lightingTextures) {
+            if (handle.valid() && !require(backend.destroyTexture(handle))) return false;
+        }
         return true;
     };
     bool success = run();

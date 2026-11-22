@@ -2,6 +2,7 @@
 
 #include "game/game.hpp"
 #include "echo/framework/canvas2d.hpp"
+#include "echo/framework/power.hpp"
 #include "echo/framework/vfx.hpp"
 #include "input/dualsense_diagnostics.hpp"
 #include "platform/sdl/inventory_menu.hpp"
@@ -54,6 +55,9 @@ private:
 struct CanvasWorldSprite {
     std::array<char, 96> path{};
     CanvasSprite image{};
+    CanvasSprite normal{};
+    CanvasSprite emissive{};
+    framework::WorldMaterialSpec material{};
 };
 
 struct CanvasWorldSprites {
@@ -65,6 +69,10 @@ struct CanvasWorldSprites {
 class Renderer {
 public:
     explicit Renderer(ControlScheme controls) noexcept : controls_(controls) {}
+    void setPowerModule(const framework::PowerModule* power) noexcept {
+        powerModule_ = power;
+    }
+    void setGameState(const framework::GameState* state) noexcept { gameState_ = state; }
     [[nodiscard]] bool create() noexcept;
     void destroy() noexcept;
     // Resizes or fullscreens the Windows window; the 640x360 logical view is kept.
@@ -186,7 +194,12 @@ private:
     void releaseSprites() noexcept;
     void releaseWorldSprites() noexcept;
     [[nodiscard]] const WorldSheet* worldSheet(std::string_view path) const noexcept;
-    [[nodiscard]] const CanvasSprite* canvasWorldSprite(std::string_view path) const noexcept;
+    [[nodiscard]] const CanvasWorldSprite* canvasWorldSprite(
+        std::string_view path, const framework::WorldMaterialSpec& material) const noexcept;
+    [[nodiscard]] bool drawWorldTexture(
+        const CanvasWorldSprite& sheet, const framework::WorldMaterialSpec& material,
+        rendering::Rect2D bounds, rendering::Vec4 uv, rendering::Vec4 tint,
+        float rotationDegrees = 0.0F) noexcept;
     bool loadWorldSheet(const char* assetDirectory, std::string_view path) noexcept;
     bool drawObject(const framework::ObjectDefinition* object, std::string_view animation,
                     Uint64 ticks, Rect bounds, float cameraX, bool flip) noexcept;
@@ -204,10 +217,20 @@ private:
     bool mouseAim_{};
     SDL_FPoint mouseAimPoint_{};
     rendering::ICanvas2D* drawSink_{};
+    const framework::PowerModule* powerModule_{};
+    const framework::GameState* gameState_{};
     const CanvasSprites* canvasSprites_{};
     const CanvasWorldSprites* canvasWorldSprites_{};
     bool drawSinkFailed_{};
     bool drawingWorld_{};
+    bool lightOverflowLogged_{};
+    bool powerQueryFailureLogged_{};
+    bool lightStateWarningLogged_{};
+    bool lightFadeFailureLogged_{};
+    bool shadowOverflowLogged_{};
+    const framework::RoomDefinition* lightFadeRoom_{};
+    std::array<framework::LightFadeTransition, framework::kMaxRoomLights> lightFades_{};
+    Uint64 lightFadeTicks_{};
     int worldOffsetX_{};
     int worldOffsetY_{};
 };

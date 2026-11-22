@@ -9,14 +9,50 @@
 namespace echo::platform {
 namespace {
 
+bool sameMaterial(const framework::WorldMaterialSpec& left,
+                  const framework::WorldMaterialSpec& right) noexcept {
+    return std::string_view(left.normalSheet.data()) ==
+               std::string_view(right.normalSheet.data()) &&
+           std::string_view(left.emissiveSheet.data()) ==
+               std::string_view(right.emissiveSheet.data()) &&
+           std::string_view(left.emissiveCircuit.data()) ==
+               std::string_view(right.emissiveCircuit.data()) &&
+           left.emissiveColor == right.emissiveColor &&
+           left.emissiveIntensity == right.emissiveIntensity;
+}
+
+bool loadMaterialMap(rendering::IRenderBackend& backend, const char* assetRoot,
+                     std::string_view relativePath, CanvasSprite& texture,
+                     const CanvasSprite& base) noexcept {
+    if (relativePath.empty()) return true;
+    std::array<char, 1200> fullPath{};
+    const int written = std::snprintf(fullPath.data(), fullPath.size(), "%s%.*s", assetRoot,
+                                      static_cast<int>(relativePath.size()), relativePath.data());
+    if (written <= 0 || written >= static_cast<int>(fullPath.size()) ||
+        !uploadCanvasTexture(backend, fullPath.data(), texture.texture,
+                             texture.width, texture.height,
+                             rendering::TextureColorSpace::Linear)) {
+        return false;
+    }
+    if (texture.width != base.width || texture.height != base.height) {
+        SDL_Log("Canvas material map dimensions must match its base sprite sheet: %s",
+                fullPath.data());
+        return false;
+    }
+    return true;
+}
+
 bool addWorldSprite(rendering::IRenderBackend& backend, const char* assetRoot,
-                    std::string_view sheetPath, CanvasWorldSprites& sprites) noexcept {
+                    std::string_view sheetPath,
+                    const framework::WorldMaterialSpec& material,
+                    CanvasWorldSprites& sprites) noexcept {
     if (sheetPath.empty() || !framework::WorldModule::validSpritePath(sheetPath)) {
         SDL_Log("Canvas world sprite path is invalid");
         return false;
     }
     for (std::size_t index = 0; index < sprites.count; ++index) {
-        if (sheetPath == sprites.sheets[index].path.data()) return true;
+        if (sheetPath == sprites.sheets[index].path.data() &&
+            sameMaterial(material, sprites.sheets[index].material)) return true;
     }
     if (sprites.count == sprites.sheets.size() ||
         sheetPath.size() >= CanvasWorldSprite{}.path.size()) {
@@ -35,6 +71,13 @@ bool addWorldSprite(rendering::IRenderBackend& backend, const char* assetRoot,
                              entry.image.width, entry.image.height)) return false;
     std::copy(sheetPath.begin(), sheetPath.end(), entry.path.begin());
     ++sprites.count;
+    entry.material = material;
+    if (!loadMaterialMap(backend, assetRoot, material.normalSheet.data(),
+                         entry.normal, entry.image) ||
+        !loadMaterialMap(backend, assetRoot, material.emissiveSheet.data(),
+                         entry.emissive, entry.image)) {
+        return false;
+    }
     return true;
 }
 
@@ -42,7 +85,8 @@ bool addWorldSprite(rendering::IRenderBackend& backend, const char* assetRoot,
 
 bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
                          rendering::TextureHandle& texture,
-                         std::uint32_t& width, std::uint32_t& height) noexcept {
+                         std::uint32_t& width, std::uint32_t& height,
+                         rendering::TextureColorSpace colorSpace) noexcept {
     texture = {};
     width = height = 0;
     RgbaImage image{};
@@ -56,7 +100,7 @@ bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
     height = static_cast<std::uint32_t>(image.height);
     const auto byteCount = static_cast<std::size_t>(width) * height * 4U;
     const auto status = backend.createTexture(width, height,
-        {reinterpret_cast<const std::byte*>(image.pixels), byteCount}, texture);
+        {reinterpret_cast<const std::byte*>(image.pixels), byteCount}, texture, colorSpace);
     freePngRgba(image);
     if (!status) {
         SDL_Log("Canvas texture upload failed [%u] %.*s: %.*s",
@@ -96,7 +140,9 @@ bool loadCanvasWorldSprites(rendering::IRenderBackend& backend, const char* asse
         return false;
     }
     const auto addObject = [&](const framework::ObjectDefinition* object) {
-        return object == nullptr || addWorldSprite(backend, assetRoot, object->sprite().sheet.data(), sprites);
+        return object == nullptr ||
+               addWorldSprite(backend, assetRoot, object->sprite().sheet.data(),
+                              object->sprite().material, sprites);
     };
     const WorldArchetypes& archetypes = world.archetypes;
     for (const framework::ObjectDefinition* object :
@@ -113,7 +159,8 @@ bool loadCanvasWorldSprites(rendering::IRenderBackend& backend, const char* asse
     for (const RoomLayout& room : world.rooms) {
         if (room.definition == nullptr) continue;
         for (const framework::TilesetSpec& tileset : room.definition->tilesets()) {
-            if (!addWorldSprite(backend, assetRoot, tileset.sheet.data(), sprites)) return false;
+            if (!addWorldSprite(backend, assetRoot, tileset.sheet.data(),
+                                tileset.material, sprites)) return false;
         }
     }
     if (sprites.count == 0) {

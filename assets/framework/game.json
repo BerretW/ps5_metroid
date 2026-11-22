@@ -10,8 +10,38 @@
     "echo.rpg.quests",
     "echo.narrative.cutscenes",
     "echo.world",
+    "echo.power",
     "echo.project_echo"
   ],
+  "worldLighting": {
+    "ambient": {
+      "color": [0.82, 0.88, 1.0],
+      "intensity": 0.82,
+      "dayNight": {
+        "nightColor": [0.24, 0.31, 0.48],
+        "nightIntensity": 0.36,
+        "periodSeconds": 240
+      }
+    },
+    "directional": {
+      "direction": [-0.4, 0.8],
+      "color": [0.75, 0.84, 1.0],
+      "intensity": 0.14
+    }
+  },
+  "power": {
+    "schemaVersion": 1,
+    "circuits": [
+      {
+        "id": "echo:power/cargo_main",
+        "defaultOn": true
+      },
+      {
+        "id": "echo:power/cargo_emergency",
+        "defaultOn": true
+      }
+    ]
+  },
   "quests": {
     "schemaVersion": 2,
     "quests": [

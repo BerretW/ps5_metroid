@@ -257,6 +257,30 @@ int main() {
     check(integration->initialize(configPath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS),
           "PROJECT ECHO module configuration initializes");
     check(integration->beginGame(), "framework state resets at a new game");
+    echo::framework::PowerModule* power = integration->powerModule();
+    bool mainPower{};
+    bool emergencyPower{};
+    check(power != nullptr &&
+              power->isPowered("echo:power/cargo_main", mainPower) && mainPower &&
+              power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
+              emergencyPower,
+          "the selected Power module loads both Cargo Hold lighting circuits");
+    check(power != nullptr && power->setRequested("echo:power/cargo_main", false) &&
+              power->isPowered("echo:power/cargo_main", mainPower) && !mainPower &&
+              power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
+              emergencyPower,
+          "Cargo Hold emergency lighting remains powered when main power is off");
+    check(integration->beginGame() &&
+              power->isPowered("echo:power/cargo_main", mainPower) && mainPower,
+          "starting a new game restores configured power defaults");
+    check(integration->togglePowerCircuit("echo:power/cargo_main") &&
+              power->isPowered("echo:power/cargo_main", mainPower) && !mainPower &&
+              power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
+              emergencyPower,
+          "the registered power action switches off the main circuit independently");
+    check(integration->togglePowerCircuit("echo:power/cargo_main") &&
+              power->isPowered("echo:power/cargo_main", mainPower) && mainPower,
+          "the registered power action restores the main circuit");
     echo::Game game;
     check(integration->configureGame(game), "game binds the initialized dialogue module");
     {
@@ -265,6 +289,39 @@ int main() {
         check(loaded != nullptr && &game.world() == loaded,
               "the selected world module configures the game layout from JSON");
         if (loaded != nullptr) {
+            echo::Vec2 consoleStart{};
+            echo::Vec2 consoleMoved{};
+            const auto initialConsolePosition = game.propPosition(
+                echo::RoomId::CargoHold, "power_panel", consoleStart);
+            const auto moveConsole = game.setPropPosition(
+                echo::RoomId::CargoHold, "power_panel",
+                {consoleStart.x + 12.0F, consoleStart.y + 8.0F});
+            const bool movedConsole = game.propPosition(
+                echo::RoomId::CargoHold, "power_panel", consoleMoved);
+            const auto resetConsole = game.setPropPosition(
+                echo::RoomId::CargoHold, "power_panel", consoleStart);
+            check(initialConsolePosition && moveConsole && movedConsole && resetConsole &&
+                      consoleMoved.x == consoleStart.x + 12.0F &&
+                      consoleMoved.y == consoleStart.y + 8.0F,
+                  "runtime prop transforms resolve by stable room-local placement ID");
+            check(game.setPropPosition(echo::RoomId::CargoHold, "missing_prop",
+                                       consoleStart).code ==
+                      echo::framework::ErrorCode::MissingDependency &&
+                      game.setPropPosition(echo::RoomId::CargoHold, "power_panel",
+                                           {-1.0F, consoleStart.y}).code ==
+                          echo::framework::ErrorCode::InvalidValue,
+                  "runtime prop transforms reject unknown IDs and out-of-room positions");
+            const echo::PropLayout* powerPanel = echo::nearbyPowerPanel(
+                *loaded, echo::RoomId::CargoHold, {384.0F, 224.0F});
+            check(powerPanel != nullptr &&
+                      powerPanel->interaction == "toggle_power" &&
+                      powerPanel->circuit == "echo:power/cargo_main",
+                  "the Cargo Hold console is an interactable world-space power panel");
+            check(echo::nearbyPowerPanel(*loaded, echo::RoomId::LandingBay,
+                                         {384.0F, 224.0F}) == nullptr &&
+                      echo::nearbyPowerPanel(*loaded, echo::RoomId::CargoHold,
+                                             {0.0F, 0.0F}) == nullptr,
+                  "power-panel interaction is limited by room and world-space reach");
             bool roomsMatch = true;
             for (std::size_t index = 0; index < echo::kRoomCount; ++index) {
                 const echo::RoomLayout& room = loaded->rooms[index];
@@ -419,7 +476,13 @@ int main() {
               {echo::framework::StateScope::Global, {}, "player.echo_step_unlocked"},
               echo::framework::StateValue::fromBoolean(true)),
           "fixture save state records the unlocked ability");
+    check(power != nullptr && power->setRequested("echo:power/cargo_main", false) &&
+              power->saveState(savedState),
+          "fixture save state records persistent circuit requests");
     check(integration->resumeGame(savedState), "framework state restores from a save");
+    check(power != nullptr &&
+              power->isPowered("echo:power/cargo_main", mainPower) && !mainPower,
+          "resuming a save restores the persistent Cargo Hold blackout state");
     check(integration->notifyEchoStepUnlocked() && integration->unlockEventCount() == 2,
           "resuming an unlocked ability does not publish a duplicate transition");
     integration->shutdown();

@@ -63,12 +63,16 @@ Status build(WorldModule& world, const std::vector<Source>& objects,
 std::string row(char fill, int columns = 20) { return std::string(static_cast<std::size_t>(columns), fill); }
 
 const std::string kBase = R"({"schemaVersion":1,"id":"echo:object/base","abstract":true,"category":"enemy",
-  "sprite":{"sheet":"sprites/base.png","frameWidth":32,"frameHeight":32,"offset":[-2,-4]},
+  "sprite":{"sheet":"sprites/base.png","frameWidth":32,"frameHeight":32,"offset":[-2,-4],
+    "material":{"normalSheet":"sprites/base_normal.png","emissiveSheet":"sprites/base_emissive.png",
+      "emissiveColor":[0.4,0.5,0.6],"emissiveIntensity":2}},
   "bounds":[28,28],"spawn":{"position":[100,200],"facing":"left"},
   "animations":{"idle":{"row":0,"column":0,"frames":2,"fps":4},"walk":{"row":1,"frames":4,"fps":8}},
   "defaultAnimation":"idle","properties":{"health":2,"speed":45,"behavior":"patrol"}})";
 const std::string kAdvanced = R"({"schemaVersion":1,"id":"echo:object/advanced","parent":"echo:object/base",
-  "sprite":{"sheet":"sprites/advanced.png"},"animations":{"walk":{"frames":6},"attack":{"row":2,"frames":3,"fps":12,"loop":false}},
+  "sprite":{"sheet":"sprites/advanced.png","material":{"emissiveSheet":"sprites/advanced_emissive.png",
+    "emissiveIntensity":0.75,"emissiveCircuit":"echo:power/main"}},
+  "animations":{"walk":{"frames":6},"attack":{"row":2,"frames":3,"fps":12,"loop":false}},
   "properties":{"health":5,"armored":true}})";
 
 std::string room(std::string_view id, std::string_view extra, std::string_view parent = {}) {
@@ -87,11 +91,26 @@ std::string layers(std::string_view name, const std::vector<std::string>& rows) 
 
 const std::string kTemplate = room("echo:room/template",
     R"(,"abstract":true,"name":"Template","size":{"columns":20,"rows":3},"background":[1,2,3],
-    "tilesets":[{"id":"station","sheet":"sprites/tiles/station.png","tileWidth":32,"tileHeight":32}],
+    "tilesets":[{"id":"station","sheet":"sprites/tiles/station.png","tileWidth":32,"tileHeight":32,
+      "material":{"normalSheet":"sprites/tiles/station_normal.png"}}],
     "tiles":{"#":{"tileset":"station","x":0,"y":0,"collision":"solid"},
              "^":{"tileset":"station","x":1,"y":0,"collision":"hazard"},
              "~":{"tileset":"station","x":2,"y":0}},
-    "exits":{"left":{}},"objects":[{"id":"guard","object":"echo:object/advanced","position":[64,64]}])");
+    "exits":{"left":{}},"objects":[{"id":"guard","object":"echo:object/advanced","position":[64,64]}],
+    "lighting":{"ambient":{"color":[0.7,0.8,1.0],"intensity":0.35},
+      "directional":{"direction":[0.0,1.0],"color":[1.0,0.9,0.7],"intensity":0.2},
+      "lights":[
+        {"id":"echo:light/main_lamp","type":"point","position":[128,96],"radius":180,
+         "color":[1.0,0.7,0.3],"intensity":1.5,"fadeSeconds":1.5,
+         "attenuation":[1.0,0.0,0.25],
+         "parent":"guard","circuit":"echo:power/main","enabled":true,
+         "flicker":{"amount":0.15,"frequency":4.0},"persistence":"persistent"},
+        {"id":"echo:light/spot","type":"spot","position":[256,96],"parent":"player",
+         "followsAim":true,"coneAngle":50.0,"radius":220,"color":[0.6,0.8,1.0],"intensity":0.8},
+        {"id":"echo:light/player","type":"point","position":[12,14],"radius":96,
+         "color":[0.2,0.8,1.0],"intensity":0.5,"parent":"player"},
+        {"id":"echo:light/enemy","type":"point","position":[16,8],"radius":72,
+         "color":[1.0,0.2,0.1],"intensity":0.4,"parent":"enemy.guard"}]})");
 }
 
 int main() {
@@ -110,6 +129,10 @@ int main() {
         R"(,"name":"Beta","projection":"isometric","size":{"columns":24,"rows":2},"exits":{"right":{"completesGame":true}})" +
             layers("main", {row('.', 24), row('#', 24)}),
         "echo:room/template");
+    const std::string roomC = room("echo:room/c",
+        R"(,"name":"Top Down Fixture","projection":"top-down","size":{"columns":20,"rows":3})" +
+            layers("main", {row('.', 20), row('.', 20), row('.', 20)}),
+        "echo:room/template");
     const std::string plain = R"({"schemaVersion":1,"id":"echo:object/plain","category":"prop",
       "sprite":{"sheet":"sprites/plain.png","frameWidth":16,"frameHeight":16},"bounds":[16,16],
       "animations":{"idle":{"frames":1,"fps":1}}})";
@@ -118,7 +141,7 @@ int main() {
                                       {"echo:object/base", kBase},
                                       {"echo:object/plain", plain}};
     const std::vector<Source> rooms{{"echo:room/a", roomA}, {"echo:room/template", kTemplate},
-                                    {"echo:room/b", roomB}};
+                                    {"echo:room/b", roomB}, {"echo:room/c", roomC}};
     const Status loaded = build(*world, objects, rooms);
     check(static_cast<bool>(loaded), "valid world with inheritance loads");
     if (!loaded) {
@@ -183,13 +206,121 @@ int main() {
               guard->properties.find("health") != nullptr && alpha->placements().size() == 2,
           "placements override parent placements by id");
     const RoomDefinition* beta = world->findRoom("echo:room/b");
+    const RoomDefinition* topDown = world->findRoom("echo:room/c");
     check(beta != nullptr && beta->columns() == 24 && beta->rightExit().completesGame &&
               beta->layers().size() == 1 && beta->findTileType('#') != nullptr,
           "child layers replace parent layers and keep the inherited legend");
     check(alpha != nullptr && alpha->projection() == RoomProjection::Side &&
-              beta != nullptr && beta->projection() == RoomProjection::Isometric,
-          "rooms default to side view and may select the isometric projection");
-    check(world->startRoom() == "echo:room/a" && world->objects().size() == 3 && world->rooms().size() == 3,
+              beta != nullptr && beta->projection() == RoomProjection::Isometric &&
+              topDown != nullptr && topDown->projection() == RoomProjection::TopDown,
+          "rooms default to side view and select top-down or isometric projections");
+    const WorldPoint sideScreen = projectWorldPoint(
+        RoomProjection::Side, {350.0F, 180.0F}, {260.0F, 100.0F});
+    const WorldPoint topDownScreen = projectWorldPoint(
+        RoomProjection::TopDown, {500.0F, 150.0F}, {180.0F, 70.0F});
+    const WorldPoint isoScreen = projectWorldPoint(
+        RoomProjection::Isometric, {600.0F, 100.0F}, {100.0F, 270.0F});
+    const WorldPoint isoDirection = projectWorldDirection(
+        RoomProjection::Isometric, {1.0F, -1.0F});
+    const WorldPoint movedIsoScreen = projectWorldPoint(
+        RoomProjection::Isometric, {600.0F, 100.0F}, {120.0F, 280.0F});
+    check(sideScreen.x == 90.0F && sideScreen.y == 80.0F &&
+              topDownScreen.x == 320.0F && topDownScreen.y == 80.0F &&
+              isoScreen.x == 400.0F && isoScreen.y == 80.0F &&
+              isoDirection.x == 2.0F && isoDirection.y == 0.0F &&
+              movedIsoScreen.x == isoScreen.x - 20.0F &&
+              movedIsoScreen.y == isoScreen.y - 10.0F,
+          "projection-aware positions and directions preserve camera-relative light offsets");
+    const RoomLighting* lighting = alpha != nullptr ? &alpha->lighting() : nullptr;
+    check(lighting != nullptr && lighting->ambientIntensity == 0.35F &&
+              lighting->ambientColor[2] == 1.0F && lighting->directionalIntensity == 0.2F,
+          "room ambient and directional lighting inherit as room-space data");
+    check(lighting != nullptr && lighting->lightCount == 4 &&
+              lighting->lights[0].type == WorldLightType::Point &&
+              lighting->lights[0].persistence == LightPersistence::Persistent &&
+              lighting->lights[0].flickerFrequency == 4.0F &&
+              lighting->lights[0].fadeSeconds == 1.5F &&
+              lighting->lights[0].hasResolvedPosition &&
+              lighting->lights[0].resolvedX == 160.0F &&
+              lighting->lights[0].resolvedY == 128.0F &&
+              std::string_view(lighting->lights[0].circuit.data()) == "echo:power/main" &&
+              lighting->lights[1].type == WorldLightType::Spot &&
+              lighting->lights[1].coneAngle == 50.0F &&
+              lighting->lights[1].followsAim &&
+              std::string_view(lighting->lights[2].parent.data()) == "player" &&
+              std::string_view(lighting->lights[3].parent.data()) == "enemy.guard",
+          "point, spot and player/enemy-attached lights retain bounded data-driven properties");
+    const ObjectDefinition* advancedObject = world->findObject("echo:object/advanced");
+    const WorldMaterialSpec* objectMaterial =
+        advancedObject != nullptr ? &advancedObject->sprite().material : nullptr;
+    const TilesetSpec* inheritedTileset = beta != nullptr && !beta->tilesets().empty()
+        ? &beta->tilesets()[0] : nullptr;
+    check(objectMaterial != nullptr && objectMaterial->configured &&
+              objectMaterial->normalSheet[0] == '\0' &&
+              std::string_view(objectMaterial->emissiveSheet.data()) ==
+                  "sprites/advanced_emissive.png" &&
+              std::string_view(objectMaterial->emissiveCircuit.data()) == "echo:power/main" &&
+              objectMaterial->emissiveIntensity == 0.75F &&
+              inheritedTileset != nullptr && inheritedTileset->hasMaterial &&
+              std::string_view(inheritedTileset->material.normalSheet.data()) ==
+                  "sprites/tiles/station_normal.png",
+          "object material overrides and inherited tileset maps remain data-driven");
+    JsonDocument globalLightingDocument{};
+    WorldLighting globalLighting{};
+    Status globalLightingStatus = parseInto(
+        R"({"ambient":{"color":[1.0,0.8,0.6],"intensity":0.8,
+             "dayNight":{"nightColor":[0.0,0.1,0.2],"nightIntensity":0.2,
+                         "periodSeconds":240}},
+            "directional":{"direction":[-0.4,0.8],"color":[0.7,0.8,1.0],"intensity":0.1}})",
+        globalLightingDocument);
+    if (globalLightingStatus) {
+        globalLightingStatus = WorldModule::parseWorldLighting(
+            globalLightingDocument.root(), globalLighting);
+    }
+    RoomLighting noRoomOverride{};
+    std::array<float, 3> sampledColor{};
+    float sampledIntensity{};
+    const Status daySample = sampleAmbientLighting(
+        globalLighting, noRoomOverride, 0.0, sampledColor, sampledIntensity);
+    const bool dayValues = daySample && sampledColor[0] == 1.0F &&
+                           std::abs(sampledIntensity - 0.8F) < 0.001F;
+    const Status transitionSample = sampleAmbientLighting(
+        globalLighting, noRoomOverride, 60.0, sampledColor, sampledIntensity);
+    const bool smoothMidpoint = transitionSample &&
+        std::abs(sampledColor[0] - 0.5F) < 0.001F &&
+        std::abs(sampledIntensity - 0.5F) < 0.001F;
+    const Status nightSample = sampleAmbientLighting(
+        globalLighting, noRoomOverride, 120.0, sampledColor, sampledIntensity);
+    const bool nightValues = nightSample && sampledColor[0] == 0.0F &&
+                             std::abs(sampledIntensity - 0.2F) < 0.001F;
+    RoomLighting roomOverride{};
+    roomOverride.hasAmbient = true;
+    roomOverride.ambientColor = {0.4F, 0.5F, 0.6F};
+    roomOverride.ambientIntensity = 0.3F;
+    const Status roomSample = sampleAmbientLighting(
+        globalLighting, roomOverride, 120.0, sampledColor, sampledIntensity);
+    check(globalLightingStatus && dayValues && smoothMidpoint && nightValues &&
+              roomSample && std::abs(sampledIntensity - 0.3F) < 0.001F &&
+              std::abs(sampledColor[0] - 0.4F) < 0.001F,
+          "world ambient cycles smoothly while a room can override it independently");
+    LightFadeTransition fade{};
+    float fadedIntensity{};
+    const bool initialFade = fade.update(1.0F, 0.0F, 2.0F, fadedIntensity) &&
+                             fadedIntensity == 1.0F;
+    const bool fadeMidpoint = fade.update(0.0F, 1.0F, 2.0F, fadedIntensity) &&
+                              std::abs(fadedIntensity - 0.5F) < 0.001F;
+    const bool fadeReversal = fade.update(1.0F, 0.0F, 2.0F, fadedIntensity) &&
+                              std::abs(fadedIntensity - 0.5F) < 0.001F &&
+                              fade.update(1.0F, 1.0F, 2.0F, fadedIntensity) &&
+                              std::abs(fadedIntensity - 0.75F) < 0.001F;
+    const bool fadeComplete = fade.update(1.0F, 2.0F, 2.0F, fadedIntensity) &&
+                              fadedIntensity == 1.0F;
+    const bool immediateOff = fade.update(0.0F, 0.0F, 0.0F, fadedIntensity) &&
+                              fadedIntensity == 0.0F;
+    check(initialFade && fadeMidpoint && fadeReversal && fadeComplete && immediateOff &&
+              !fade.update(0.0F, 0.0F, 31.0F, fadedIntensity),
+          "light fades smoothly, reverses without a jump, and supports immediate switching");
+    check(world->startRoom() == "echo:room/a" && world->objects().size() == 3 && world->rooms().size() == 4,
           "finalized definitions become visible");
 
     std::array<char, 64> path{};
@@ -245,6 +376,10 @@ int main() {
             minimalRooms, "unknown object fields are rejected");
     rejects({{"echo:object/a", R"({"schemaVersion":1,"id":"echo:object/a","category":"prop","sprite":{"sheet":"sprites/a.png","frameWidth":8,"frameHeight":8},"bounds":[8,8],"animations":{"idle":{"frames":1,"fps":1}},"defaultAnimation":"run"})"}},
             minimalRooms, "undefined default animations are rejected");
+    rejects({{"echo:object/a", R"({"schemaVersion":1,"id":"echo:object/a","category":"prop","sprite":{"sheet":"sprites/a.png","frameWidth":8,"frameHeight":8,"material":{"normalSheet":"sprites/../normal.png"}},"bounds":[8,8],"animations":{"idle":{"frames":1,"fps":1}}})"}},
+            minimalRooms, "material maps reject paths outside the sprites directory");
+    rejects({{"echo:object/a", R"({"schemaVersion":1,"id":"echo:object/a","category":"prop","sprite":{"sheet":"sprites/a.png","frameWidth":8,"frameHeight":8,"material":{"emissiveSheet":"sprites/a_emissive.png","emissiveIntensity":9}},"bounds":[8,8],"animations":{"idle":{"frames":1,"fps":1}}})"}},
+            minimalRooms, "emissive material intensity is bounded");
     rejects({{"echo:object/b", concrete}}, minimalRooms, "file IDs must match manifest entries");
     const std::vector<Source> concreteObjects{{"echo:object/a", concrete}};
     const auto rejectsRoom = [&](const std::string& extra, std::string_view message) {
@@ -270,6 +405,9 @@ int main() {
     rejectsRoom(tileset + R"(,"projection":"isometric","layers":[{"name":"main","scrollFactorX":0.5,"rows":[")" +
                     row('#') + R"("]}],"tiles":{"#":{"tileset":"t","x":0,"y":0}})",
                 "isometric rooms reject side-view parallax factors");
+    rejectsRoom(tileset + R"(,"projection":"top-down","layers":[{"name":"main","scrollFactorX":0.5,"rows":[")" +
+                    row('#') + R"("]}],"tiles":{"#":{"tileset":"t","x":0,"y":0}})",
+                "top-down rooms reject side-view parallax factors");
     rejectsRoom(tileset + R"(,"tiles":{"#":{"tileset":"t","x":0,"y":0}},"exits":{"right":{"room":"echo:room/none"}})" +
                     layers("main", {row('#')}),
                 "exits to unknown rooms are rejected");
@@ -282,6 +420,32 @@ int main() {
     rejectsRoom(tileset + R"(,"projection":"oblique","tiles":{"#":{"tileset":"t","x":0,"y":0}})" +
                     layers("main", {row('#')}),
                 "unknown room projections are rejected");
+    rejectsRoom(tileset + R"(,"lighting":{"ambient":{"color":[1,1,1],"intensity":9}},"tiles":{"#":{"tileset":"t","x":0,"y":0}})" +
+                    layers("main", {row('#')}),
+                "lighting intensities outside the supported bound are rejected");
+    JsonDocument invalidCycleDocument{};
+    WorldLighting invalidCycle{};
+    Status invalidCycleStatus = parseInto(
+        R"({"ambient":{"color":[1,1,1],"intensity":1,
+             "dayNight":{"nightColor":[0,0,0],"nightIntensity":0.2,"periodSeconds":9}}})",
+        invalidCycleDocument);
+    if (invalidCycleStatus) {
+        invalidCycleStatus = WorldModule::parseWorldLighting(
+            invalidCycleDocument.root(), invalidCycle);
+    }
+    check(!invalidCycleStatus, "day/night periods below the supported bound are rejected");
+    rejectsRoom(tileset + R"(,"lighting":{"lights":[{"id":"echo:light/spot","type":"spot","position":[10,10],"radius":80,"color":[1,1,1],"intensity":1}]},
+        "tiles":{"#":{"tileset":"t","x":0,"y":0}})" + layers("main", {row('#')}),
+                "spotlights without a direction and cone are rejected");
+    rejectsRoom(tileset + R"(,"lighting":{"lights":[{"id":"echo:light/aim","type":"spot","position":[10,10],"radius":80,"color":[1,1,1],"intensity":1,"followsAim":true,"coneAngle":60}]},
+        "tiles":{"#":{"tileset":"t","x":0,"y":0}})" + layers("main", {row('#')}),
+                "aim-following spotlights require a player parent");
+    rejectsRoom(tileset + R"(,"lighting":{"lights":[{"id":"echo:light/fade","type":"point","position":[10,10],"radius":80,"color":[1,1,1],"intensity":1,"fadeSeconds":31}]},
+        "tiles":{"#":{"tileset":"t","x":0,"y":0}})" + layers("main", {row('#')}),
+                "light fade durations above the bound are rejected");
+    rejectsRoom(tileset + R"(,"lighting":{"lights":[{"id":"echo:light/attached","type":"point","position":[10,10],"radius":80,"color":[1,1,1],"intensity":1,"parent":"enemy.missing"}]},
+        "tiles":{"#":{"tileset":"t","x":0,"y":0}})" + layers("main", {row('#')}),
+                "entity-attached lights reject unknown placements");
 
     std::string manySheets = R"(,"name":"A","size":{"columns":20,"rows":1},"tilesets":[)";
     for (int index = 0; index < 17; ++index) {

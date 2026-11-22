@@ -67,7 +67,7 @@ target_include_directories(echo_vulkan_menu PRIVATE "${ECHO_ROOT}/src" "${ECHO_R
 target_include_directories(echo_vulkan_menu PRIVATE "${libwebp_SOURCE_DIR}/src")
 target_compile_definitions(echo_vulkan_menu PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(echo_vulkan_menu PRIVATE EchoFramework::RenderingVulkan EchoFramework::VFX SDL2-static webpdecoder
-    EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
+    EchoFramework::Power EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
     EchoFramework::Cutscenes EchoFramework::World user32)
 add_dependencies(echo_vulkan_menu echo_vulkan_shaders)
@@ -121,6 +121,39 @@ if(BUILD_TESTING)
         -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_frame.ps1"
         -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/gpu-frame.ppm")
     set_tests_properties(echo_vulkan_frame PROPERTIES FIXTURES_REQUIRED echo_gpu_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_2d_lighting_gpu
+        COMMAND echo_vulkan_menu --lighting-test --frames 1 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/2d-lighting.ppm")
+    set_tests_properties(echo_vulkan_2d_lighting_gpu PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_2d_lighting_capture)
+    add_test(NAME echo_vulkan_2d_lighting_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_2d_lighting.ps1"
+            -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/2d-lighting.ppm")
+    set_tests_properties(echo_vulkan_2d_lighting_readback PROPERTIES
+        FIXTURES_REQUIRED echo_2d_lighting_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_isometric_light_metric
+        COMMAND echo_vulkan_menu --isometric-light-metric-test --frames 1 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/isometric-light-metric.ppm")
+    set_tests_properties(echo_vulkan_isometric_light_metric PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_isometric_light_metric_capture)
+    add_test(NAME echo_vulkan_isometric_light_metric_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_isometric_light_metric.ps1"
+            -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/isometric-light-metric.ppm")
+    set_tests_properties(echo_vulkan_isometric_light_metric_readback PROPERTIES
+        FIXTURES_REQUIRED echo_isometric_light_metric_capture TIMEOUT 30)
+    add_test(NAME echo_vulkan_2d_shadows
+        COMMAND echo_vulkan_menu --shadow-test --frames 1 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/2d-shadows.ppm")
+    set_tests_properties(echo_vulkan_2d_shadows PROPERTIES
+        TIMEOUT 120 RUN_SERIAL TRUE FIXTURES_SETUP echo_2d_shadows_capture)
+    add_test(NAME echo_vulkan_2d_shadows_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_2d_shadows.ps1"
+            -ImagePath "${CMAKE_CURRENT_BINARY_DIR}/2d-shadows.ppm")
+    set_tests_properties(echo_vulkan_2d_shadows_readback PROPERTIES
+        FIXTURES_REQUIRED echo_2d_shadows_capture TIMEOUT 30)
     add_test(NAME echo_vulkan_menu_gpu COMMAND echo_vulkan_menu --frames 2 --validation
         --capture "${CMAKE_CURRENT_BINARY_DIR}/menu-frame.ppm")
     set_tests_properties(echo_vulkan_menu_gpu PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
@@ -194,6 +227,19 @@ if(BUILD_TESTING)
         -FallbackPath "${CMAKE_CURRENT_BINARY_DIR}/game-start.ppm")
     set_tests_properties(echo_vulkan_game_data_sprites_frame PROPERTIES
         FIXTURES_REQUIRED "echo_game_capture;echo_game_data_sprite_capture" TIMEOUT 30)
+    add_test(NAME echo_vulkan_game_cargo_lighting_save
+        COMMAND echo_vulkan_menu --game --sprites --data-world
+            --cargo-lighting-save-test --frames 2 --validation
+            --capture "${CMAKE_CURRENT_BINARY_DIR}/cargo-lighting")
+    set_tests_properties(echo_vulkan_game_cargo_lighting_save PROPERTIES
+        TIMEOUT 180 RUN_SERIAL TRUE FIXTURES_SETUP echo_cargo_lighting_save_capture)
+    add_test(NAME echo_vulkan_game_cargo_lighting_save_readback
+        COMMAND "${ECHO_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cargo_lighting_save.ps1"
+            -PoweredPath "${CMAKE_CURRENT_BINARY_DIR}/cargo-lighting.powered.ppm"
+            -RestoredPath "${CMAKE_CURRENT_BINARY_DIR}/cargo-lighting.restored.ppm")
+    set_tests_properties(echo_vulkan_game_cargo_lighting_save_readback PROPERTIES
+        FIXTURES_REQUIRED echo_cargo_lighting_save_capture TIMEOUT 60)
     add_test(NAME echo_vulkan_game_motion COMMAND echo_vulkan_menu --game --motion-test --frames 60 --validation
         --capture "${CMAKE_CURRENT_BINARY_DIR}/game-motion.ppm")
     set_tests_properties(echo_vulkan_game_start echo_vulkan_game_motion PROPERTIES

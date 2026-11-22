@@ -166,6 +166,15 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     return true;
 }
 
+[[nodiscard]] bool readOptionalText(const ObjectProperty* property,
+                                    std::string_view& output) noexcept {
+    if (property == nullptr) {
+        output = {};
+        return true;
+    }
+    return readText(property, output);
+}
+
 [[nodiscard]] bool fitsRoom(const Rect& bounds, const RoomLayout& room) noexcept {
     return std::isfinite(bounds.x) && std::isfinite(bounds.y) && bounds.width > 0.0F &&
            bounds.height > 0.0F && bounds.x >= 0.0F && bounds.y >= 0.0F &&
@@ -225,6 +234,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     }
     EnemySpawn& enemy = layout.enemies[slot];
     enemy = {};
+    std::copy(placement.id.begin(), placement.id.end(), enemy.id.begin());
     enemy.room = room;
     enemy.archetype = &object;
     enemy.bounds = {placement.hasPosition ? placement.x : object.spawnX(),
@@ -282,6 +292,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
                 "The world places at most six stalkers."};
     }
     EnemySpawn roamer{};
+    std::copy(placement.id.begin(), placement.id.end(), roamer.id.begin());
     roamer.room = room;
     roamer.archetype = &object;
     roamer.type = EnemyType::Stalker;
@@ -398,6 +409,29 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
             return invalid("world.doors", "A door is outside its room or targets no room.");
         }
     }
+    for (std::size_t index = 0; index < layout.propCount; ++index) {
+        const PropLayout& prop = layout.props[index];
+        const auto idEnd = std::find(prop.id.begin(), prop.id.end(), '\0');
+        if (prop.room >= RoomId::Count || idEnd == prop.id.begin() ||
+            idEnd == prop.id.end() || prop.archetype == nullptr ||
+            !fitsRoom({prop.position.x, prop.position.y, prop.archetype->width(),
+                       prop.archetype->height()},
+                      layout.rooms[static_cast<std::size_t>(prop.room)])) {
+            return invalid("world.props", "Props need stable IDs and must fit inside their rooms.");
+        }
+        const std::string_view id(prop.id.data(),
+                                  static_cast<std::size_t>(idEnd - prop.id.begin()));
+        for (std::size_t other = index + 1; other < layout.propCount; ++other) {
+            const PropLayout& candidate = layout.props[other];
+            const auto candidateEnd =
+                std::find(candidate.id.begin(), candidate.id.end(), '\0');
+            if (candidate.room == prop.room && candidateEnd != candidate.id.end() &&
+                std::string_view(candidate.id.data(), static_cast<std::size_t>(
+                    candidateEnd - candidate.id.begin())) == id) {
+                return invalid("world.props", "Prop IDs must be unique within each room.");
+            }
+        }
+    }
     const RoomLayout& start = layout.rooms[static_cast<std::size_t>(RoomId::LandingBay)];
     const Rect player{layout.playerStart.x, layout.playerStart.y,
                       kLayoutPlayerWidth, kLayoutPlayerHeight};
@@ -439,6 +473,7 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
         room.name = definition->name();
         room.columns = definition->columns();
         room.background = definition->background();
+        room.projection = definition->projection();
         room.isometric = definition->projection() == framework::RoomProjection::Isometric;
         room.definition = definition;
         for (int row = 0; row < kRoomRows; ++row) {
@@ -500,13 +535,29 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
                     return {ErrorCode::CapacityExceeded, placement.object.data(),
                             "The world places at most 24 props."};
                 }
+                std::string_view interaction;
+                std::string_view circuit;
+                if (!readOptionalText(findProperty(placement, *object, "interaction"),
+                                      interaction) ||
+                    !readOptionalText(findProperty(placement, *object, "circuit"), circuit) ||
+                    (!interaction.empty() &&
+                     (interaction != "toggle_power" || circuit.empty())) ||
+                    (interaction.empty() && !circuit.empty())) {
+                    return invalid(placement.object.data(),
+                                   "Power-panel props need interaction toggle_power and a circuit.");
+                }
                 const framework::Facing facing =
                     placement.hasFacing ? placement.facing : object->facing();
-                layout.props[layout.propCount++] = {
-                    room,
-                    {placement.hasPosition ? placement.x : object->spawnX(),
-                     placement.hasPosition ? placement.y : object->spawnY()},
-                    facing == framework::Facing::Left, object};
+                PropLayout& prop = layout.props[layout.propCount++];
+                prop.room = room;
+                prop.id = placement.id;
+                prop.position = {
+                    placement.hasPosition ? placement.x : object->spawnX(),
+                    placement.hasPosition ? placement.y : object->spawnY()};
+                prop.facingLeft = facing == framework::Facing::Left;
+                prop.archetype = object;
+                prop.interaction = interaction;
+                prop.circuit = circuit;
                 break;
             }
             default:
@@ -556,6 +607,36 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
     if (!status) return status;
     output = layout;
     return Status::success();
+}
+
+const PropLayout* nearbyPowerPanel(const WorldLayout& world, RoomId room,
+                                   Vec2 playerPosition) noexcept {
+    if (room >= RoomId::Count || !std::isfinite(playerPosition.x) ||
+        !std::isfinite(playerPosition.y)) {
+        return nullptr;
+    }
+    constexpr float kInteractionRadius = 48.0F;
+    constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
+    const float playerCenterX = playerPosition.x + kLayoutPlayerWidth * 0.5F;
+    const float playerCenterY = playerPosition.y + kLayoutPlayerHeight * 0.5F;
+    const PropLayout* closest{};
+    float closestDistanceSquared = kInteractionRadiusSquared;
+    for (const PropLayout& prop : world.propList()) {
+        if (prop.room != room || prop.interaction != "toggle_power" ||
+            prop.circuit.empty() || prop.archetype == nullptr) {
+            continue;
+        }
+        const float deltaX = playerCenterX -
+            (prop.position.x + prop.archetype->width() * 0.5F);
+        const float deltaY = playerCenterY -
+            (prop.position.y + prop.archetype->height() * 0.5F);
+        const float distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared <= closestDistanceSquared) {
+            closest = &prop;
+            closestDistanceSquared = distanceSquared;
+        }
+    }
+    return closest;
 }
 
 } // namespace echo

@@ -4,6 +4,7 @@
 #include "echo/framework/attributes.hpp"
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/narrative.hpp"
+#include "echo/framework/power.hpp"
 #include "echo/framework/world.hpp"
 #include "game/game.hpp"
 #include "game/project_components.hpp"
@@ -22,8 +23,9 @@ namespace {
 using namespace echo::framework;
 
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
-constexpr std::array<std::string_view, 6> kGameConfigFields{
-    "game", "modules", "technician", "resources", "quests", "cutscenes"};
+constexpr std::array<std::string_view, 8> kGameConfigFields{
+    "game", "modules", "technician", "resources", "quests", "cutscenes", "power",
+    "worldLighting"};
 // The engineer's position belongs to echo:object/engineer spawn data.
 constexpr std::array<std::string_view, 1> kTechnicianFields{"interaction"};
 constexpr std::array<std::string_view, 5> kResourceFields{
@@ -155,10 +157,16 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 }
 
 [[nodiscard]] Status validateManifestActions(
-    JsonValue root, const CapabilityManifestFragment& project) noexcept {
+    JsonValue root, std::span<const CapabilityManifestFragment> fragments) noexcept {
+    std::size_t expectedCapabilityCount{};
+    std::size_t expectedActionCount{};
+    for (const CapabilityManifestFragment& fragment : fragments) {
+        expectedCapabilityCount += fragment.capabilities.size();
+        expectedActionCount += fragment.actions.size();
+    }
     const JsonValue jsonCapabilities = root.find("capabilities");
     if (!jsonCapabilities.isArray() ||
-        jsonCapabilities.size() != project.capabilities.size()) {
+        jsonCapabilities.size() != expectedCapabilityCount) {
         return {ErrorCode::InvalidValue, "capabilities",
                 "Capability manifest does not match the compiled project capabilities."};
     }
@@ -167,9 +175,13 @@ constexpr std::array<std::string_view, 2> kComponentFields{
         std::string_view id;
         if (!jsonCapabilities.at(index).string(id) ||
             (index != 0 && previous >= id) ||
-            std::none_of(project.capabilities.begin(), project.capabilities.end(),
-                         [id](const ManifestCapabilityDescriptor& expected) {
-                             return expected.id == id;
+            std::none_of(fragments.begin(), fragments.end(),
+                         [id](const CapabilityManifestFragment& fragment) {
+                             return std::any_of(
+                                 fragment.capabilities.begin(), fragment.capabilities.end(),
+                                 [id](const ManifestCapabilityDescriptor& expected) {
+                                     return expected.id == id;
+                                 });
                          })) {
             return {ErrorCode::InvalidValue, "capabilities",
                     "Capability IDs are unknown, duplicated, or unsorted."};
@@ -178,7 +190,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
 
     const JsonValue jsonActions = root.find("actions");
-    if (!jsonActions.isArray() || jsonActions.size() != project.actions.size()) {
+    if (!jsonActions.isArray() || jsonActions.size() != expectedActionCount) {
         return {ErrorCode::InvalidValue, "actions",
                 "Capability manifest does not match the compiled project actions."};
     }
@@ -194,8 +206,10 @@ constexpr std::array<std::string_view, 2> kComponentFields{
             return {ErrorCode::InvalidValue, "actions",
                     "Capability manifest actions must be sorted and unique."};
         }
-        for (const ManifestActionDescriptor& action : project.actions) {
-            if (action.id == id) expected = &action;
+        for (const CapabilityManifestFragment& fragment : fragments) {
+            for (const ManifestActionDescriptor& action : fragment.actions) {
+                if (action.id == id) expected = &action;
+            }
         }
         if (expected == nullptr ||
             !jsonAction.find("capability").string(capability) ||
@@ -213,9 +227,12 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 }
 
 [[nodiscard]] const ManifestActionDescriptor* findAction(
-    const CapabilityManifestFragment& project, std::string_view id) noexcept {
-    for (const ManifestActionDescriptor& action : project.actions) {
-        if (action.id == id) return &action;
+    std::span<const CapabilityManifestFragment> fragments,
+    std::string_view id) noexcept {
+    for (const CapabilityManifestFragment& fragment : fragments) {
+        for (const ManifestActionDescriptor& action : fragment.actions) {
+            if (action.id == id) return &action;
+        }
     }
     return nullptr;
 }
@@ -230,14 +247,15 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateDialogueActions(
     const DialogueDefinition& definition,
-    const CapabilityManifestFragment& project, JsonValue manifest) noexcept {
+    std::span<const CapabilityManifestFragment> fragments,
+    JsonValue manifest) noexcept {
     const JsonValue actions = manifest.find("actions");
     for (const DialogueNode& node : definition.nodes) {
         for (const DialogueChoice& choice : node.choices) {
             const ActionRequest& request = choice.onSelect;
             if (request.id.empty()) continue;
             const ManifestActionDescriptor* expected =
-                findAction(project, request.id);
+                findAction(fragments, request.id);
             if (expected == nullptr) {
                 return {ErrorCode::NotFound, request.id,
                         "Dialogue references an action that is not compiled into the game."};
@@ -341,7 +359,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 
 [[nodiscard]] Status validateGameConfig(
     JsonValue root, const ComponentTypeRegistry& components,
-    const std::array<CapabilityManifestFragment, 10>& fragments,
+    const std::array<CapabilityManifestFragment, 11>& fragments,
     const CapabilityManifestFragment& project,
     const ItemCatalog& itemCatalog,
     ContentRegistry& resources) noexcept {
@@ -354,11 +372,11 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     }
 
     const JsonValue modules = root.find("modules");
-    if (!modules.isArray() || modules.size() == 0 || modules.size() > 10) {
+    if (!modules.isArray() || modules.size() == 0 || modules.size() > 11) {
         return {ErrorCode::InvalidValue, "modules",
                 "Game configuration requires a bounded non-empty module list."};
     }
-    std::array<std::string_view, 10> selected{};
+    std::array<std::string_view, 11> selected{};
     for (std::size_t index = 0; index < modules.size(); ++index) {
         if (!modules.at(index).string(selected[index]) ||
             findCompiledModule(fragments, selected[index]) == nullptr) {
@@ -393,6 +411,31 @@ constexpr std::array<std::string_view, 2> kComponentFields{
         selected.begin() + static_cast<std::ptrdiff_t>(modules.size())) {
         return {ErrorCode::MissingDependency, "echo.rpg.inventory",
                 "The reference game must select its compiled inventory module."};
+    }
+    const bool powerSelected =
+        std::find(selected.begin(), selected.begin() +
+                      static_cast<std::ptrdiff_t>(modules.size()),
+                  "echo.power") != selected.begin() +
+                      static_cast<std::ptrdiff_t>(modules.size());
+    const bool worldSelected =
+        std::find(selected.begin(), selected.begin() +
+                      static_cast<std::ptrdiff_t>(modules.size()),
+                  "echo.world") != selected.begin() +
+                      static_cast<std::ptrdiff_t>(modules.size());
+    WorldLighting worldLighting{};
+    status = WorldModule::parseWorldLighting(root.find("worldLighting"), worldLighting);
+    if (!status) return status;
+    if (!worldSelected && root.find("worldLighting").valid()) {
+        return {ErrorCode::MissingDependency, "echo.world",
+                "World lighting content requires the echo.world module."};
+    }
+    if (powerSelected) {
+        PowerModule powerModule{};
+        status = powerModule.load(root.find("power"));
+        if (!status) return status;
+    } else if (root.find("power").valid()) {
+        return {ErrorCode::MissingDependency, "echo.power",
+                "Power content requires the echo.power module to be selected."};
     }
     QuestModule questModule{};
     status = questModule.load(root.find("quests"));
@@ -549,7 +592,7 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    const std::array<CapabilityManifestFragment, 10> fragments{{
+    const std::array<CapabilityManifestFragment, 11> fragments{{
         frameworkCapabilityManifestFragment(),
         narrativeCapabilityManifestFragment(),
         inventoryCapabilityManifestFragment(),
@@ -559,6 +602,7 @@ int main(int argc, char** argv) {
         questsCapabilityManifestFragment(),
         cutscenesCapabilityManifestFragment(),
         worldCapabilityManifestFragment(),
+        powerCapabilityManifestFragment(),
         echo::projectCapabilityManifestFragment(),
     }};
     const CapabilityManifestFragment project =
@@ -642,7 +686,7 @@ int main(int argc, char** argv) {
         tools::reportStatus(status);
         return 1;
     }
-    status = validateManifestActions(manifestDocument.root(), project);
+    status = validateManifestActions(manifestDocument.root(), fragments);
     if (!status) {
         tools::reportStatus(status);
         return 1;
@@ -725,18 +769,20 @@ int main(int argc, char** argv) {
         }
     }
 
-    status = validateDialogueActions(*definition, project,
+    status = validateDialogueActions(*definition, fragments,
                                      manifestDocument.root());
     if (!status) {
         tools::reportStatus(status);
         return 1;
     }
 
+    std::size_t moduleCount{};
+    for (const CapabilityManifestFragment& fragment : fragments) {
+        moduleCount += fragment.modules.size();
+    }
     std::printf("Validated PROJECT ECHO content: %zu modules, %zu resources, "
                 "%zu dialogue nodes.\n",
-                fragments[0].modules.size() + fragments[1].modules.size() +
-                    fragments[2].modules.size() + fragments[3].modules.size() +
-                    fragments[4].modules.size() + fragments[5].modules.size(),
+                moduleCount,
                 resources.size(), definition->nodes.size());
     return 0;
 }

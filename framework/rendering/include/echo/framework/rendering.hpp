@@ -58,6 +58,7 @@ using MeshHandle = Handle<struct MeshTag>;
 using TextureHandle = Handle<struct TextureTag>;
 using MaterialHandle = Handle<struct MaterialTag>;
 using TargetHandle = Handle<struct TargetTag>;
+inline constexpr std::size_t kMax2DShadowSegments = 32;
 
 enum class MaterialModel : std::uint8_t { Unlit, VertexColor, Textured, SimplePbr };
 enum class AlphaMode : std::uint8_t { Opaque, Blend, Additive };
@@ -83,13 +84,25 @@ struct Capabilities {
 };
 Status exportCapabilities(const Capabilities&, char*, std::size_t, std::size_t&) noexcept;
 
-struct PointLight { Vec4 positionRadius{}; Vec4 colorIntensity{}; };
+struct PointLight {
+    Vec4 positionRadius{};
+    Vec4 colorIntensity{};
+    Vec4 attenuation{};
+    Vec4 directionCone{};
+};
 struct FrameState {
     Mat4 viewProjection{Mat4::identity()};
     Vec4 cameraPosition{0, 0, 0, 1};
     Vec4 lightDirectionAmbient{-0.4F, -1, -0.3F, 0.18F};
     Vec4 lightColorIntensity{1, 1, 1, 1};
+    Vec4 ambientColor{1, 1, 1, 1};
+    // Maps logical-screen light offsets into world-space XY for 2D projection.
+    // Identity is used for side/top-down and ordinary 3D rendering.
+    Vec4 lightScreenToWorld{1, 0, 0, 1};
     std::array<PointLight, 4> pointLights{};
+    // Visible 2D occluder edges in logical screen coordinates; count is shadowInfo.x.
+    Vec4 shadowInfo{};
+    std::array<Vec4, kMax2DShadowSegments> shadowSegments{};
     Vec4 clearColor{0.025F, 0.04F, 0.07F, 1};
 };
 struct Draw {
@@ -101,6 +114,7 @@ struct Draw {
     bool overlay{};
     Vec4 tint{1, 1, 1, 1};
     Vec4 uvTransform{0, 0, 1, 1};
+    bool worldPass{};
 };
 struct SpriteRegion {
     std::uint32_t x{}, y{}, width{}, height{};

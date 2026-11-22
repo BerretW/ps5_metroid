@@ -8,6 +8,60 @@
     "rows": 12
   },
   "background": [18, 16, 14],
+  "lighting": {
+    "ambient": {
+      "color": [0.48, 0.56, 0.68],
+      "intensity": 0.24
+    },
+    "directional": {
+      "direction": [-0.4, 1.0],
+      "color": [0.62, 0.72, 0.9],
+      "intensity": 0.08
+    },
+    "lights": [
+      {
+        "id": "echo:light/cargo_main",
+        "type": "spot",
+        "position": [384, 160],
+        "direction": [0.0, 1.0],
+        "coneAngle": 105.0,
+        "radius": 300,
+        "color": [1.0, 0.76, 0.46],
+        "intensity": 1.5,
+        "fadeSeconds": 1.2,
+        "attenuation": [1.0, 0.25, 0.1],
+        "circuit": "echo:power/cargo_main",
+        "enabled": true,
+        "shadow": false,
+        "persistence": "persistent"
+      },
+      {
+        "id": "echo:light/cargo_emergency",
+        "type": "point",
+        "position": [0, 0],
+        "parent": "power_panel",
+        "radius": 190,
+        "color": [0.18, 0.82, 0.9],
+        "intensity": 1.1,
+        "circuit": "echo:power/cargo_emergency",
+        "enabled": true,
+        "persistence": "persistent"
+      },
+      {
+        "id": "echo:light/player_equipment",
+        "type": "spot",
+        "position": [12, 14],
+        "parent": "player",
+        "followsAim": true,
+        "coneAngle": 95.0,
+        "radius": 125,
+        "color": [0.9, 0.82, 0.62],
+        "intensity": 0.45,
+        "circuit": "echo:power/cargo_emergency",
+        "persistence": "persistent"
+      }
+    ]
+  },
   "tilesets": [
     {
       "id": "iso_floor",
@@ -122,6 +176,15 @@
       "object": "echo:object/enemy_stalker",
       "position": [560, 280],
       "facing": "left"
+    },
+    {
+      "id": "power_panel",
+      "object": "echo:object/prop_console",
+      "position": [384, 224],
+      "properties": {
+        "interaction": "toggle_power",
+        "circuit": "echo:power/cargo_main"
+      }
     }
   ]
 }

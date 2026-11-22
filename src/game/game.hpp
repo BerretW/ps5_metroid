@@ -102,6 +102,7 @@ struct Enemy {
     bool alive{true};
     EnemyType type{EnemyType::Patrol};
     float attackCooldown{};
+    std::array<char, 32> id{};
 };
 
 struct Projectile {
@@ -163,6 +164,7 @@ struct RoomLayout {
     RoomExitLayout right{};
     // Isometric rooms use top-down movement without gravity; x/y are grid-plane coordinates.
     bool isometric{};
+    framework::RoomProjection projection{framework::RoomProjection::Side};
     // Visual tile layers; null for the built-in layout.
     const framework::RoomDefinition* definition{};
 
@@ -180,6 +182,7 @@ struct EnemySpawn {
     int health{1};
     EnemyType type{EnemyType::Patrol};
     const framework::ObjectDefinition* archetype{};
+    std::array<char, 32> id{};
 };
 
 // A door is drawn; a trigger is an invisible interaction area.
@@ -195,9 +198,12 @@ struct DoorLayout {
 
 struct PropLayout {
     RoomId room{};
+    std::array<char, 32> id{};
     Vec2 position{};
     bool facingLeft{};
     const framework::ObjectDefinition* archetype{};
+    std::string_view interaction{};
+    std::string_view circuit{};
 };
 
 struct WorldArchetypes {
@@ -213,6 +219,7 @@ struct WorldArchetypes {
 
 struct WorldLayout {
     std::array<RoomLayout, kRoomCount> rooms{};
+    framework::WorldLighting worldLighting{};
     std::array<EnemySpawn, kEnemyCount> enemies{};
     std::array<DoorLayout, kMaxWorldDoors> doors{};
     std::size_t doorCount{};
@@ -245,6 +252,8 @@ struct WorldLayout {
 // non-owning pointers into `world`, which must outlive it.
 [[nodiscard]] framework::Status buildWorldLayout(const framework::WorldModule& world,
                                                  WorldLayout& layout) noexcept;
+[[nodiscard]] const PropLayout* nearbyPowerPanel(const WorldLayout& world, RoomId room,
+                                                 Vec2 playerPosition) noexcept;
 [[nodiscard]] framework::Status validateWorldLayout(const WorldLayout& layout) noexcept;
 
 struct ItemStack {
@@ -362,6 +371,11 @@ public:
     [[nodiscard]] std::span<const LootDrop> lootDrops() const noexcept { return lootDrops_; }
     [[nodiscard]] std::span<const Projectile> projectiles() const noexcept { return projectiles_; }
     [[nodiscard]] std::span<const Projectile> enemyProjectiles() const noexcept { return enemyProjectiles_; }
+    [[nodiscard]] bool propPosition(RoomId room, std::string_view id,
+                                    Vec2& position) const noexcept;
+    [[nodiscard]] framework::Status setPropPosition(RoomId room, std::string_view id,
+                                                    Vec2 position) noexcept;
+    [[nodiscard]] const PropLayout* nearbyPowerPanel(Vec2 playerPosition) const noexcept;
     [[nodiscard]] Tile tileAt(int column, int row) const noexcept;
     [[nodiscard]] float cameraX() const noexcept;
     [[nodiscard]] Vec2 cameraShakeOffset() const noexcept;
@@ -451,6 +465,11 @@ private:
     std::array<LootDrop, kLootDropCount> lootDrops_{};
     std::array<Projectile, 12> projectiles_{};
     std::array<Projectile, 6> enemyProjectiles_{};
+    struct RuntimePropTransform {
+        Vec2 position{};
+        bool overridden{};
+    };
+    std::array<RuntimePropTransform, kMaxWorldProps> runtimePropTransforms_{};
     Rect abilityPickup_{};
     float coyoteTimer_{};
     float jumpBufferTimer_{};

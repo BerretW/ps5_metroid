@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <string>
 
 #if defined(__PROSPERO__) && defined(ECHO_PS5_STARTUP_DIAGNOSTICS)
@@ -290,13 +291,64 @@ const Renderer::WorldSheet* Renderer::worldSheet(std::string_view path) const no
     return nullptr;
 }
 
-const CanvasSprite* Renderer::canvasWorldSprite(std::string_view path) const noexcept {
+const CanvasWorldSprite* Renderer::canvasWorldSprite(
+    std::string_view path, const framework::WorldMaterialSpec& material) const noexcept {
     if (canvasWorldSprites_ == nullptr) return nullptr;
     for (std::size_t index = 0; index < canvasWorldSprites_->count; ++index) {
         const CanvasWorldSprite& sheet = canvasWorldSprites_->sheets[index];
-        if (std::string_view(sheet.path.data()) == path) return &sheet.image;
+        const framework::WorldMaterialSpec& candidate = sheet.material;
+        if (std::string_view(sheet.path.data()) == path &&
+            std::string_view(candidate.normalSheet.data()) ==
+                std::string_view(material.normalSheet.data()) &&
+            std::string_view(candidate.emissiveSheet.data()) ==
+                std::string_view(material.emissiveSheet.data()) &&
+            std::string_view(candidate.emissiveCircuit.data()) ==
+                std::string_view(material.emissiveCircuit.data()) &&
+            candidate.emissiveColor == material.emissiveColor &&
+            candidate.emissiveIntensity == material.emissiveIntensity) {
+            return &sheet;
+        }
     }
     return nullptr;
+}
+
+bool Renderer::drawWorldTexture(const CanvasWorldSprite& sheet,
+                                const framework::WorldMaterialSpec& material,
+                                rendering::Rect2D bounds, rendering::Vec4 uv,
+                                rendering::Vec4 tint, float rotationDegrees) noexcept {
+    rendering::Vec3 emission{};
+    if (material.emissiveSheet[0] != '\0') {
+        bool emissive = true;
+        if (material.emissiveCircuit[0] != '\0') {
+            if (powerModule_ == nullptr) {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                             "Emissive material requires an unavailable power module");
+                drawSinkFailed_ = true;
+                return false;
+            }
+            const framework::Status powerStatus =
+                powerModule_->isPowered(material.emissiveCircuit.data(), emissive);
+            if (!powerStatus) {
+                if (!powerQueryFailureLogged_) {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                 "Emissive material power query failed: %.*s",
+                                 static_cast<int>(powerStatus.detail.size()),
+                                 powerStatus.detail.data());
+                    powerQueryFailureLogged_ = true;
+                }
+                drawSinkFailed_ = true;
+                return false;
+            }
+        }
+        if (emissive) {
+            emission = {material.emissiveColor[0] * material.emissiveIntensity,
+                        material.emissiveColor[1] * material.emissiveIntensity,
+                        material.emissiveColor[2] * material.emissiveIntensity};
+        }
+    }
+    return drawSink_->textureWithLighting(
+        sheet.image.texture, sheet.normal.texture, sheet.emissive.texture, emission,
+        bounds, uv, tint, rotationDegrees);
 }
 
 bool Renderer::loadWorldSheet(const char* assetDirectory, std::string_view path) noexcept {
@@ -361,8 +413,9 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
     if (object == nullptr) return false;
     const framework::SpriteSheetSpec& spec = object->sprite();
     const WorldSheet* sheet = worldSheet(spec.sheet.data());
-    const CanvasSprite* image = drawSink_ != nullptr
-        ? canvasWorldSprite(spec.sheet.data()) : nullptr;
+    const CanvasWorldSprite* worldImage = drawSink_ != nullptr
+        ? canvasWorldSprite(spec.sheet.data(), spec.material) : nullptr;
+    const CanvasSprite* image = worldImage != nullptr ? &worldImage->image : nullptr;
     const framework::AnimationSpec* animation = object->animationOrDefault(animationName);
     if ((drawSink_ != nullptr && (image == nullptr || !image->texture.valid())) ||
         (drawSink_ == nullptr && sheet == nullptr) ||
@@ -399,9 +452,9 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
              static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
              flip, false}, uv);
         if (!status || drawSinkFailed_ ||
-            !drawSink_->texture(image->texture,
-                                {destination.x, destination.y, destination.w, destination.h},
-                                uv, {1, 1, 1, 1}, 0.0F)) {
+            !drawWorldTexture(*worldImage, spec.material,
+                              {destination.x, destination.y, destination.w, destination.h},
+                              uv, {1, 1, 1, 1}, 0.0F)) {
             drawSinkFailed_ = true;
             return false;
         }
@@ -424,14 +477,15 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                 if (tile == nullptr) continue;
                 const framework::TilesetSpec& tileset = definition->tilesets()[tile->tilesetIndex];
                 const WorldSheet* sheet = worldSheet(tileset.sheet.data());
+                const CanvasWorldSprite* worldImage = drawSink_ != nullptr
+                    ? canvasWorldSprite(tileset.sheet.data(), tileset.material) : nullptr;
                 const SDL_Rect source{
                     tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
                     tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
                     tileset.tileWidth, tileset.tileHeight};
                 const SDL_Rect destination{static_cast<int>(column * kTileSize - layerCameraX),
                                            row * kTileSize, kTileSize, kTileSize};
-                const CanvasSprite* image = drawSink_ != nullptr
-                    ? canvasWorldSprite(tileset.sheet.data()) : nullptr;
+                const CanvasSprite* image = worldImage != nullptr ? &worldImage->image : nullptr;
                 const int sheetWidth = drawSink_ != nullptr
                     ? (image != nullptr ? static_cast<int>(image->width) : 0)
                     : (sheet != nullptr ? sheet->width : 0);
@@ -459,12 +513,12 @@ bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {
                          static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
                          tile->flipX, tile->flipY}, uv);
                     if (!status || drawSinkFailed_ ||
-                        !drawSink_->texture(image->texture,
-                                            {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
-                                             destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
-                                             destination.w, destination.h},
-                                            uv, {1, 1, 1, 1},
-                                            static_cast<float>(tile->rotation))) {
+                        !drawWorldTexture(
+                            *worldImage, tileset.material,
+                            {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                             destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
+                             destination.w, destination.h},
+                            uv, {1, 1, 1, 1}, static_cast<float>(tile->rotation))) {
                         drawSinkFailed_ = true;
                     }
                     continue;
@@ -818,8 +872,10 @@ void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
     const Uint64 ticks = SDL_GetTicks64();
     for (const PropLayout& prop : world.propList()) {
         if (prop.room != game.roomId() || prop.archetype == nullptr) continue;
+        Vec2 position{};
+        if (!game.propPosition(prop.room, prop.id.data(), position)) continue;
         (void)drawObject(prop.archetype, "idle", ticks,
-                         {prop.position.x, prop.position.y, prop.archetype->width(),
+                         {position.x, position.y, prop.archetype->width(),
                           prop.archetype->height()},
                          cameraX, prop.facingLeft);
     }
@@ -1011,6 +1067,8 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
         }
         const framework::TilesetSpec& tileset = definition->tilesets()[tile->tilesetIndex];
         const WorldSheet* sheet = worldSheet(tileset.sheet.data());
+        const CanvasWorldSprite* worldImage = drawSink_ != nullptr
+            ? canvasWorldSprite(tileset.sheet.data(), tileset.material) : nullptr;
         const SDL_Rect destination{top.x - tileset.tileWidth / 2,
                                    top.y + kTileSize - tileset.tileHeight,
                                    tileset.tileWidth, tileset.tileHeight};
@@ -1019,8 +1077,7 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             tileset.margin + tile->column * (tileset.tileWidth + tileset.spacing),
             tileset.margin + tile->row * (tileset.tileHeight + tileset.spacing),
             tileset.tileWidth, tileset.tileHeight};
-        const CanvasSprite* image = drawSink_ != nullptr
-            ? canvasWorldSprite(tileset.sheet.data()) : nullptr;
+        const CanvasSprite* image = worldImage != nullptr ? &worldImage->image : nullptr;
         const int sheetWidth = drawSink_ != nullptr
             ? (image != nullptr ? static_cast<int>(image->width) : 0)
             : (sheet != nullptr ? sheet->width : 0);
@@ -1046,12 +1103,13 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
                  static_cast<std::uint32_t>(source.w), static_cast<std::uint32_t>(source.h),
                  tile->flipX, tile->flipY}, uv);
             if (!status || drawSinkFailed_ ||
-                !drawSink_->texture(image->texture,
-                                    {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
-                                     destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
-                                     destination.w, destination.h},
-                                    uv, {1, 1, 1, static_cast<float>(alpha) / 255.0F},
-                                    static_cast<float>(tile->rotation))) {
+                !drawWorldTexture(
+                    *worldImage, tileset.material,
+                    {destination.x + (drawingWorld_ ? worldOffsetX_ : 0),
+                     destination.y + (drawingWorld_ ? worldOffsetY_ : 0),
+                     destination.w, destination.h},
+                    uv, {1, 1, 1, static_cast<float>(alpha) / 255.0F},
+                    static_cast<float>(tile->rotation))) {
                 drawSinkFailed_ = true;
             }
             return;
@@ -1071,14 +1129,14 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     }
 
     // Everything standing on the floor is sorted by the front corner of its footprint.
-    enum class Kind : std::uint8_t { Block, Roamer, Projectile, Player };
+    enum class Kind : std::uint8_t { Block, Prop, Roamer, Projectile, Player };
     struct Drawable {
         float depth;
         Kind kind;
         std::uint16_t index;
         std::uint8_t layer;
     };
-    std::array<Drawable, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows * 2 + 32> drawables{};
+    std::array<Drawable, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows * 2 + 64> drawables{};
     std::size_t count = 0;
     const auto push = [&](float depth, Kind kind, std::size_t index, std::size_t layer) noexcept {
         if (count == drawables.size()) return;
@@ -1102,6 +1160,15 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     const auto frontDepth = [](const Rect& bounds) noexcept {
         return bounds.x + bounds.width + bounds.y + bounds.height;
     };
+    for (std::size_t index = 0; index < world.propList().size(); ++index) {
+        const PropLayout& prop = world.propList()[index];
+        if (prop.room != game.roomId() || prop.archetype == nullptr) continue;
+        Vec2 position{};
+        if (!game.propPosition(prop.room, prop.id.data(), position)) continue;
+        push(position.x + position.y + prop.archetype->width() +
+                 prop.archetype->height(),
+             Kind::Prop, index, 0);
+    }
     const std::span<const Enemy> roamers = game.roamers();
     for (std::size_t index = 0; index < roamers.size(); ++index) {
         if (roamers[index].alive) push(frontDepth(roamers[index].bounds), Kind::Roamer, index, 0);
@@ -1142,6 +1209,22 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             const bool occludes = player.health > 0 && drawable.depth > playerDepth &&
                                   SDL_HasIntersection(&blockScreen, &playerScreen) == SDL_TRUE;
             drawTile(drawable.layer, column, row, occludes ? 110 : 255);
+            break;
+        }
+        case Kind::Prop: {
+            const PropLayout& prop = world.propList()[drawable.index];
+            Vec2 position{};
+            if (!game.propPosition(prop.room, prop.id.data(), position)) break;
+            const SDL_Point anchor = screenOf(
+                position.x + prop.archetype->width() * 0.5F,
+                position.y + prop.archetype->height() * 0.5F);
+            panel({anchor.x - 12, anchor.y - 2, 24, 4}, SDL_Color{0, 0, 0, 90});
+            if (!drawObject(prop.archetype, "idle", ticks,
+                            {static_cast<float>(anchor.x), static_cast<float>(anchor.y), 0.0F, 0.0F},
+                            0.0F, prop.facingLeft)) {
+                panel({anchor.x - 10, anchor.y - 18, 20, 16}, SDL_Color{31, 57, 68, 255});
+                panel({anchor.x - 6, anchor.y - 15, 12, 6}, kCyan);
+            }
             break;
         }
         case Kind::Roamer: {
@@ -1353,9 +1436,56 @@ bool Renderer::recordGame(rendering::ICanvas2D& sink, const Game& game, bool sho
                 SDL_Log("Invalid canvas world sprite sheet");
                 return false;
             }
+            const auto validMap = [&](const std::array<char, 96>& mapPath,
+                                      const CanvasSprite& map) noexcept {
+                const auto mapEnd = std::find(mapPath.begin(), mapPath.end(), '\0');
+                if (mapEnd == mapPath.end()) return false;
+                const std::string_view mapName(
+                    mapPath.data(), static_cast<std::size_t>(mapEnd - mapPath.begin()));
+                if (mapName.empty()) {
+                    return !map.texture.valid() && map.width == 0 && map.height == 0;
+                }
+                return framework::WorldModule::validSpritePath(mapName) &&
+                       map.texture.valid() && map.width == sheet.image.width &&
+                       map.height == sheet.image.height;
+            };
+            const auto circuitEnd = std::find(sheet.material.emissiveCircuit.begin(),
+                                              sheet.material.emissiveCircuit.end(), '\0');
+            const std::string_view circuit(
+                sheet.material.emissiveCircuit.data(),
+                static_cast<std::size_t>(circuitEnd - sheet.material.emissiveCircuit.begin()));
+            if (circuitEnd == sheet.material.emissiveCircuit.end() ||
+                !validMap(sheet.material.normalSheet, sheet.normal) ||
+                !validMap(sheet.material.emissiveSheet, sheet.emissive) ||
+                !std::isfinite(sheet.material.emissiveIntensity) ||
+                sheet.material.emissiveIntensity < 0.0F ||
+                sheet.material.emissiveIntensity > 8.0F ||
+                (sheet.material.emissiveSheet[0] == '\0' &&
+                 (sheet.material.emissiveIntensity != 1.0F || !circuit.empty())) ||
+                (!circuit.empty() &&
+                 (!framework::isValidContentId(circuit) ||
+                  circuit.find(":power/") == std::string_view::npos)) ||
+                std::any_of(sheet.material.emissiveColor.begin(),
+                            sheet.material.emissiveColor.end(),
+                            [](float channel) noexcept {
+                                return !std::isfinite(channel) || channel < 0.0F ||
+                                       channel > 1.0F;
+                            })) {
+                SDL_Log("Invalid canvas world material maps or emission");
+                return false;
+            }
             for (std::size_t previous = 0; previous < index; ++previous) {
-                if (std::string_view(worldSprites->sheets[previous].path.data()) == path) {
-                    SDL_Log("Duplicate canvas world sprite sheet path");
+                const CanvasWorldSprite& candidate = worldSprites->sheets[previous];
+                if (std::string_view(candidate.path.data()) == path &&
+                    std::string_view(candidate.material.normalSheet.data()) ==
+                        std::string_view(sheet.material.normalSheet.data()) &&
+                    std::string_view(candidate.material.emissiveSheet.data()) ==
+                        std::string_view(sheet.material.emissiveSheet.data()) &&
+                    std::string_view(candidate.material.emissiveCircuit.data()) ==
+                        std::string_view(sheet.material.emissiveCircuit.data()) &&
+                    candidate.material.emissiveColor == sheet.material.emissiveColor &&
+                    candidate.material.emissiveIntensity == sheet.material.emissiveIntensity) {
+                    SDL_Log("Duplicate canvas world sprite material");
                     return false;
                 }
             }
@@ -1383,12 +1513,451 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                                std::span<const vfx::Particle> fog) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
-    panel({0, 0, 640, 360},
-          SDL_Color{room.background[0], room.background[1], room.background[2], 255});
 
     const Vec2 shakeOffset = game.cameraShakeOffset();
     worldOffsetX_ = static_cast<int>(shakeOffset.x);
     worldOffsetY_ = static_cast<int>(shakeOffset.y);
+    if (drawSink_ != nullptr) {
+        rendering::FrameState lighting{};
+        lighting.lightDirectionAmbient = {0, 0, 0, 1.0F};
+        lighting.lightColorIntensity = {1, 1, 1, 0};
+        lighting.ambientColor = {1, 1, 1, 1};
+
+        const framework::RoomProjection projection = room.projection;
+        const bool isometric = projection == framework::RoomProjection::Isometric;
+        if (isometric) {
+            lighting.lightScreenToWorld = {0.5F, 1.0F, -0.5F, 1.0F};
+        }
+        float cameraX = game.cameraX();
+        float cameraY = 0.0F;
+        if (isometric) {
+            const float focusX = game.player().position.x + 10.0F;
+            const float focusY = game.player().position.y + 14.0F;
+            cameraX = std::floor((focusX - focusY) - 320.0F);
+            cameraY = std::floor((focusX + focusY) * 0.5F - 196.0F);
+        }
+        const auto screenPosition = [&](float x, float y) noexcept {
+            const framework::WorldPoint projected = framework::projectWorldPoint(
+                projection, {x, y}, {cameraX, cameraY});
+            return rendering::Vec2{projected.x + static_cast<float>(worldOffsetX_),
+                                   projected.y + static_cast<float>(worldOffsetY_)};
+        };
+        std::array<float, 4> priorities{};
+        std::size_t selectedLights = 0;
+        std::size_t consideredLights = 0;
+        const auto addLight = [&](rendering::PointLight light, float screenX,
+                                  float screenY) noexcept {
+            const float radius = light.positionRadius.w;
+            const float screenRadius = radius * (isometric ? 1.41421356F : 1.0F);
+            if (radius <= 0.0F || screenX + screenRadius < 0.0F ||
+                screenX - screenRadius > 640.0F ||
+                screenY + screenRadius < 0.0F || screenY - screenRadius > 360.0F) {
+                return;
+            }
+            ++consideredLights;
+            const float screenDx = screenX - 320.0F;
+            const float screenDy = screenY - 180.0F;
+            const float worldDx = lighting.lightScreenToWorld.x * screenDx +
+                                  lighting.lightScreenToWorld.y * screenDy;
+            const float worldDy = lighting.lightScreenToWorld.z * screenDx +
+                                  lighting.lightScreenToWorld.w * screenDy;
+            const float priority = worldDx * worldDx + worldDy * worldDy;
+            std::size_t slot = 0;
+            while (slot < selectedLights && priorities[slot] <= priority) ++slot;
+            if (slot >= lighting.pointLights.size()) return;
+            if (selectedLights < lighting.pointLights.size()) ++selectedLights;
+            for (std::size_t move = selectedLights - 1; move > slot; --move) {
+                priorities[move] = priorities[move - 1];
+                lighting.pointLights[move] = lighting.pointLights[move - 1];
+            }
+            priorities[slot] = priority;
+            lighting.pointLights[slot] = light;
+        };
+
+        const framework::RoomLighting* roomLighting =
+            room.definition != nullptr ? &room.definition->lighting() : nullptr;
+        const framework::RoomLighting emptyRoomLighting{};
+        const framework::RoomLighting& roomLightingValue =
+            roomLighting != nullptr ? *roomLighting : emptyRoomLighting;
+        const Uint64 lightingTicks = SDL_GetTicks64();
+        const float lightingDeltaSeconds = lightFadeTicks_ == 0
+            ? 0.0F
+            : static_cast<float>(std::min<double>(
+                  static_cast<double>(lightingTicks - lightFadeTicks_) * 0.001, 30.0));
+        lightFadeTicks_ = lightingTicks;
+        if (lightFadeRoom_ != room.definition) {
+            lightFadeRoom_ = room.definition;
+            lightFades_ = {};
+        }
+        std::array<float, 3> ambientColor{};
+        float ambientIntensity{};
+        const framework::Status ambientStatus = framework::sampleAmbientLighting(
+            game.world().worldLighting, roomLightingValue,
+            static_cast<double>(SDL_GetTicks64()) * 0.001,
+            ambientColor, ambientIntensity);
+        if (!ambientStatus) {
+            if (!powerQueryFailureLogged_) {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                             "World ambient sampling failed: %.*s",
+                             static_cast<int>(ambientStatus.detail.size()),
+                             ambientStatus.detail.data());
+                powerQueryFailureLogged_ = true;
+            }
+            drawSinkFailed_ = true;
+        } else {
+            lighting.ambientColor = {ambientColor[0], ambientColor[1],
+                                     ambientColor[2], 1.0F};
+            lighting.lightDirectionAmbient.w = ambientIntensity;
+        }
+        const framework::WorldLighting& worldLighting = game.world().worldLighting;
+        if (roomLightingValue.hasDirectional || worldLighting.hasDirectional) {
+            const float directionX = roomLightingValue.hasDirectional
+                ? roomLightingValue.directionalX : worldLighting.directionalX;
+            const float directionY = roomLightingValue.hasDirectional
+                ? roomLightingValue.directionalY : worldLighting.directionalY;
+            const std::array<float, 3>& color = roomLightingValue.hasDirectional
+                ? roomLightingValue.directionalColor : worldLighting.directionalColor;
+            const float intensity = roomLightingValue.hasDirectional
+                ? roomLightingValue.directionalIntensity
+                : worldLighting.directionalIntensity;
+            const framework::WorldPoint projectedDirection =
+                framework::projectWorldDirection(projection, {directionX, directionY});
+            lighting.lightDirectionAmbient.x = projectedDirection.x;
+            lighting.lightDirectionAmbient.y = projectedDirection.y;
+            lighting.lightDirectionAmbient.z = -1.0F;
+            lighting.lightColorIntensity = {color[0], color[1], color[2], intensity};
+        }
+        if (roomLighting != nullptr) {
+            for (std::size_t index = 0; index < roomLighting->lightCount; ++index) {
+                const framework::WorldLightDefinition& source = roomLighting->lights[index];
+                bool enabled = source.enabled;
+                if (source.persistence != framework::LightPersistence::Transient) {
+                    if (gameState_ == nullptr) {
+                        if (!lightStateWarningLogged_) {
+                            SDL_LogWarn(SDL_LOG_CATEGORY_RENDER,
+                                        "Persistent world-light overrides are unavailable; using content defaults");
+                            lightStateWarningLogged_ = true;
+                        }
+                    } else {
+                        std::array<char, 64> stateKey{};
+                        if (!framework::worldLightStateKey(
+                                room.definition->id(), source.id.data(),
+                                stateKey.data(), stateKey.size())) {
+                            SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                         "Persistent world light has an invalid state identity");
+                            drawSinkFailed_ = true;
+                            continue;
+                        }
+                        const framework::StateScope stateScope =
+                            source.persistence == framework::LightPersistence::Persistent
+                                ? framework::StateScope::Global
+                                : framework::StateScope::World;
+                        framework::StateValue stateValue{};
+                        if (gameState_->get({stateScope, {}, stateKey.data()}, stateValue)) {
+                            if (stateValue.type != framework::ValueType::Boolean) {
+                                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                             "Persistent world-light state is not boolean");
+                                drawSinkFailed_ = true;
+                                continue;
+                            }
+                            enabled = stateValue.boolean;
+                        }
+                    }
+                }
+                bool lightActive = enabled;
+                if (lightActive && source.circuit[0] != '\0') {
+                    if (powerModule_ == nullptr) {
+                        if (!powerQueryFailureLogged_) {
+                            SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                         "World light requires an unavailable power module");
+                            powerQueryFailureLogged_ = true;
+                        }
+                        drawSinkFailed_ = true;
+                        continue;
+                    }
+                    bool powered{};
+                    const framework::Status powerStatus =
+                        powerModule_->isPowered(source.circuit.data(), powered);
+                    if (!powerStatus) {
+                        if (!powerQueryFailureLogged_) {
+                            SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                         "World light power circuit query failed: %.*s",
+                                         static_cast<int>(powerStatus.detail.size()),
+                                         powerStatus.detail.data());
+                            powerQueryFailureLogged_ = true;
+                        }
+                        drawSinkFailed_ = true;
+                        continue;
+                    }
+                    lightActive = powered;
+                }
+                float fadeIntensity{};
+                if (!lightFades_[index].update(
+                        lightActive ? source.intensity : 0.0F,
+                        lightingDeltaSeconds, source.fadeSeconds, fadeIntensity)) {
+                    if (!lightFadeFailureLogged_) {
+                        SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                     "World light fade state received invalid values");
+                        lightFadeFailureLogged_ = true;
+                    }
+                    drawSinkFailed_ = true;
+                    continue;
+                }
+                if (fadeIntensity <= 0.0F) continue;
+                float x = source.hasResolvedPosition ? source.resolvedX : source.x;
+                float y = source.hasResolvedPosition ? source.resolvedY : source.y;
+                if (source.hasResolvedPosition && room.definition != nullptr) {
+                    Vec2 position{};
+                    if (game.propPosition(game.roomId(), source.parent.data(), position)) {
+                        for (const PropLayout& prop : game.world().propList()) {
+                            if (prop.room == game.roomId() &&
+                                std::string_view(prop.id.data()) == source.parent.data()) {
+                                x += position.x - prop.position.x;
+                                y += position.y - prop.position.y;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!source.hasResolvedPosition && source.parent[0] != '\0') {
+                    const std::string_view parent(source.parent.data());
+                    if (parent == "player") {
+                        x += game.player().position.x;
+                        y += game.player().position.y;
+                    } else if (parent.starts_with("enemy.")) {
+                        const std::string_view entityId(parent.data() + 6, parent.size() - 6);
+                        const Enemy* entity = nullptr;
+                        for (const Enemy& candidate : game.enemies()) {
+                            if (std::string_view(candidate.id.data()) == entityId &&
+                                candidate.room == game.roomId() && candidate.alive) {
+                                entity = &candidate;
+                                break;
+                            }
+                        }
+                        if (entity == nullptr) continue;
+                        x += entity->bounds.x;
+                        y += entity->bounds.y;
+                    } else if (parent.starts_with("roamer.")) {
+                        const std::string_view entityId(parent.data() + 7, parent.size() - 7);
+                        const Enemy* entity = nullptr;
+                        for (const Enemy& candidate : game.roamers()) {
+                            if (std::string_view(candidate.id.data()) == entityId &&
+                                candidate.alive) {
+                                entity = &candidate;
+                                break;
+                            }
+                        }
+                        if (entity == nullptr) continue;
+                        x += entity->bounds.x;
+                        y += entity->bounds.y;
+                    } else if (room.definition != nullptr) {
+                        const framework::ObjectPlacement* placement =
+                            room.definition->findPlacement(parent);
+                        if (placement != nullptr) {
+                            x += placement->x;
+                            y += placement->y;
+                        }
+                    }
+                }
+                const rendering::Vec2 screen = screenPosition(x, y);
+                rendering::PointLight light{};
+                light.positionRadius = {screen.x, screen.y, source.radius * 0.5F,
+                                        source.radius};
+                const Uint64 ticks = SDL_GetTicks64();
+                std::uint32_t phaseHash = 2166136261U;
+                for (const unsigned char character : std::string_view(source.id.data())) {
+                    phaseHash = (phaseHash ^ character) * 16777619U;
+                }
+                const float flickerPhase =
+                    static_cast<float>(phaseHash % 6283U) / 1000.0F;
+                const float flickerWave = std::sin(
+                    static_cast<float>(ticks) * 0.001F * source.flickerFrequency *
+                    6.28318530718F + flickerPhase);
+                const float flicker = 1.0F - source.flickerAmount *
+                    (0.5F + 0.5F * flickerWave);
+                light.colorIntensity = {source.color[0], source.color[1], source.color[2],
+                                        fadeIntensity * flicker};
+                light.attenuation = {source.attenuation[0], source.attenuation[1],
+                                     source.attenuation[2],
+                                     source.castsShadows ? 1.0F : 0.0F};
+                if (source.type == framework::WorldLightType::Spot) {
+                    const Vec2 worldDirection = source.followsAim
+                        ? (projection == framework::RoomProjection::Side
+                               ? Vec2{static_cast<float>(game.player().facing), 0.0F}
+                               : game.player().aim)
+                        : Vec2{source.directionX, source.directionY};
+                    float directionX = worldDirection.x;
+                    float directionY = worldDirection.y;
+                    const float length = std::hypot(directionX, directionY);
+                    if (length > 0.0001F) {
+                        constexpr float kDegreesToRadians = 0.01745329251994329577F;
+                        light.directionCone = {
+                            directionX / length, directionY / length, 0,
+                            std::cos(source.coneAngle * kDegreesToRadians * 0.5F)};
+                    }
+                }
+                addLight(light, screen.x, screen.y);
+            }
+        }
+        const auto addProjectileLight = [&](const Projectile& projectile, bool hostile) noexcept {
+            if (!projectile.active || projectile.room != game.roomId()) return;
+            const float x = projectile.bounds.x + projectile.bounds.width * 0.5F;
+            const float y = projectile.bounds.y + projectile.bounds.height * 0.5F;
+            const rendering::Vec2 screen = screenPosition(x, y);
+            rendering::PointLight light{};
+            const float radius = hostile ? 72.0F : 88.0F;
+            light.positionRadius = {screen.x, screen.y, radius * 0.5F, radius};
+            light.colorIntensity = hostile ? rendering::Vec4{1.0F, 0.12F, 0.06F, 1.4F}
+                                           : rendering::Vec4{0.25F, 0.72F, 1.0F, 1.5F};
+            light.attenuation = {1.0F, 0.0F, 0.0F, 0};
+            addLight(light, screen.x, screen.y);
+        };
+        for (const Projectile& projectile : game.projectiles()) {
+            addProjectileLight(projectile, false);
+        }
+        for (const Projectile& projectile : game.enemyProjectiles()) {
+            addProjectileLight(projectile, true);
+        }
+        for (const vfx::Particle& particle : explosions) {
+            if (particle.age < 0.0F || particle.lifetime <= particle.age ||
+                !std::isfinite(particle.position.x) || !std::isfinite(particle.position.y) ||
+                !std::isfinite(particle.color.x) || !std::isfinite(particle.color.y) ||
+                !std::isfinite(particle.color.z) || !std::isfinite(particle.color.w)) continue;
+            const rendering::Vec2 screen = screenPosition(particle.position.x, particle.position.y);
+            rendering::PointLight light{};
+            const float radius = 54.0F + particle.scale * 24.0F;
+            light.positionRadius = {screen.x, screen.y, radius * 0.5F, radius};
+            const float intensity = std::clamp(particle.color.w, 0.0F, 1.0F) * 1.8F;
+            light.colorIntensity = {particle.color.x, particle.color.y,
+                                    particle.color.z, intensity};
+            light.attenuation = {1.0F, 0.0F, 0.0F, 0};
+            addLight(light, screen.x, screen.y);
+        }
+        bool casts2DShadows = false;
+        float shadowRadius = 0.0F;
+        for (const rendering::PointLight& light : lighting.pointLights) {
+            if (light.positionRadius.w <= 0.0F || light.attenuation.w <= 0.5F) continue;
+            casts2DShadows = true;
+            shadowRadius = std::max(shadowRadius, light.positionRadius.w *
+                (isometric ? 1.41421356F : 1.0F));
+        }
+        if (casts2DShadows && room.definition != nullptr) {
+            std::array<float, rendering::kMax2DShadowSegments> shadowPriorities{};
+            std::size_t selectedSegments{};
+            std::size_t candidateCount{};
+            const auto segmentPriority = [&](const rendering::Vec4& segment) noexcept {
+                const float centerX = (segment.x + segment.z) * 0.5F;
+                const float centerY = (segment.y + segment.w) * 0.5F;
+                float nearest = std::numeric_limits<float>::max();
+                for (const rendering::PointLight& light : lighting.pointLights) {
+                    if (light.positionRadius.w <= 0.0F ||
+                        light.attenuation.w <= 0.5F) continue;
+                    const float dx = centerX - light.positionRadius.x;
+                    const float dy = centerY - light.positionRadius.y;
+                    nearest = std::min(nearest, dx * dx + dy * dy);
+                }
+                return nearest;
+            };
+            const auto appendEdge = [&](float ax, float ay, float bx, float by) noexcept {
+                const rendering::Vec2 a = screenPosition(ax, ay);
+                const rendering::Vec2 b = screenPosition(bx, by);
+                if (std::max(a.x, b.x) < -shadowRadius ||
+                    std::min(a.x, b.x) > 640.0F + shadowRadius ||
+                    std::max(a.y, b.y) < -shadowRadius ||
+                    std::min(a.y, b.y) > 360.0F + shadowRadius) {
+                    return;
+                }
+                ++candidateCount;
+                const rendering::Vec4 segment{a.x, a.y, b.x, b.y};
+                const float priority = segmentPriority(segment);
+                std::size_t slot = 0;
+                while (slot < selectedSegments &&
+                       shadowPriorities[slot] <= priority) ++slot;
+                if (slot >= lighting.shadowSegments.size()) return;
+                if (selectedSegments < lighting.shadowSegments.size()) {
+                    ++selectedSegments;
+                }
+                for (std::size_t move = selectedSegments - 1; move > slot; --move) {
+                    shadowPriorities[move] = shadowPriorities[move - 1];
+                    lighting.shadowSegments[move] =
+                        lighting.shadowSegments[move - 1];
+                }
+                shadowPriorities[slot] = priority;
+                lighting.shadowSegments[slot] = segment;
+            };
+            const auto solidAt = [&](int column, int row) noexcept {
+                return column >= 0 && row >= 0 &&
+                       column < room.definition->columns() &&
+                       row < room.definition->rows() &&
+                       room.definition->collision(column, row) ==
+                           framework::TileCollision::Solid;
+            };
+            const auto appendRectangle = [&](float x, float y, float width,
+                                             float height) noexcept {
+                if (width <= 0.0F || height <= 0.0F) return;
+                const float right = x + width;
+                const float bottom = y + height;
+                appendEdge(x, y, right, y);
+                appendEdge(right, y, right, bottom);
+                appendEdge(x, bottom, right, bottom);
+                appendEdge(x, y, x, bottom);
+            };
+            for (int row = 0; row < room.definition->rows(); ++row) {
+                for (int column = 0; column < room.definition->columns(); ++column) {
+                    if (!solidAt(column, row)) continue;
+                    const float left = static_cast<float>(column * kTileSize);
+                    const float top = static_cast<float>(row * kTileSize);
+                    const float right = left + static_cast<float>(kTileSize);
+                    const float bottom = top + static_cast<float>(kTileSize);
+                    if (!solidAt(column, row - 1)) appendEdge(left, top, right, top);
+                    if (!solidAt(column + 1, row)) appendEdge(right, top, right, bottom);
+                    if (!solidAt(column, row + 1)) appendEdge(left, bottom, right, bottom);
+                    if (!solidAt(column - 1, row)) appendEdge(left, top, left, bottom);
+                }
+            }
+            const Player& player = game.player();
+            const float playerWidth = world.archetypes.player != nullptr
+                ? world.archetypes.player->width() : 20.0F;
+            const float playerHeight = world.archetypes.player != nullptr
+                ? world.archetypes.player->height() : 28.0F;
+            appendRectangle(player.position.x, player.position.y,
+                            playerWidth, playerHeight);
+            for (const Enemy& enemy : game.enemies()) {
+                if (!enemy.alive || enemy.room != game.roomId()) continue;
+                appendRectangle(enemy.bounds.x, enemy.bounds.y,
+                                enemy.bounds.width, enemy.bounds.height);
+            }
+            for (const Enemy& roamer : game.roamers()) {
+                if (!roamer.alive || roamer.room != game.roomId()) continue;
+                appendRectangle(roamer.bounds.x, roamer.bounds.y,
+                                roamer.bounds.width, roamer.bounds.height);
+            }
+            for (const PropLayout& prop : world.propList()) {
+                if (prop.room != game.roomId() || prop.archetype == nullptr) continue;
+                Vec2 position{};
+                if (!game.propPosition(prop.room, prop.id.data(), position)) continue;
+                appendRectangle(position.x, position.y,
+                                prop.archetype->width(), prop.archetype->height());
+            }
+            lighting.shadowInfo.x = static_cast<float>(selectedSegments);
+            if (candidateCount > lighting.shadowSegments.size() &&
+                !shadowOverflowLogged_) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_RENDER,
+                            "2D shadow geometry exceeded the bounded segment list; nearest 32 edges are used");
+                shadowOverflowLogged_ = true;
+            }
+        }
+        if (consideredLights > lighting.pointLights.size() && !lightOverflowLogged_) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_RENDER,
+                        "2D light capacity exceeded; nearest four lights are rendered");
+            lightOverflowLogged_ = true;
+        }
+        if (!drawSink_->setWorldLighting(lighting) || !drawSink_->setWorldPass(true)) {
+            drawSinkFailed_ = true;
+        }
+    }
+    panel({0, 0, 640, 360},
+          SDL_Color{room.background[0], room.background[1], room.background[2], 255});
     drawingWorld_ = true;
     if (game.isometric()) {
         drawIsometricWorld(game, paused);
@@ -1402,6 +1971,7 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         drawParticles(game, explosions);
     }
     drawingWorld_ = false;
+    if (drawSink_ != nullptr && !drawSink_->setWorldPass(false)) drawSinkFailed_ = true;
     worldOffsetX_ = 0;
     worldOffsetY_ = 0;
     if (damageFlashOpacity != 0) {
@@ -1442,8 +2012,36 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         text(76, 54, status, 1, kCyan);
     }
     if (!paused && !game.dialogueActive() && activeItem.item != ItemId::None) {
-        text(481, 54, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
+        const int useHintY = game.roomId() == RoomId::CargoHold ? 82 : 54;
+        text(481, useHintY, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
              1, kCyan);
+    }
+    if (game.roomId() == RoomId::CargoHold) {
+        bool mainPowered{};
+        bool emergencyPowered{};
+        const framework::Status mainStatus = powerModule_ != nullptr
+            ? powerModule_->isPowered("echo:power/cargo_main", mainPowered)
+            : framework::Status{framework::ErrorCode::MissingDependency, "echo.power",
+                                "Power module is not available."};
+        const framework::Status emergencyStatus = powerModule_ != nullptr
+            ? powerModule_->isPowered("echo:power/cargo_emergency", emergencyPowered)
+            : framework::Status{framework::ErrorCode::MissingDependency, "echo.power",
+                                "Power module is not available."};
+        panel({470, 54, 158, 26}, SDL_Color{4, 10, 17, 218});
+        if (mainStatus && emergencyStatus) {
+            text(481, 56, mainPowered ? "MAIN POWER ON" : "MAIN POWER OFF",
+                 1, mainPowered ? kCyan : kOrange);
+            text(481, 66, emergencyPowered ? "EMERGENCY ON" : "EMERGENCY OFF",
+                 1, emergencyPowered ? kCyan : kOrange);
+        } else {
+            if (!powerQueryFailureLogged_) {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Power panel status query failed: %s",
+                             !mainStatus ? mainStatus.detail.data()
+                                         : emergencyStatus.detail.data());
+                powerQueryFailureLogged_ = true;
+            }
+            text(481, 60, "POWER STATUS ERROR", 1, kOrange);
+        }
     }
 
     if (game.gateBlocked()) {
@@ -1470,6 +2068,11 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
     }
     if (game.technicianNearby() && !game.dialogueActive()) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
+    }
+    if (!paused && !game.dialogueActive() &&
+        game.nearbyPowerPanel(player.position) != nullptr) {
+        text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey,
+             2, kCyan);
     }
     bool nearDoor = false;
     for (const DoorLayout& door : world.doorList()) {

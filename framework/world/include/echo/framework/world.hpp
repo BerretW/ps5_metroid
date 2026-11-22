@@ -24,6 +24,7 @@ inline constexpr std::size_t kMaxRoomTilesets = 16;
 inline constexpr std::size_t kMaxRoomTileTypes = 64;
 inline constexpr std::size_t kMaxRoomLayers = 4;
 inline constexpr std::size_t kMaxRoomPlacements = 16;
+inline constexpr std::size_t kMaxRoomLights = 16;
 inline constexpr int kMinRoomColumns = 20;
 inline constexpr int kMaxRoomColumns = 64;
 inline constexpr int kMaxRoomRows = 16;
@@ -35,8 +36,27 @@ enum class ObjectCategory : std::uint8_t {
 enum class Facing : std::uint8_t { Right, Left };
 enum class ObjectPropertyType : std::uint8_t { Integer, Number, Boolean, String };
 enum class TileCollision : std::uint8_t { None, Solid, Hazard };
-// Side rooms are viewed in profile; isometric rooms are a top-down grid drawn as 2:1 diamonds.
-enum class RoomProjection : std::uint8_t { Side, Isometric };
+// Side rooms are viewed in profile; top-down and isometric rooms use the x/y world plane.
+enum class RoomProjection : std::uint8_t { Side, TopDown, Isometric };
+struct WorldPoint {
+    float x{}, y{};
+};
+[[nodiscard]] inline WorldPoint projectWorldPoint(RoomProjection projection, WorldPoint point,
+                                                   WorldPoint camera) noexcept {
+    if (projection == RoomProjection::Isometric) {
+        return {point.x - point.y - camera.x, (point.x + point.y) * 0.5F - camera.y};
+    }
+    return {point.x - camera.x, point.y - camera.y};
+}
+[[nodiscard]] inline WorldPoint projectWorldDirection(RoomProjection projection,
+                                                       WorldPoint direction) noexcept {
+    if (projection == RoomProjection::Isometric) {
+        return {direction.x - direction.y, (direction.x + direction.y) * 0.5F};
+    }
+    return direction;
+}
+enum class WorldLightType : std::uint8_t { Point, Spot };
+enum class LightPersistence : std::uint8_t { Transient, Room, Persistent };
 
 struct ObjectProperty {
     std::array<char, 32> key{};
@@ -63,12 +83,22 @@ struct PropertyList {
     }
 };
 
+struct WorldMaterialSpec {
+    std::array<char, 96> normalSheet{};
+    std::array<char, 96> emissiveSheet{};
+    std::array<char, 64> emissiveCircuit{};
+    std::array<float, 3> emissiveColor{1.0F, 1.0F, 1.0F};
+    float emissiveIntensity{1.0F};
+    bool configured{};
+};
+
 struct SpriteSheetSpec {
     std::array<char, 96> sheet{};
     std::int32_t frameWidth{};
     std::int32_t frameHeight{};
     std::int32_t offsetX{};
     std::int32_t offsetY{};
+    WorldMaterialSpec material{};
 };
 
 // One animation reads `frames` consecutive cells from (`column`, `row`) of the sheet.
@@ -134,10 +164,12 @@ private:
 struct TilesetSpec {
     std::array<char, 32> id{};
     std::array<char, 96> sheet{};
+    WorldMaterialSpec material{};
     std::int32_t tileWidth{};
     std::int32_t tileHeight{};
     std::int32_t margin{};
     std::int32_t spacing{};
+    bool hasMaterial{};
 };
 
 // A legend entry: one map symbol selects a tileset cell, its rotation and collision.
@@ -161,6 +193,89 @@ struct TileLayer {
     // Row-major symbols with a kMaxRoomColumns stride; '.' and ' ' are empty.
     std::array<char, kMaxRoomColumns * kMaxRoomRows> cells{};
 };
+
+struct WorldLightDefinition {
+    std::array<char, 96> id{};
+    std::array<char, 48> parent{};
+    std::array<char, 64> circuit{};
+    std::array<float, 3> color{1.0F, 1.0F, 1.0F};
+    std::array<float, 3> attenuation{1.0F, 0.0F, 0.0F};
+    float x{};
+    float y{};
+    float directionX{1.0F};
+    float directionY{};
+    float radius{128.0F};
+    float intensity{1.0F};
+    float coneAngle{45.0F};
+    float flickerAmount{};
+    float flickerFrequency{};
+    float fadeSeconds{};
+    float resolvedX{};
+    float resolvedY{};
+    WorldLightType type{WorldLightType::Point};
+    LightPersistence persistence{LightPersistence::Transient};
+    bool followsAim{};
+    bool hasResolvedPosition{};
+    bool enabled{true};
+    bool castsShadows{};
+};
+
+class LightFadeTransition {
+public:
+    [[nodiscard]] bool update(float target, float deltaSeconds, float durationSeconds,
+                              float& intensity) noexcept;
+    void reset() noexcept { *this = {}; }
+
+private:
+    float current_{};
+    float start_{};
+    float target_{};
+    float duration_{};
+    float elapsed_{};
+    bool initialized_{};
+};
+
+struct DayNightCycle {
+    std::array<float, 3> nightColor{};
+    float nightIntensity{};
+    float periodSeconds{};
+    float phaseSeconds{};
+    bool enabled{};
+};
+
+struct WorldLighting {
+    std::array<float, 3> ambientColor{1.0F, 1.0F, 1.0F};
+    std::array<float, 3> directionalColor{1.0F, 1.0F, 1.0F};
+    float ambientIntensity{1.0F};
+    float directionalX{};
+    float directionalY{1.0F};
+    float directionalIntensity{};
+    DayNightCycle dayNight{};
+    bool hasAmbient{};
+    bool hasDirectional{};
+};
+
+struct RoomLighting {
+    std::array<float, 3> ambientColor{1.0F, 1.0F, 1.0F};
+    std::array<float, 3> directionalColor{1.0F, 1.0F, 1.0F};
+    std::array<WorldLightDefinition, kMaxRoomLights> lights{};
+    std::size_t lightCount{};
+    float ambientIntensity{1.0F};
+    float directionalX{};
+    float directionalY{1.0F};
+    float directionalIntensity{};
+    DayNightCycle dayNight{};
+    bool hasAmbient{};
+    bool hasDirectional{};
+    bool hasLights{};
+};
+
+[[nodiscard]] Status sampleAmbientLighting(
+    const WorldLighting& world, const RoomLighting& room, double timeSeconds,
+    std::array<float, 3>& color, float& intensity) noexcept;
+[[nodiscard]] bool worldLightStateKey(std::string_view roomId,
+                                      std::string_view lightId, char* output,
+                                      std::size_t capacity) noexcept;
 
 struct RoomExit {
     bool present{};
@@ -190,6 +305,7 @@ public:
     [[nodiscard]] int rows() const noexcept { return rows_; }
     [[nodiscard]] std::array<std::uint8_t, 3> background() const noexcept { return background_; }
     [[nodiscard]] RoomProjection projection() const noexcept { return projection_; }
+    [[nodiscard]] const RoomLighting& lighting() const noexcept { return lighting_; }
     [[nodiscard]] std::span<const TilesetSpec> tilesets() const noexcept {
         return {tilesets_.data(), tilesetCount_};
     }
@@ -225,6 +341,7 @@ private:
     std::array<ObjectPlacement, kMaxRoomPlacements> placements_{};
     std::size_t placementCount_{};
     std::array<std::uint8_t, 3> background_{};
+    RoomLighting lighting_{};
     RoomProjection projection_{RoomProjection::Side};
     int columns_{};
     int rows_{};
@@ -240,6 +357,8 @@ private:
 // cross-references and is the only step that makes definitions visible.
 class WorldModule final : public IModule {
 public:
+    [[nodiscard]] static Status parseWorldLighting(
+        JsonValue document, WorldLighting& output) noexcept;
     [[nodiscard]] Status loadManifest(JsonValue document) noexcept;
     [[nodiscard]] Status addObject(std::string_view expectedId, JsonValue document) noexcept;
     [[nodiscard]] Status addRoom(std::string_view expectedId, JsonValue document) noexcept;

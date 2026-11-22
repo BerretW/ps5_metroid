@@ -1,0 +1,11 @@
+add_library(echo_framework_power STATIC src/power.cpp)
+add_library(EchoFramework::Power ALIAS echo_framework_power)
+target_include_directories(echo_framework_power PUBLIC include)
+target_compile_features(echo_framework_power PUBLIC cxx_std_20)
+target_link_libraries(echo_framework_power PUBLIC EchoFramework::Data)
+
+if(MSVC)
+    target_compile_options(echo_framework_power PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(echo_framework_power PRIVATE -Wall -Wextra -Wpedantic)
+endif()

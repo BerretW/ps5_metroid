@@ -42,11 +42,13 @@ struct TargetSlot {
 };
 struct alignas(16) Uniforms {
     Mat4 vp;
-    Vec4 camera, directionAmbient, lightColor;
+    Vec4 camera, directionAmbient, lightColor, ambientColor, lightScreenToWorld;
     std::array<PointLight, 4> points;
+    Vec4 shadowInfo;
+    std::array<Vec4, kMax2DShadowSegments> shadowSegments;
 };
 struct Push { Mat4 model; Vec4 color; Vec4 emissionMetallic; Vec4 parameters; Vec4 uvTransform; };
-static_assert(sizeof(Push) == 128 && sizeof(Uniforms) == 240 && sizeof(Vertex) == 64);
+static_assert(sizeof(Push) == 128 && sizeof(Uniforms) == 928 && sizeof(Vertex) == 64);
 Status error(ErrorCode code, std::string_view detail) noexcept {
     return {code, "echo.rendering.vulkan", detail};
 }
@@ -1036,10 +1038,20 @@ Status VulkanBackend::beginFrameTo(const FrameState& frame, TargetHandle target)
     if (!finite(frame.viewProjection)) return error(ErrorCode::InvalidValue, "camera matrix");
     auto validVector = [](Vec4 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w); };
     if (!validVector(frame.cameraPosition) || !validVector(frame.lightDirectionAmbient) ||
-        !validVector(frame.lightColorIntensity) || !validVector(frame.clearColor))
+        !validVector(frame.lightColorIntensity) || !validVector(frame.ambientColor) ||
+        !validVector(frame.lightScreenToWorld) ||
+        !validVector(frame.shadowInfo) || frame.shadowInfo.x < 0.0F ||
+        frame.shadowInfo.x > static_cast<float>(kMax2DShadowSegments) ||
+        std::floor(frame.shadowInfo.x) != frame.shadowInfo.x ||
+        !validVector(frame.clearColor))
         return error(ErrorCode::InvalidValue, "frame uniforms");
-    for (auto light : frame.pointLights) if (!validVector(light.positionRadius) || !validVector(light.colorIntensity))
+    for (auto light : frame.pointLights) if (!validVector(light.positionRadius) ||
+        !validVector(light.colorIntensity) || !validVector(light.attenuation) ||
+        !validVector(light.directionCone))
         return error(ErrorCode::InvalidValue, "point light uniforms");
+    for (const Vec4& segment : frame.shadowSegments)
+        if (!validVector(segment))
+            return error(ErrorCode::InvalidValue, "shadow segment uniforms");
     auto& s = *state_;
     const bool targetFrame = target.valid();
     if (targetFrame && (target.index >= s.targets.size() || !s.targets[target.index].active ||
@@ -1061,7 +1073,10 @@ Status VulkanBackend::beginFrameTo(const FrameState& frame, TargetHandle target)
     }
     s.offscreen = targetFrame;
     s.recording = true; s.frameStart = std::chrono::steady_clock::now(); s.drawCount = 0;
-    Uniforms uniforms{frame.viewProjection, frame.cameraPosition, frame.lightDirectionAmbient, frame.lightColorIntensity, frame.pointLights};
+    Uniforms uniforms{frame.viewProjection, frame.cameraPosition, frame.lightDirectionAmbient,
+                      frame.lightColorIntensity, frame.ambientColor,
+                      frame.lightScreenToWorld, frame.pointLights, frame.shadowInfo,
+                      frame.shadowSegments};
     std::memcpy(s.uniform.mapped, &uniforms, sizeof(uniforms));
     status = s.check(vkResetCommandBuffer(s.command, 0), "frame.command.reset");
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1159,7 +1174,9 @@ Status VulkanBackend::endFrame() noexcept {
                    m.baseColor.z * draw.tint.z, m.baseColor.w * draw.tint.w};
         Push push{draw.model, color, {m.emission.x, m.emission.y, m.emission.z, m.metallic},
                   {m.roughness, static_cast<float>(m.model),
-                   (draw.overlay ? 1.0F : 0.0F) + (m.metallicRoughnessTexture.valid() ? 2.0F : 0.0F),
+                   (draw.overlay ? 1.0F : 0.0F) +
+                       (m.metallicRoughnessTexture.valid() ? 2.0F : 0.0F) +
+                       (draw.worldPass ? 4.0F : 0.0F),
                    m.normalTexture.valid() ? m.normalScale : -1.0F},
                   draw.uvTransform};
         vkCmdPushConstants(s.command, s.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);

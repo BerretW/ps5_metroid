@@ -243,6 +243,13 @@ void testSettingsPersistence() {
     using echo::framework::StateScope;
     using echo::framework::StateValue;
 
+    check(echo::platform::settings_detail::validBindingKey(SDLK_SPACE) &&
+              echo::platform::settings_detail::validBindingKey(SDLK_LEFT) &&
+              !echo::platform::settings_detail::validBindingKey(SDLK_UNKNOWN) &&
+              !echo::platform::settings_detail::validBindingKey(
+                  static_cast<SDL_Keycode>(0x20000000)),
+          "keyboard binding validation does not depend on an initialized keyboard device");
+
     GameState saved{};
     const echo::platform::Bindings original{SDLK_f, SDLK_g, SDLK_h};
     const auto czech = echo::framework::DialogueLanguage::Czech;
@@ -618,7 +625,8 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
           "legacy saves receive the key to preserve their previously unlocked route");
     check(echo::platform::migrateGameCheckpointSave(3, migrated, nullptr) &&
               echo::platform::migrateGameCheckpointSave(5, migrated, nullptr) &&
-              !echo::platform::migrateGameCheckpointSave(6, migrated, nullptr),
+             echo::platform::migrateGameCheckpointSave(6, migrated, nullptr) &&
+             !echo::platform::migrateGameCheckpointSave(7, migrated, nullptr),
           "unknown future save versions are not migrated");
     GameState versionFour = saved;
     echo::GameCheckpoint oldDrop{};
@@ -786,11 +794,23 @@ public:
 class SpriteProbeSink final : public echo::rendering::ICanvas2D {
 public:
     bool clear(echo::rendering::Color2D) noexcept override { return true; }
+    bool setWorldLighting(const echo::rendering::FrameState& frame) noexcept override {
+        lastWorldLighting = frame;
+        return true;
+    }
+    bool setWorldPass(bool enabled) noexcept override {
+        worldPass = enabled;
+        return true;
+    }
     bool fill(echo::rendering::Rect2D, echo::rendering::Color2D) noexcept override { return true; }
     bool texture(echo::rendering::TextureHandle handle, echo::rendering::Rect2D destination,
                  echo::rendering::Vec4 uv, echo::rendering::Vec4 tint,
                  float rotation) noexcept override {
         if (calls == 0) firstDestination = destination;
+        if (handle == trackedHandle) {
+            ++trackedCalls;
+            trackedDestination = destination;
+        }
         ++calls;
         lastHandle = handle;
         lastUv = uv;
@@ -801,15 +821,36 @@ public:
         translucentCalls += tint.w < 0.999F ? 1 : 0;
         return !fail;
     }
+    bool textureWithLighting(echo::rendering::TextureHandle baseTexture,
+                             echo::rendering::TextureHandle normal,
+                             echo::rendering::TextureHandle emissive,
+                             echo::rendering::Vec3 emission,
+                             echo::rendering::Rect2D destination,
+                             echo::rendering::Vec4 uv, echo::rendering::Vec4 tint,
+                             float rotation) noexcept override {
+        normalMapCalls += normal.valid() ? 1 : 0;
+        emissiveMaskCalls += emissive.valid() ? 1 : 0;
+        poweredEmissiveCalls += emissive.valid() &&
+            (emission.x > 0.0F || emission.y > 0.0F || emission.z > 0.0F) ? 1 : 0;
+        return texture(baseTexture, destination, uv, tint, rotation);
+    }
     bool fail{};
     int calls{};
     int mirroredCalls{};
     int rotatedCalls{};
     int translucentCalls{};
+    int normalMapCalls{};
+    int emissiveMaskCalls{};
+    int poweredEmissiveCalls{};
+    int trackedCalls{};
     echo::rendering::Rect2D firstDestination{};
+    echo::rendering::Rect2D trackedDestination{};
     echo::rendering::TextureHandle lastHandle{};
+    echo::rendering::TextureHandle trackedHandle{};
     echo::rendering::Vec4 lastUv{};
     echo::rendering::Vec4 lastTint{};
+    echo::rendering::FrameState lastWorldLighting{};
+    bool worldPass{};
     float lastRotation{};
 };
 
@@ -836,6 +877,10 @@ int main() {
         if (!status || !integration.beginGame()) {
             throw std::runtime_error("Framework test content failed to initialize.");
         }
+        keyboard.setPowerModule(integration.powerModule());
+        pad.setPowerModule(integration.powerModule());
+        keyboard.setGameState(&integration.gameState());
+        pad.setGameState(&integration.gameState());
         testSettingsPersistence();
         testFixedStepParticles();
         testDamageFlash();
@@ -1381,6 +1426,10 @@ int main() {
         const echo::WorldLayout* worldLayout = integration.worldLayout();
         check(worldLayout != nullptr, "the packaged game selects JSON world data");
         if (worldLayout != nullptr) {
+            check(worldLayout->worldLighting.hasAmbient &&
+                      worldLayout->worldLighting.dayNight.enabled &&
+                      worldLayout->worldLighting.hasDirectional,
+                  "game.json world ambient, day/night and directional lighting reach the game layout");
             echo::Game worldGame;
             check(static_cast<bool>(worldGame.configureWorld(*worldLayout)),
                   "the packaged world layout configures a game");
@@ -1388,36 +1437,69 @@ int main() {
             check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 20 &&
                       pad.worldSheetCount() == 20,
                   "every world sprite sheet and tileset referenced by JSON decodes");
-            echo::platform::CanvasWorldSprites canvasWorldSprites{};
-            const auto addWorldSprite = [&](std::string_view sheetPath) {
+            auto canvasWorldSprites =
+                std::make_unique<echo::platform::CanvasWorldSprites>();
+            const auto sameMaterial = [](const echo::framework::WorldMaterialSpec& left,
+                                         const echo::framework::WorldMaterialSpec& right) {
+                return std::string_view(left.normalSheet.data()) ==
+                           std::string_view(right.normalSheet.data()) &&
+                       std::string_view(left.emissiveSheet.data()) ==
+                           std::string_view(right.emissiveSheet.data()) &&
+                       std::string_view(left.emissiveCircuit.data()) ==
+                           std::string_view(right.emissiveCircuit.data()) &&
+                       left.emissiveColor == right.emissiveColor &&
+                       left.emissiveIntensity == right.emissiveIntensity;
+            };
+            const auto addWorldSprite = [&](std::string_view sheetPath,
+                                            const echo::framework::WorldMaterialSpec& material) {
                 if (sheetPath.empty()) return true;
-                for (std::size_t index = 0; index < canvasWorldSprites.count; ++index) {
-                    if (sheetPath == canvasWorldSprites.sheets[index].path.data()) return true;
+                for (std::size_t index = 0; index < canvasWorldSprites->count; ++index) {
+                    if (sheetPath == canvasWorldSprites->sheets[index].path.data() &&
+                        sameMaterial(material, canvasWorldSprites->sheets[index].material)) {
+                        return true;
+                    }
                 }
-                if (canvasWorldSprites.count == canvasWorldSprites.sheets.size() ||
+                if (canvasWorldSprites->count == canvasWorldSprites->sheets.size() ||
                     sheetPath.size() >= echo::platform::CanvasWorldSprite{}.path.size()) {
                     return false;
                 }
                 echo::platform::CanvasWorldSprite& entry =
-                    canvasWorldSprites.sheets[canvasWorldSprites.count];
+                    canvasWorldSprites->sheets[canvasWorldSprites->count];
                 std::copy(sheetPath.begin(), sheetPath.end(), entry.path.begin());
-                std::array<char, 512> pngPath{};
-                const int written = std::snprintf(pngPath.data(), pngPath.size(), "%s%.*s",
-                    ECHO_SOURCE_ASSETS, static_cast<int>(sheetPath.size()), sheetPath.data());
-                echo::platform::RgbaImage decoded{};
-                if (written <= 0 || written >= static_cast<int>(pngPath.size()) ||
-                    !echo::platform::loadPngRgba(pngPath.data(), decoded)) {
+                entry.material = material;
+                const auto loadMap = [&](std::string_view path,
+                                         echo::platform::CanvasSprite& output) {
+                    if (path.empty()) return true;
+                    std::array<char, 512> pngPath{};
+                    const int written = std::snprintf(
+                        pngPath.data(), pngPath.size(), "%s%.*s", ECHO_SOURCE_ASSETS,
+                        static_cast<int>(path.size()), path.data());
+                    echo::platform::RgbaImage decoded{};
+                    if (written <= 0 || written >= static_cast<int>(pngPath.size()) ||
+                        !echo::platform::loadPngRgba(pngPath.data(), decoded)) {
+                        return false;
+                    }
+                    output = {{static_cast<std::uint32_t>(
+                                   101 + canvasWorldSprites->count * 3 +
+                                   (path == sheetPath ? 0 : 1)), 1},
+                              static_cast<std::uint32_t>(decoded.width),
+                              static_cast<std::uint32_t>(decoded.height)};
+                    const bool matchesBase = output.width == entry.image.width &&
+                                             output.height == entry.image.height;
+                    echo::platform::freePngRgba(decoded);
+                    return matchesBase;
+                };
+                if (!loadMap(sheetPath, entry.image) ||
+                    !loadMap(material.normalSheet.data(), entry.normal) ||
+                    !loadMap(material.emissiveSheet.data(), entry.emissive)) {
                     return false;
                 }
-                entry.image = {{static_cast<std::uint32_t>(canvasWorldSprites.count + 101), 1},
-                               static_cast<std::uint32_t>(decoded.width),
-                               static_cast<std::uint32_t>(decoded.height)};
-                echo::platform::freePngRgba(decoded);
-                ++canvasWorldSprites.count;
+                ++canvasWorldSprites->count;
                 return true;
             };
             const auto addObjectSprite = [&](const echo::framework::ObjectDefinition* object) {
-                return object == nullptr || addWorldSprite(object->sprite().sheet.data());
+                return object == nullptr ||
+                       addWorldSprite(object->sprite().sheet.data(), object->sprite().material);
             };
             const echo::WorldLayout& loadedWorld = worldGame.world();
             const auto& archetypes = loadedWorld.archetypes;
@@ -1442,14 +1524,15 @@ int main() {
                 if (room.definition == nullptr) continue;
                 for (const echo::framework::TilesetSpec& tileset : room.definition->tilesets()) {
                     worldSpritesLoaded =
-                        worldSpritesLoaded && addWorldSprite(tileset.sheet.data());
+                        worldSpritesLoaded &&
+                        addWorldSprite(tileset.sheet.data(), tileset.material);
                 }
             }
-            check(worldSpritesLoaded && canvasWorldSprites.count == 20,
+            check(worldSpritesLoaded && canvasWorldSprites->count == 20,
                   "world sprite handles are populated from every JSON-referenced sheet");
             spriteProbe = {};
             check(keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
-                                      &canvasSprites, &canvasWorldSprites) &&
+                                      &canvasSprites, canvasWorldSprites.get()) &&
                       spriteProbe.calls > 1 && spriteProbe.rotatedCalls > 0,
                   "recording submits JSON room tiles and object atlas frames to canvas handles");
             const auto landingCheckpoint = worldGame.checkpoint();
@@ -1480,7 +1563,7 @@ int main() {
             spriteProbe = {};
             const bool recordedScrolledBay =
                 keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
-                                    &canvasSprites, &canvasWorldSprites);
+                                    &canvasSprites, canvasWorldSprites.get());
             check(recordedScrolledBay &&
                       std::abs(static_cast<float>(spriteProbe.firstDestination.x) -
                                expectedFirstLayerX(worldGame.cameraX())) < 0.1F &&
@@ -1488,10 +1571,11 @@ int main() {
                                initialLayerX) > 1.0F &&
                       static_cast<bool>(worldGame.restore(landingCheckpoint)),
                   "canvas recording applies the JSON parallax factor as the camera moves");
-            echo::platform::CanvasWorldSprites invalidWorldSprites = canvasWorldSprites;
-            invalidWorldSprites.sheets[0].path[0] = '\\';
+            auto invalidWorldSprites =
+                std::make_unique<echo::platform::CanvasWorldSprites>(*canvasWorldSprites);
+            invalidWorldSprites->sheets[0].path[0] = '\\';
             check(!keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",
-                                       &canvasSprites, &invalidWorldSprites),
+                                       &canvasSprites, invalidWorldSprites.get()),
                   "recording rejects unsafe world sprite paths");
             const SDL_Rect floorRegion{0, 320, 640, 32};
             pad.drawGame(game, false, false, "SPACE", "J", "E");
@@ -1507,11 +1591,162 @@ int main() {
             check(static_cast<bool>(cargoGame.configureWorld(*worldLayout)) &&
                       cargoGame.restore(cargo) && cargoGame.isometric(),
                   "the JSON Cargo Hold is an isometric room");
+            const echo::PropLayout* consoleProp = nullptr;
+            for (const echo::PropLayout& prop : loadedWorld.propList()) {
+                if (prop.room == echo::RoomId::CargoHold &&
+                    std::string_view(prop.id.data()) == "power_panel") {
+                    consoleProp = &prop;
+                    break;
+                }
+            }
+            echo::rendering::TextureHandle consoleTexture{};
+            if (consoleProp != nullptr && consoleProp->archetype != nullptr) {
+                const std::string_view consoleSheet =
+                    consoleProp->archetype->sprite().sheet.data();
+                for (std::size_t index = 0; index < canvasWorldSprites->count; ++index) {
+                    if (std::string_view(canvasWorldSprites->sheets[index].path.data()) ==
+                        consoleSheet) {
+                        consoleTexture = canvasWorldSprites->sheets[index].image.texture;
+                        break;
+                    }
+                }
+            }
+            spriteProbe = {};
+            spriteProbe.trackedHandle = consoleTexture;
+            const bool recordedConsoleStart = keyboard.recordGame(
+                spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
+                &canvasSprites, canvasWorldSprites.get());
+            const echo::rendering::Rect2D consoleStartDraw = spriteProbe.trackedDestination;
+            const echo::rendering::FrameState consoleStartLighting =
+                spriteProbe.lastWorldLighting;
+            echo::Vec2 consoleWorldPosition{};
+            const bool gotConsolePosition = cargoGame.propPosition(
+                echo::RoomId::CargoHold, "power_panel", consoleWorldPosition);
+            const bool movedConsole = static_cast<bool>(cargoGame.setPropPosition(
+                echo::RoomId::CargoHold, "power_panel",
+                {consoleWorldPosition.x + 12.0F, consoleWorldPosition.y + 8.0F}));
+            spriteProbe = {};
+            spriteProbe.trackedHandle = consoleTexture;
+            const bool recordedMovedConsole = keyboard.recordGame(
+                spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
+                &canvasSprites, canvasWorldSprites.get());
+            const echo::rendering::Rect2D consoleMovedDraw = spriteProbe.trackedDestination;
+            const echo::rendering::FrameState consoleMovedLighting =
+                spriteProbe.lastWorldLighting;
+            const bool resetConsole = static_cast<bool>(cargoGame.setPropPosition(
+                echo::RoomId::CargoHold, "power_panel", consoleWorldPosition));
+            const auto emergencyLampPosition = [](const echo::rendering::FrameState& frame) {
+                for (const echo::rendering::PointLight& light : frame.pointLights) {
+                    if (std::abs(light.positionRadius.w - 190.0F) < 0.001F) {
+                        return echo::rendering::Vec2{
+                            light.positionRadius.x, light.positionRadius.y};
+                    }
+                }
+                return echo::rendering::Vec2{-10000.0F, -10000.0F};
+            };
+            const echo::rendering::Vec2 emergencyStart =
+                emergencyLampPosition(consoleStartLighting);
+            const echo::rendering::Vec2 emergencyMoved =
+                emergencyLampPosition(consoleMovedLighting);
+            check(consoleTexture.valid() && recordedConsoleStart &&
+                      recordedMovedConsole && gotConsolePosition && movedConsole &&
+                      resetConsole && spriteProbe.trackedCalls > 0 &&
+                      (std::abs(consoleMovedDraw.x - consoleStartDraw.x) > 1.0F ||
+                       std::abs(consoleMovedDraw.y - consoleStartDraw.y) > 1.0F),
+                  "runtime isometric prop transforms move the rendered console");
+            check(emergencyStart.x > -10000.0F && emergencyMoved.x > -10000.0F &&
+                      std::abs((emergencyMoved.x - emergencyStart.x) - 4.0F) < 0.01F &&
+                      std::abs((emergencyMoved.y - emergencyStart.y) - 10.0F) < 0.01F,
+                  "the Cargo Hold emergency light follows its moving prop in projected world space");
+            const auto emergencyOn = integration.powerModule()->setRequested(
+                "echo:power/cargo_emergency", true);
+            check(static_cast<bool>(emergencyOn),
+                  "the Cargo Hold emergency circuit is available to world materials");
             spriteProbe = {};
             check(keyboard.recordGame(spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
-                                      &canvasSprites, &canvasWorldSprites) &&
-                      spriteProbe.calls > 1,
-                  "isometric JSON tiles and directional object atlases record through canvas");
+                                      &canvasSprites, canvasWorldSprites.get()) &&
+                      spriteProbe.calls > 1 && spriteProbe.emissiveMaskCalls > 0 &&
+                      spriteProbe.poweredEmissiveCalls > 0 &&
+                      std::abs(spriteProbe.lastWorldLighting.lightDirectionAmbient.w -
+                               0.24F) < 0.001F,
+                  "Cargo Hold draws a powered emissive console and preserves room ambient on canvas");
+            const auto playerLampPosition = [](const echo::rendering::FrameState& frame) {
+                for (const echo::rendering::PointLight& light : frame.pointLights) {
+                    if (std::abs(light.positionRadius.w - 125.0F) < 0.001F) {
+                        return echo::rendering::Vec2{
+                            light.positionRadius.x, light.positionRadius.y};
+                    }
+                }
+                return echo::rendering::Vec2{-10000.0F, -10000.0F};
+            };
+            const auto playerLampDirection = [](const echo::rendering::FrameState& frame) {
+                for (const echo::rendering::PointLight& light : frame.pointLights) {
+                    if (std::abs(light.positionRadius.w - 125.0F) < 0.001F) {
+                        return echo::rendering::Vec2{
+                            light.directionCone.x, light.directionCone.y};
+                    }
+                }
+                return echo::rendering::Vec2{};
+            };
+            const echo::rendering::Vec2 lampBefore =
+                playerLampPosition(spriteProbe.lastWorldLighting);
+            const echo::rendering::Vec2 aimBefore =
+                playerLampDirection(spriteProbe.lastWorldLighting);
+            auto movedCargo = cargoGame.checkpoint();
+            movedCargo.playerPosition.x -= 50.0F;
+            check(static_cast<bool>(cargoGame.restore(movedCargo)),
+                  "the Cargo Hold fixture moves the player for attachment coverage");
+            spriteProbe = {};
+            const bool recordedMovedCargo =
+                keyboard.recordGame(spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
+                                    &canvasSprites, canvasWorldSprites.get());
+            const echo::rendering::Vec2 lampAfter =
+                playerLampPosition(spriteProbe.lastWorldLighting);
+            const echo::rendering::Vec2 aimAfter =
+                playerLampDirection(spriteProbe.lastWorldLighting);
+            check(recordedMovedCargo &&
+                      std::hypot(lampAfter.x - lampBefore.x,
+                                 lampAfter.y - lampBefore.y) < 1.0F,
+                  "the player equipment spotlight follows the player as the isometric camera tracks");
+            auto aimedLeft = cargoGame.checkpoint();
+            aimedLeft.playerFacing = -1;
+            check(static_cast<bool>(cargoGame.restore(aimedLeft)),
+                  "the spotlight fixture changes the player's aim direction");
+            spriteProbe = {};
+            const bool recordedAimedLeft =
+                keyboard.recordGame(spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
+                                    &canvasSprites, canvasWorldSprites.get());
+            const echo::rendering::Vec2 aimLeft =
+                playerLampDirection(spriteProbe.lastWorldLighting);
+            check(recordedMovedCargo && recordedAimedLeft &&
+                      std::hypot(aimAfter.x - aimBefore.x,
+                                 aimAfter.y - aimBefore.y) < 0.001F &&
+                      aimBefore.x * aimLeft.x + aimBefore.y * aimLeft.y < -0.5F,
+                  "the player equipment spotlight rotates with projected player aim");
+            auto lightOff = integration.setWorldLightEnabled(
+                "echo:room/cargo_hold", "echo:light/cargo_emergency", false);
+            auto lightingSave = std::make_unique<echo::framework::GameState>();
+            const auto encodedLighting = echo::platform::encodeGameCheckpoint(
+                cargoGame, *lightingSave);
+            const auto powerSaved = integration.powerModule()->saveState(*lightingSave);
+            const auto lightsSaved = integration.saveWorldLightOverrides(*lightingSave);
+            const auto lightingResumed = integration.resumeGame(*lightingSave);
+            std::array<char, 64> emergencyLightKey{};
+            const bool haveEmergencyLightKey = echo::framework::worldLightStateKey(
+                "echo:room/cargo_hold", "echo:light/cargo_emergency",
+                emergencyLightKey.data(), emergencyLightKey.size());
+            echo::framework::StateValue emergencyLightState{};
+            const bool persistentLightRestored = haveEmergencyLightKey &&
+                integration.gameState().get(
+                    {echo::framework::StateScope::Global, {}, emergencyLightKey.data()},
+                    emergencyLightState) &&
+                emergencyLightState.type == echo::framework::ValueType::Boolean &&
+                !emergencyLightState.boolean;
+            check(lightOff && encodedLighting && powerSaved && lightsSaved &&
+                      lightingResumed && persistentLightRestored &&
+                      integration.setWorldLightEnabled(
+                          "echo:room/cargo_hold", "echo:light/cargo_emergency", true),
+                  "persistent per-light overrides survive framework save-state reload");
             echo::vfx::Particle isoImpact{};
             isoImpact.position = {cargoGame.player().position.x + 30.0F,
                                   cargoGame.player().position.y + 10.0F, 0.0F};

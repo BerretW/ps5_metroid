@@ -3,7 +3,13 @@
   "id": "echo:object/prop_console",
   "parent": "echo:object/prop_base",
   "sprite": {
-    "sheet": "sprites/props/console.png"
+    "sheet": "sprites/props/console.png",
+    "material": {
+      "emissiveSheet": "sprites/props/console.png",
+      "emissiveColor": [0.2, 0.8, 1.0],
+      "emissiveIntensity": 0.65,
+      "emissiveCircuit": "echo:power/cargo_emergency"
+    }
   },
   "animations": {
     "idle": {

@@ -10,16 +10,34 @@ hardware results below are operator-reported.
 | A: genuine Windows GPU rendering | PASS: NVIDIA GeForce RTX 4070, textured cube/floor, depth, lights and presentation |
 | B: reusable initial backend | PASS for SDL-free interfaces, bounded resources, meshes/cameras, materials and alpha sprites; advanced API work remains |
 | C: PS5-compatible linked Vulkan rendering application/package | STATIC PASS: separate RADV diagnostics and the PROJECT ECHO Vulkan game candidate |
-| D: actual PS5 Vulkan rendering | PASS (operator-reported): the operator reports the latest Vulkan game candidate fully functional; installed digest and setup were not supplied |
+| D: actual PS5 Vulkan rendering | PASS (operator-reported, prior candidate): the operator confirmed a previous game build; the latest local candidate has NOT been tested on PS5 |
 
-The latest native Windows regression passed 19/19 tests. The Vulkan experiment
-passed 25/25 tests in both Debug and Release, including NVIDIA GPU target color
-and depth readback. These Windows tests do not establish PS5 rendering behavior.
-The latest Vulkan game candidate's local FSELF SHA-256 is
-`16e0b58d262f51bae1286ba8fae077dabaf57fa76383d6fe077f5bac879c5a4a`; its
-installed digest is unknown. The separate PS5 SDL and Vulkan game-package
-results remain as documented in
+The latest native Windows regression passed 20/20 tests. The Vulkan experiment
+passed 33/33 tests in both Debug and Release, including NVIDIA GPU target
+color/depth readback, projection-aware isometric light attenuation, Cargo Hold
+power/save readback and 2D shadow visibility. These Windows tests do not
+establish PS5 rendering behavior. The latest local PS5 Vulkan game candidate
+FSELF is 28,188,909 bytes, SHA-256
+`0603ae6718330b0a1c9bb63b88894da4591d264dfef70c342e93081247f55693`; it
+includes runtime prop transforms and bounded 2D shadows, passed static
+validation, and its hardware status is NOT TESTED. The separate
+PS5 SDL and Vulkan game-package results remain as documented in
 [PS5_BUILD](PS5_BUILD.md#ps5-vulkan-game-candidate).
+
+## 2D lighting update
+
+The production Vulkan canvas uses fragment-shader ambient, directional,
+point/spot and emissive lighting. Windows GPU readbacks cover side-scrolling,
+top-down and isometric coordinate conversion, projected attenuation, spotlight
+cones, directional normal maps, blackout, emissive independence, camera
+invariance, and UI isolation. Circuit/save behavior is covered by the Cargo
+Hold integration fixture. A bounded shadow pass tests point-light rays against
+solid-tile boundary edges, props, the player, and living enemies; Debug and
+Release readback checks both the lit side and blocked side of an occluder. Its
+fixed-capacity edge list is rebuilt every frame. Projectiles and particles do
+not cast shadows. Static-light accumulation caching, the SDL software-renderer
+lighting path, HDR bloom and PS5 hardware behavior remain incomplete or
+untested.
 
 ## Verified Windows evidence
 
@@ -30,7 +48,7 @@ not unimplemented Vulkan 1.4 features. This is hardware rasterization, never a
 CPU renderer or Vulkan software-device fallback.
 
 `scripts/build-vulkan-windows.ps1 -Configuration Debug -RunTests` and the same
-command with `-Configuration Release` each passed **25/25**:
+command with `-Configuration Release` each passed **33/33**:
 
 - Rendering math, camera, hierarchy, validation, schema/content and VFX tests.
 - glTF mesh/material import, strided normal/UV data and invalid-data cases.
@@ -345,7 +363,7 @@ on-console run was produced.
 
 No runtime-selectable backend, general SDL adapter, full 3D scene authoring
 schema, GPU multi-material submesh submission, backend GPU resource-state or
-barrier graph, built-in bloom/blur or shadow effects, normal maps/IBL, instancing, GPU
+barrier graph, built-in HDR bloom/blur or full 3D shadow effects, normal maps/IBL, instancing, GPU
 timing/compute particles, richer glTF/importer registry, full animation/layers,
 screen flash, camera shake or light events is claimed. The scheduler orders
 callbacks; the production 2D game loop remains separate. VFX is bounded CPU

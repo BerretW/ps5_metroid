@@ -19,7 +19,7 @@ for ($y = 0; $y -lt 720; ++$y) {
         $delta = [Math]::Max([Math]::Abs([int]$first[$i] - [int]$second[$i]),
             [Math]::Max([Math]::Abs([int]$first[$i + 1] - [int]$second[$i + 1]),
                         [Math]::Abs([int]$first[$i + 2] - [int]$second[$i + 2])))
-        if ($delta -ge 8) {
+        if ($delta -ge 3) {
             if ($x -ge 732 -and $x -lt 1080 -and $y -ge 320 -and $y -lt 600) {
                 ++$changed
             } else {

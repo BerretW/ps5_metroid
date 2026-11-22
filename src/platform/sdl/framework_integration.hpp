@@ -7,6 +7,7 @@
 #include "echo/framework/equipment.hpp"
 #include "echo/framework/quests.hpp"
 #include "echo/framework/cutscenes.hpp"
+#include "echo/framework/power.hpp"
 #include "echo/framework/world.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
@@ -77,10 +78,19 @@ public:
     [[nodiscard]] framework::Status beginGame() noexcept;
     [[nodiscard]] framework::Status resumeGame(const framework::GameState& state) noexcept;
     [[nodiscard]] framework::Status notifyEchoStepUnlocked() noexcept;
+    [[nodiscard]] framework::Status togglePowerCircuit(std::string_view circuitId) noexcept;
+    [[nodiscard]] framework::Status setWorldLightEnabled(
+        std::string_view roomId, std::string_view lightId, bool enabled) noexcept;
+    [[nodiscard]] framework::Status saveWorldLightOverrides(
+        framework::GameState& state) const noexcept;
     [[nodiscard]] framework::GameState& gameState() noexcept { return stateModule_.state; }
     // Null when the world module is not selected.
     [[nodiscard]] const WorldLayout* worldLayout() const noexcept { return worldLayout_.get(); }
     [[nodiscard]] const framework::WorldModule* world() const noexcept { return worldModule_.get(); }
+    [[nodiscard]] framework::PowerModule* powerModule() noexcept { return powerModule_.get(); }
+    [[nodiscard]] const framework::PowerModule* powerModule() const noexcept {
+        return powerModule_.get();
+    }
     void shutdown() noexcept;
     [[nodiscard]] std::size_t unlockEventCount() const noexcept;
 
@@ -93,9 +103,11 @@ private:
     framework::EquipmentModule equipmentModule_{};
     framework::QuestModule questModule_{};
     framework::CutsceneModule cutsceneModule_{};
+    std::unique_ptr<framework::PowerModule> powerModule_{};
     std::unique_ptr<framework::WorldModule> worldModule_{};
     std::unique_ptr<WorldLayout> worldLayout_{};
     std::array<char, 160> worldErrorSubject_{};
+    framework::WorldLighting worldLighting_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};

@@ -21,6 +21,44 @@ Vec4 color(Color2D value) noexcept {
 bool CanvasBatch2D::clear(Color2D value) noexcept {
     vertexCount_ = indexCount_ = commandCount_ = 0;
     background_ = color(value);
+    lighting_ = FrameState{};
+    worldPass_ = false;
+    return true;
+}
+
+bool CanvasBatch2D::setWorldLighting(const FrameState& frame) noexcept {
+    const auto valid = [](Vec4 value) noexcept {
+        return std::isfinite(value.x) && std::isfinite(value.y) &&
+               std::isfinite(value.z) && std::isfinite(value.w);
+    };
+    if (!valid(frame.lightDirectionAmbient) || !valid(frame.lightColorIntensity) ||
+        !valid(frame.ambientColor) || !valid(frame.lightScreenToWorld) ||
+        !valid(frame.shadowInfo) || frame.shadowInfo.x < 0.0F ||
+        frame.shadowInfo.x > static_cast<float>(kMax2DShadowSegments) ||
+        std::floor(frame.shadowInfo.x) != frame.shadowInfo.x) {
+        std::fprintf(stderr, "Canvas rejected invalid world lighting state\n");
+        return false;
+    }
+    for (const PointLight& light : frame.pointLights) {
+        if (!valid(light.positionRadius) || !valid(light.colorIntensity) ||
+            !valid(light.attenuation) || !valid(light.directionCone)) {
+            std::fprintf(stderr, "Canvas rejected invalid world light\n");
+            return false;
+        }
+    }
+    for (const Vec4& segment : frame.shadowSegments) {
+        if (!valid(segment)) {
+            std::fprintf(stderr, "Canvas rejected invalid world shadow segment\n");
+            return false;
+        }
+    }
+    lighting_.lightDirectionAmbient = frame.lightDirectionAmbient;
+    lighting_.lightColorIntensity = frame.lightColorIntensity;
+    lighting_.ambientColor = frame.ambientColor;
+    lighting_.lightScreenToWorld = frame.lightScreenToWorld;
+    lighting_.pointLights = frame.pointLights;
+    lighting_.shadowInfo = frame.shadowInfo;
+    lighting_.shadowSegments = frame.shadowSegments;
     return true;
 }
 
@@ -31,14 +69,28 @@ bool CanvasBatch2D::fill(Rect2D bounds, Color2D value) noexcept {
 
 bool CanvasBatch2D::texture(TextureHandle textureHandle, Rect2D bounds, Vec4 uvTransform,
                             Vec4 tint, float rotationDegrees) noexcept {
+    return textureWithLighting(textureHandle, {}, {}, {}, bounds, uvTransform, tint,
+                               rotationDegrees);
+}
+
+bool CanvasBatch2D::textureWithLighting(TextureHandle textureHandle,
+                                        TextureHandle normalTexture,
+                                        TextureHandle emissiveMask, Vec3 emission,
+                                        Rect2D bounds, Vec4 uvTransform, Vec4 tint,
+                                        float rotationDegrees) noexcept {
     const auto validVector = [](Vec4 value) noexcept {
         return std::isfinite(value.x) && std::isfinite(value.y) &&
                std::isfinite(value.z) && std::isfinite(value.w);
     };
     if (!validVector(uvTransform) || !validVector(tint) ||
-        !std::isfinite(rotationDegrees) ||
+        !std::isfinite(rotationDegrees) || !std::isfinite(emission.x) ||
+        !std::isfinite(emission.y) || !std::isfinite(emission.z) ||
         uvTransform.z == 0.0F || uvTransform.w == 0.0F || !textureHandle.valid()) {
         std::fprintf(stderr, "Canvas rejected invalid texture draw\n");
+        return false;
+    }
+    if (emission.x < 0.0F || emission.y < 0.0F || emission.z < 0.0F) {
+        std::fprintf(stderr, "Canvas emission cannot be negative\n");
         return false;
     }
     for (float channel : {tint.x, tint.y, tint.z, tint.w}) {
@@ -55,7 +107,8 @@ bool CanvasBatch2D::texture(TextureHandle textureHandle, Rect2D bounds, Vec4 uvT
         return false;
     }
     MaterialHandle material{};
-    if (!materialFor(textureHandle, material)) return false;
+    if (!materialFor(textureHandle, normalTexture, emissiveMask, emission, material))
+        return false;
     return quad(bounds, tint, uvTransform, material, true, rotationDegrees);
 }
 
@@ -75,6 +128,7 @@ Status CanvasBatch2D::submit(MeshHandle meshHandle) const noexcept {
         draw.firstIndex = command.firstIndex;
         draw.indexCount = command.indexCount;
         draw.overlay = true;
+        draw.worldPass = command.worldPass;
         auto status = backend_.submit(draw);
         if (!status) return status;
     }
@@ -91,9 +145,15 @@ Status CanvasBatch2D::destroyMaterials() noexcept {
     return Status::success();
 }
 
-bool CanvasBatch2D::materialFor(TextureHandle textureHandle, MaterialHandle& output) noexcept {
+bool CanvasBatch2D::materialFor(TextureHandle textureHandle,
+                                TextureHandle normalTexture,
+                                TextureHandle emissiveMask, Vec3 emission,
+                                MaterialHandle& output) noexcept {
     for (std::size_t index = 0; index < materialCount_; ++index) {
-        if (materials_[index].texture == textureHandle) {
+        const TextureMaterial& cached = materials_[index];
+        if (cached.texture == textureHandle && cached.normalTexture == normalTexture &&
+            cached.emissiveMask == emissiveMask && cached.emission.x == emission.x &&
+            cached.emission.y == emission.y && cached.emission.z == emission.z) {
             output = materials_[index].material;
             return true;
         }
@@ -106,13 +166,17 @@ bool CanvasBatch2D::materialFor(TextureHandle textureHandle, MaterialHandle& out
     material.model = MaterialModel::Textured;
     material.alpha = AlphaMode::Blend;
     material.texture = textureHandle;
+    material.normalTexture = normalTexture;
+    material.metallicRoughnessTexture = emissiveMask;
+    material.emission = emission;
     const auto status = backend_.createMaterial(material, output);
     if (!status) {
         std::fprintf(stderr, "Canvas material creation failed: %.*s\n",
                      static_cast<int>(status.detail.size()), status.detail.data());
         return false;
     }
-    materials_[materialCount_++] = {textureHandle, output};
+    materials_[materialCount_++] = {textureHandle, normalTexture, emissiveMask,
+                                    emission, output};
     return true;
 }
 
@@ -123,7 +187,9 @@ bool CanvasBatch2D::quad(Rect2D bounds, Vec4 tint, Vec4 uvTransform,
         std::fprintf(stderr, "Canvas geometry capacity exceeded\n");
         return false;
     }
-    const bool merge = commandCount_ != 0 && commands_[commandCount_ - 1].material == material;
+    const bool merge = commandCount_ != 0 &&
+                   commands_[commandCount_ - 1].material == material &&
+                   commands_[commandCount_ - 1].worldPass == worldPass_;
     if (!merge && commandCount_ == commands_.size()) {
         std::fprintf(stderr, "Canvas draw capacity exceeded\n");
         return false;
@@ -155,13 +221,14 @@ bool CanvasBatch2D::quad(Rect2D bounds, Vec4 tint, Vec4 uvTransform,
         positions[index].y = positions[index].y / 180.0F - 1.0F;
         vertices_[vertexCount_++] = {positions[index], {0, 0, 1},
             textured ? Vec2{uvTransform.x + uv[index].x * uvTransform.z,
-                            uvTransform.y + uv[index].y * uvTransform.w} : Vec2{}, tint};
+                            uvTransform.y + uv[index].y * uvTransform.w} : Vec2{}, tint,
+            {1, 0, 0, 1}};
     }
     for (auto index : {0U, 1U, 2U, 2U, 3U, 0U}) {
         indices_[indexCount_++] = firstVertex + index;
     }
     if (merge) commands_[commandCount_ - 1].indexCount += 6;
-    else commands_[commandCount_++] = {material, firstIndex, 6};
+    else commands_[commandCount_++] = {material, firstIndex, 6, worldPass_};
     return true;
 }
 

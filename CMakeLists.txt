@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(ProjectEcho VERSION 0.1.0 LANGUAGES C CXX)
 
+if(MSVC AND DEFINED ECHO_MSVC_INCLUDE_PREFIX)
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "${ECHO_MSVC_INCLUDE_PREFIX}")
+endif()
+
 include(FetchContent)
 include(CTest)
 
@@ -48,13 +52,16 @@ if(ECHO_FRAMEWORK_BUILD_TOOLS)
         ECHO_PROJECT_COMPONENTS ECHO_MANIFEST_HAS_NARRATIVE
         ECHO_MANIFEST_HAS_INVENTORY ECHO_MANIFEST_HAS_ATTRIBUTES
         ECHO_MANIFEST_HAS_EQUIPMENT ECHO_MANIFEST_HAS_ABILITIES
-        ECHO_MANIFEST_HAS_QUESTS ECHO_MANIFEST_HAS_CUTSCENES ECHO_MANIFEST_HAS_WORLD)
-    target_link_libraries(echo_project_schema_export PRIVATE echo_game)
+        ECHO_MANIFEST_HAS_QUESTS ECHO_MANIFEST_HAS_CUTSCENES
+        ECHO_MANIFEST_HAS_WORLD ECHO_MANIFEST_HAS_POWER)
+    target_link_libraries(echo_project_schema_export PRIVATE
+        echo_game EchoFramework::Power)
     target_compile_features(echo_project_schema_export PRIVATE cxx_std_20)
 
     add_executable(echo_project_content_validate
         framework/tools/project_content_validate.cpp)
-    target_link_libraries(echo_project_content_validate PRIVATE echo_game)
+    target_link_libraries(echo_project_content_validate PRIVATE
+        echo_game EchoFramework::Power)
     target_compile_features(echo_project_content_validate PRIVATE cxx_std_20)
 
     if(ECHO_FRAMEWORK_BUILD_TESTS)
@@ -112,7 +119,7 @@ target_compile_features(project_echo PRIVATE cxx_std_20)
 target_include_directories(project_echo PRIVATE framework/rendering/include)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
-    EchoFramework::Core EchoFramework::Data EchoFramework::VFX)
+    EchoFramework::Core EchoFramework::Data EchoFramework::Power EchoFramework::VFX)
 # Runtime assets are loaded from <executable dir>/assets, including on incremental builds.
 add_custom_target(echo_runtime_assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -143,7 +150,7 @@ target_include_directories(echo_sdl_tests PRIVATE framework/rendering/include)
 target_compile_definitions(echo_sdl_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static
-    EchoFramework::Data EchoFramework::VFX)
+    EchoFramework::Data EchoFramework::Power EchoFramework::VFX)
 if(MSVC)
     target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
 else()
@@ -160,7 +167,7 @@ target_compile_features(echo_framework_integration_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_framework_integration_tests PRIVATE SDL_MAIN_HANDLED
     ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 target_link_libraries(echo_framework_integration_tests PRIVATE
-    echo_game SDL2-static EchoFramework::Data)
+    echo_game SDL2-static EchoFramework::Data EchoFramework::Power)
 if(MSVC)
     target_compile_options(echo_framework_integration_tests PRIVATE /W4 /permissive-)
 else()

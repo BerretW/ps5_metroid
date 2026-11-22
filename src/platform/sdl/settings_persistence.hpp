@@ -22,9 +22,14 @@ enum class DisplayMode : std::uint8_t { Window720, Window1080, Fullscreen, Count
 namespace settings_detail {
 
 inline bool validBindingKey(SDL_Keycode key) noexcept {
-    const SDL_Scancode scancode = SDL_GetScancodeFromKey(key);
-    return key != SDLK_UNKNOWN && scancode > SDL_SCANCODE_UNKNOWN &&
-           scancode < SDL_NUM_SCANCODES;
+    if (key == SDLK_UNKNOWN) return false;
+    const Uint32 code = static_cast<Uint32>(key);
+    const Uint32 scancodeMask = static_cast<Uint32>(SDLK_SCANCODE_MASK);
+    if ((code & scancodeMask) != 0) {
+        const Uint32 scancode = code & ~scancodeMask;
+        return scancode > SDL_SCANCODE_UNKNOWN && scancode < SDL_NUM_SCANCODES;
+    }
+    return key >= SDLK_SPACE && key <= SDLK_DELETE;
 }
 
 } // namespace settings_detail

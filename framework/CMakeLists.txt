@@ -3,6 +3,7 @@ option(ECHO_FRAMEWORK_BUILD_TESTS "Build headless Echo Framework tests" OFF)
 option(ECHO_FRAMEWORK_BUILD_EXAMPLE "Build the headless core demonstration" OFF)
 option(ECHO_FRAMEWORK_BUILD_TOOLS "Build native host-side framework tools" OFF)
 option(ECHO_FRAMEWORK_ENABLE_NARRATIVE "Build the bounded narrative/dialogue module" ON)
+option(ECHO_FRAMEWORK_ENABLE_POWER "Build the bounded power circuit module" ON)
 
 add_subdirectory(core)
 
@@ -33,6 +34,13 @@ if(ECHO_FRAMEWORK_ENABLE_DATA)
     add_subdirectory(quests)
     add_subdirectory(cutscenes)
     add_subdirectory(world)
+    if(ECHO_FRAMEWORK_ENABLE_POWER)
+        add_subdirectory(power)
+    endif()
+endif()
+
+if(ECHO_FRAMEWORK_ENABLE_POWER AND NOT ECHO_FRAMEWORK_ENABLE_DATA)
+    message(FATAL_ERROR "The power module requires ECHO_FRAMEWORK_ENABLE_DATA.")
 endif()
 
 if(ECHO_FRAMEWORK_ENABLE_NARRATIVE)

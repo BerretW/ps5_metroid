@@ -30,6 +30,13 @@ if(TARGET EchoFramework::Data)
         add_test(NAME echo_framework_quests COMMAND echo_framework_quests_tests)
     endif()
 
+    if(TARGET EchoFramework::Power)
+        add_executable(echo_framework_power_tests power_tests.cpp)
+        target_link_libraries(echo_framework_power_tests PRIVATE EchoFramework::Power)
+        target_compile_features(echo_framework_power_tests PRIVATE cxx_std_20)
+        add_test(NAME echo_framework_power COMMAND echo_framework_power_tests)
+    endif()
+
     if(TARGET EchoFramework::Cutscenes)
         add_executable(echo_framework_cutscenes_tests cutscenes_tests.cpp)
         target_link_libraries(echo_framework_cutscenes_tests PRIVATE EchoFramework::Cutscenes)

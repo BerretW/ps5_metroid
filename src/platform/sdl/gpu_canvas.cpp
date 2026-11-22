@@ -58,7 +58,15 @@ rendering::Status GpuCanvas::beginFrame(rendering::FrameState frame) noexcept {
     if (!batch_) return canvasError(rendering::ErrorCode::InvalidState, "canvas not initialized");
     auto status = batch_->flushMesh(mesh_);
     if (!status) return status;
+    const rendering::FrameState& lighting = batch_->lighting();
     frame.clearColor = batch_->background();
+    frame.lightDirectionAmbient = lighting.lightDirectionAmbient;
+    frame.lightColorIntensity = lighting.lightColorIntensity;
+    frame.ambientColor = lighting.ambientColor;
+    frame.lightScreenToWorld = lighting.lightScreenToWorld;
+    frame.pointLights = lighting.pointLights;
+    frame.shadowInfo = lighting.shadowInfo;
+    frame.shadowSegments = lighting.shadowSegments;
     return backend_.beginFrame(frame);
 }
 
@@ -93,11 +101,14 @@ rendering::Status GpuCanvas::shutdown() noexcept {
         }
     }
     for (std::size_t index = 0; index < worldSprites_.count; ++index) {
-        auto& sprite = worldSprites_.sheets[index].image;
-        if (sprite.texture.valid()) {
-            status = backend_.destroyTexture(sprite.texture);
-            if (!status) return status;
-            sprite = {};
+        CanvasWorldSprite& worldSprite = worldSprites_.sheets[index];
+        for (CanvasSprite* sprite :
+             {&worldSprite.image, &worldSprite.normal, &worldSprite.emissive}) {
+            if (sprite->texture.valid()) {
+                status = backend_.destroyTexture(sprite->texture);
+                if (!status) return status;
+                *sprite = {};
+            }
         }
     }
     worldSprites_ = {};

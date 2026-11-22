@@ -57,9 +57,10 @@ bounds and at least one animation whose frames fit the sheet.
 | Field | Meaning |
 |---|---|
 | `size` | `columns` (20–64) and `rows` (at most 16; PROJECT ECHO uses 12). |
-| `projection` | `side` (default) or `isometric`; inherited like other room fields. |
+| `projection` | `side` (default), `top-down` or `isometric`; inherited like other room fields. |
 | `background` | RGB clear colour. |
-| `tilesets` | Any number (up to 16) of sheets: `id`, `sheet`, `tileWidth`, `tileHeight`, optional `margin` and `spacing`. |
+| `lighting` | Optional per-room ambient/directional lighting, a room day/night cycle and up to 16 point/spot definitions. |
+| `tilesets` | Any number (up to 16) of sheets: `id`, `sheet`, `tileWidth`, `tileHeight`, optional `margin`, `spacing` and `material`. |
 | `tiles` | Legend: one map symbol → `tileset`, `x`, `y` (cell on that sheet), optional `rotation` (0/90/180/270), `flipX`, `flipY` and `collision` (`none`, `solid`, `hazard`). |
 | `layers` | Up to 4 named tile layers drawn in order; each is a list of row strings. Optional `scrollFactorX` (0–1, default 1) controls horizontal parallax in side-view rooms. `.` and space are empty. |
 | `exits` | `left`/`right` with target `room`, optional `requiresAbility` or `completesGame`. |
@@ -70,6 +71,88 @@ Room inheritance merges tilesets by `id`, tiles by symbol and placements by
 inherit `station_base`, which declares the station and decor tilesets and a
 shared legend. Power Station, Research Lab and Central Chamber redefine only
 `#` and `=` to use their own tileset row.
+
+### Lighting data
+
+`game.json.worldLighting` defines world ambient and directional lighting. A
+room's configured ambient or directional light overrides that world value.
+Ambient `dayNight` may define `nightColor`, `nightIntensity` (0–8),
+`periodSeconds` (10–86400) and optional `phaseSeconds`; interpolation follows
+a smooth day-to-night-to-day cosine curve. Room ambient can have its own cycle.
+
+`lighting.ambient` accepts linear RGB `color` and `intensity` (0–8).
+`lighting.directional` accepts a non-zero 2D `direction`, linear RGB `color`
+and `intensity` (0–8). Each entry in `lighting.lights` has a stable light `id`,
+`type` (`point` or `spot`), world `position`, `radius`, linear `color`,
+`intensity` (0–8), optional `attenuation`, and optional `enabled`, `parent`,
+`circuit`, `shadow`, `persistence`, bounded `flicker`, or `fadeSeconds`
+(0–30). A positive fade duration smoothly interpolates intensity when the
+enabled state or power circuit changes. Spotlights
+require `coneAngle` and either a fixed `direction` or `followsAim: true` with
+`parent: "player"`; aim-following spotlights rotate with the player's current
+aim (or horizontal facing in side-scrolling rooms). A room may define up to 16 lights;
+the current Vulkan canvas evaluates at most four per frame. Circuit IDs must
+refer to configured `echo.power` circuits.
+`parent` may name a static room placement, `player`, `enemy.<placementId>` or
+`roamer.<placementId>`; player, enemy and roamer parents follow their live
+gameplay transforms. Prop placements have stable room-local IDs and may be moved
+at runtime with `Game::setPropPosition`; both the prop draw and an attached light
+use the current transform. Runtime prop positions reset for a new game and are
+not part of `GameCheckpoint`. Other static placement parent transforms are
+resolved once when world content is finalized; enabled, persistence and circuit
+state are still checked at runtime.
+`FrameworkIntegration::setWorldLightEnabled(roomId, lightId, enabled)` stores
+overrides for `room` and `persistent` lights in framework state. Transient
+lights reject persistent overrides.
+
+Object `sprite.material` and room `tilesets[].material` can bind optional
+`normalSheet` and `emissiveSheet` PNG paths. Maps must have the same dimensions
+as their base sheet and use the same frame/tile UVs. `emissiveColor` is linear
+RGB, `emissiveIntensity` is 0–8, and an optional `emissiveCircuit` gates the
+emitter. Material definitions inherit with objects and tilesets; an explicit
+empty `material` object clears inherited maps.
+
+The current playable example is the Cargo Hold: its console toggles the main
+power circuit, while the emergency circuit remains independent. Its emergency
+point light is attached to the `power_panel` placement and follows its runtime
+transform. Circuit requested/effective state is included in the game's saved
+framework state.
+The Vulkan canvas converts its NDC fragment positions back to logical pixels
+before evaluating the bounded point/spot list. It keeps lights whose radius
+intersects the visible 640x360 view, then selects the nearest four
+deterministically. The room projection helpers map side, top-down and
+isometric positions/directions consistently. `FrameState.lightScreenToWorld`
+maps projected screen offsets back to world-space offsets before point-light
+attenuation and spotlight-cone evaluation. Isometric light radii therefore
+project to the correct ellipse instead of a screen-space circle; culling uses
+a conservative screen bound and prioritization uses world-space distance.
+`top-down` is currently a content and renderer fixture projection, not a new
+gameplay movement mode. Windows GPU readback verifies projected point-light
+attenuation and spotlight direction in addition to the three coordinate
+transforms, zero-ambient blackout, UI isolation, directional normal-map
+response and emissive-mask output.
+
+The Cargo Hold GPU integration fixture captures the powered room, encodes the
+game checkpoint together with circuit and persistent light state through the
+versioned `SaveCodec`, decodes and restores it, then captures the main-circuit
+outage. Pixel readback verifies that the overhead spot darkens while the
+emergency-circuit emissive console remains visible. This is a Windows
+GPU/save-codec integration result, not PS5 hardware evidence.
+
+`CanvasBatch2D` exposes optional linear normal textures and emissive masks for
+Vulkan world draws. Directional and point lights use the supplied normal, and
+emission is added independently of world lighting. Runtime prop transforms can
+drive attached lights, but there is no generic entity-component parent resolver
+or authored moving-prop gameplay behavior. Point lights with `shadow: true`
+cast bounded GPU shadows against visible solid-tile boundary edges and prop
+rectangles. The renderer retains the 32 nearest eligible edges and logs when
+the bound is exceeded; it rebuilds this edge list each frame and includes the
+player, living enemies, and room props as rectangular occluders. Projectiles and
+particles do not cast shadows. Static light accumulation is still evaluated per
+frame, there is no SDL lighting fallback or HDR bloom.
+Windows Vulkan Debug and Release readbacks verify an illuminated sample, a
+blocked sample, and an unaffected UI overlay. The GPU fixture is not PS5
+hardware evidence.
 
 Only the `main` layer's tile collision is used by the simulation; other layers
 are decoration. Side-view layer 0 may use `scrollFactorX` below 1 for a distant
@@ -99,6 +182,8 @@ and rejects layouts the simulation cannot represent:
   start on open floor, are not saved and respawn whenever the room is entered.
   Saved (side-view) enemies cannot be placed in isometric rooms.
 - Doors and triggers use `target`, `arrive` and optional `requiresItem`.
+- Props may use placement properties `interaction: "toggle_power"` and
+  `circuit` for the bounded in-game power-panel action.
 - Exactly one pickup; `player`, `player_iso`, `engineer`, `projectile_player`,
   `projectile_enemy` and `loot_crate` objects must exist.
 - The engineer's `spawn.position`, `spawn.facing` and `bounds` in

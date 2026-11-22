@@ -116,7 +116,7 @@ if(ECHO_PS5_GAME)
     target_link_directories(project_echo_ps5 PRIVATE "${PS5_SDK_ROOT}/target/lib")
     if(ECHO_PS5_VULKAN)
         target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
-            EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
+            EchoFramework::Core EchoFramework::Data EchoFramework::Power EchoFramework::Narrative
             EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
             EchoFramework::Abilities EchoFramework::Quests EchoFramework::Cutscenes EchoFramework::World
             EchoFramework::VFX EchoFramework::Rendering
@@ -129,7 +129,7 @@ if(ECHO_PS5_GAME)
             --end-group --as-needed ${stubs})
     else()
         target_link_libraries(project_echo_ps5 PRIVATE --start-group SDL2-static
-            EchoFramework::Core EchoFramework::Data EchoFramework::Narrative
+            EchoFramework::Core EchoFramework::Data EchoFramework::Power EchoFramework::Narrative
             EchoFramework::Inventory EchoFramework::Attributes EchoFramework::Equipment
             EchoFramework::Abilities EchoFramework::Quests
             EchoFramework::Cutscenes EchoFramework::World EchoFramework::VFX

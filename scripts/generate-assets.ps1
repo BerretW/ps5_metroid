@@ -461,12 +461,12 @@ Save-Sprite "tiles/decor.png" 72 18 {
     & $fill (New-Color 30 90 60) ($x + 3) 9 6 1
 }
 
-# Isometric floor tileset: 4 diamonds of 64x32 (2:1). plate, grating, warning stripe, acid pool.
+# Isometric floor tileset: 8 diamonds of 64x32 (2:1).
 function Draw-IsoDiamond($poly, [int]$ox, [int]$oy, [int]$inset, $color) {
     & $poly $color @(($ox + 32), ($oy + $inset), ($ox + 64 - 2 * $inset), ($oy + 16),
                      ($ox + 32), ($oy + 32 - $inset), ($ox + 2 * $inset), ($oy + 16))
 }
-Save-Sprite "tiles/iso_floor.png" 256 32 {
+Save-Sprite "tiles/iso_floor.png" 512 32 {
     param($fill, $poly)
     # Plate: seams and rivets.
     Draw-IsoDiamond $poly 0 0 0 $palette.StoneDark
@@ -495,16 +495,42 @@ Save-Sprite "tiles/iso_floor.png" 256 32 {
     & $fill (New-Color 190 255 150) 214 12 8 1
     & $fill (New-Color 190 255 150) 228 18 10 1
     & $fill (New-Color 190 255 150) 220 21 4 1
+    # Reinforced lab glass.
+    Draw-IsoDiamond $poly 256 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 256 0 2 (New-Color 27 86 105)
+    Draw-IsoDiamond $poly 256 0 5 (New-Color 50 158 177)
+    & $fill (New-Color 177 249 250) 286 8 2 15
+    & $fill (New-Color 177 249 250) 278 15 18 1
+    # Cleanroom ceramic.
+    Draw-IsoDiamond $poly 320 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 320 0 1 (New-Color 174 194 193)
+    & $fill (New-Color 104 136 141) 320 15 64 1
+    & $fill (New-Color 104 136 141) 352 0 1 32
+    & $fill (New-Color 210 225 220) 337 7 2 2
+    & $fill (New-Color 210 225 220) 367 22 2 2
+    # Recessed cable channel.
+    Draw-IsoDiamond $poly 384 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 384 0 2 (New-Color 46 69 78)
+    & $poly (New-Color 15 29 38) @(416, 5, 422, 8, 398, 26, 392, 23)
+    & $poly $palette.CyanDark @(416, 10, 419, 11, 400, 26, 397, 25)
+    & $poly $palette.Cyan @(416, 10, 418, 11, 400, 25, 398, 24)
+    # Damaged plate with a visible repair seam.
+    Draw-IsoDiamond $poly 448 0 0 $palette.StoneDark
+    Draw-IsoDiamond $poly 448 0 1 (New-Color 60 79 87)
+    & $poly (New-Color 20 34 43) @(480, 5, 485, 8, 469, 19, 466, 16)
+    & $poly (New-Color 20 34 43) @(468, 17, 472, 20, 458, 28, 455, 25)
+    & $fill $palette.Orange 452 14 4 2
+    & $fill $palette.Orange 484 21 4 2
 }
 
-# Isometric block tileset: 4 cubes of 64x64 whose bottom diamond covers one floor cell.
-# wall panel, pillar, cargo container, crate. Light comes from the upper left.
+# Isometric block tileset: 8 pieces of 64x64. The bottom diamond covers one floor cell.
+# The original wall, pillar, cargo container and crate are followed by lab modules.
 function Draw-IsoBlock($fill, $poly, [int]$ox, [int]$top, $topColor, $leftColor, $rightColor) {
     & $poly $leftColor @($ox, (16 + $top), ($ox + 32), (32 + $top), ($ox + 32), 64, $ox, 48)
     & $poly $rightColor @(($ox + 32), (32 + $top), ($ox + 64), (16 + $top), ($ox + 64), 48, ($ox + 32), 64)
     & $poly $topColor @(($ox + 32), $top, ($ox + 64), (16 + $top), ($ox + 32), (32 + $top), $ox, (16 + $top))
 }
-Save-Sprite "tiles/iso_blocks.png" 256 64 {
+Save-Sprite "tiles/iso_blocks.png" 512 64 {
     param($fill, $poly)
     Draw-IsoBlock $fill $poly 0 0 $palette.StoneLite $palette.Stone $palette.StoneDark
     & $poly $palette.Cyan @(4, 28, 28, 40, 28, 42, 4, 30)
@@ -519,6 +545,213 @@ Save-Sprite "tiles/iso_blocks.png" 256 64 {
     }
     Draw-IsoBlock $fill $poly 192 16 (New-Color 196 160 104) (New-Color 150 116 70) (New-Color 98 74 44)
     & $poly (New-Color 98 74 44) @((192 + 8), 38, (192 + 30), 49, (192 + 30), 51, (192 + 8), 40)
+    # Glass partition.
+    Draw-IsoBlock $fill $poly 256 12 (New-Color 50 113 128) (New-Color 30 75 91) (New-Color 24 61 77)
+    & $poly (New-Color 74 190 204 190) @(260, 28, 286, 41, 286, 52, 260, 39)
+    & $poly (New-Color 52 159 176 190) @(290, 40, 314, 28, 314, 39, 290, 51)
+    & $poly $palette.White @(263, 29, 265, 30, 265, 39, 263, 38)
+    # Server cabinet.
+    Draw-IsoBlock $fill $poly 320 8 (New-Color 85 115 126) (New-Color 43 63 75) (New-Color 31 48 60)
+    & $fill $palette.CyanDark 329 24 17 20
+    & $fill $palette.Cyan 331 26 2 2
+    & $fill $palette.Cyan 331 32 2 2
+    & $fill $palette.Cyan 331 38 2 2
+    & $fill (New-Color 20 34 44) 354 25 3 19
+    # Low laboratory bench.
+    Draw-IsoBlock $fill $poly 384 30 (New-Color 125 153 158) (New-Color 69 94 104) (New-Color 47 67 79)
+    & $poly $palette.CyanDark @(390, 35, 412, 46, 412, 49, 390, 38)
+    & $poly $palette.CyanDark @(418, 48, 438, 38, 438, 41, 418, 51)
+    # Sealed lab door.
+    Draw-IsoBlock $fill $poly 448 4 (New-Color 74 113 125) (New-Color 37 67 80) (New-Color 29 53 67)
+    & $poly (New-Color 15 38 51) @(458, 19, 478, 29, 478, 49, 458, 39)
+    & $poly (New-Color 83 180 192) @(461, 22, 475, 29, 475, 44, 461, 37)
+    & $fill $palette.Orange 471 38 2 3
+}
+
+# Isometric village ground: 8 walkable 64x32 diamonds.
+Save-Sprite "tiles/iso_village_floor.png" 512 32 {
+    param($fill, $poly)
+    $soil = New-Color 119 83 48
+    $soilDark = New-Color 72 61 39
+    $grass = New-Color 70 111 53
+    $grassLight = New-Color 119 154 66
+    $wood = New-Color 150 99 53
+    $stone = New-Color 112 112 91
+    $moss = New-Color 77 103 58
+    $water = New-Color 39 111 132
+    for ($i = 0; $i -lt 8; $i++) {
+        $ox = $i * 64
+        $base = @($soil, $grass, $wood, $stone, $soil, $soil, $moss, $water)[$i]
+        Draw-IsoDiamond $poly $ox 0 0 $soilDark
+        Draw-IsoDiamond $poly $ox 0 2 $base
+        switch ($i) {
+            0 {
+                for ($d = 0; $d -lt 9; $d++) { & $fill (New-Color 157 119 72) ($ox + 8 + (($d * 13) % 46)) (5 + (($d * 7) % 19)) 2 1 }
+                & $fill (New-Color 79 123 61) ($ox + 17) 11 3 2
+            }
+            1 {
+                for ($d = 0; $d -lt 9; $d++) { & $fill $grassLight ($ox + 9 + (($d * 11) % 43)) (6 + (($d * 5) % 17)) 2 2 }
+                & $fill (New-Color 230 220 155) ($ox + 29) 9 2 2
+                & $fill (New-Color 230 220 155) ($ox + 46) 18 2 2
+            }
+            2 {
+                for ($d = 1; $d -lt 4; $d++) { & $fill (New-Color 94 57 34) ($ox + 8) ($d * 7) 48 1 }
+                & $fill (New-Color 196 143 78) ($ox + 8) 8 48 1
+                & $fill (New-Color 196 143 78) ($ox + 8) 22 48 1
+            }
+            3 {
+                & $fill (New-Color 79 82 71) ($ox + 32) 2 1 28
+                & $fill (New-Color 79 82 71) ($ox + 5) 15 54 1
+                & $fill (New-Color 147 145 113) ($ox + 17) 8 2 2
+                & $fill (New-Color 147 145 113) ($ox + 43) 20 2 2
+            }
+            4 {
+                for ($d = 0; $d -lt 5; $d++) { & $fill (New-Color 73 125 53) ($ox + 14 + $d * 8) (10 + (($d % 2) * 5)) 5 5 }
+                & $fill (New-Color 229 183 76) ($ox + 23) 8 3 2
+                & $fill (New-Color 229 183 76) ($ox + 40) 17 3 2
+            }
+            5 {
+                Draw-IsoDiamond $poly $ox 0 9 (New-Color 174 132 78)
+                for ($d = 0; $d -lt 4; $d++) { & $fill (New-Color 211 173 111) ($ox + 19 + $d * 8) (9 + $d * 3) 2 2 }
+            }
+            6 {
+                for ($d = 0; $d -lt 8; $d++) { & $fill (New-Color 102 131 68) ($ox + 8 + (($d * 17) % 48)) (6 + (($d * 9) % 18)) 4 2 }
+                & $fill (New-Color 70 103 61) ($ox + 14) 19 8 3
+            }
+            7 {
+                & $poly (New-Color 29 82 102) @(($ox + 32), 5, ($ox + 57), 16, ($ox + 32), 28, ($ox + 7), 16)
+                & $poly (New-Color 82 164 170) @(($ox + 32), 9, ($ox + 51), 17, ($ox + 32), 26, ($ox + 13), 17)
+                & $fill (New-Color 170 222 201) ($ox + 28) 14 8 1
+            }
+        }
+    }
+}
+
+# Isometric village pieces: timber, stone, fences and market structures.
+Save-Sprite "tiles/iso_village_blocks.png" 512 64 {
+    param($fill, $poly)
+    $timberTop = New-Color 166 119 68
+    $timberLeft = New-Color 111 75 43
+    $timberRight = New-Color 83 57 37
+    $stoneTop = New-Color 146 139 112
+    $stoneLeft = New-Color 94 91 76
+    $stoneRight = New-Color 71 71 62
+    Draw-IsoBlock $fill $poly 0 8 $timberTop $timberLeft $timberRight
+    for ($i = 0; $i -lt 4; $i++) { & $fill (New-Color 75 50 34) (5 + $i * 8) 25 2 25 }
+    & $fill (New-Color 191 147 81) 3 23 28 2
+    Draw-IsoBlock $fill $poly 64 8 (New-Color 145 105 63) $timberLeft $timberRight
+    & $fill (New-Color 70 46 34) 73 24 15 16
+    & $fill (New-Color 92 134 132) 75 26 11 10
+    & $fill (New-Color 193 159 99) 72 22 17 2
+    Draw-IsoBlock $fill $poly 128 8 $stoneTop $stoneLeft $stoneRight
+    for ($i = 0; $i -lt 3; $i++) { & $fill (New-Color 64 67 58) 130 (25 + $i * 10) 29 1 }
+    & $fill (New-Color 64 67 58) 139 19 1 29
+    Draw-IsoBlock $fill $poly 192 8 (New-Color 145 109 68) (New-Color 113 80 51) (New-Color 83 59 42)
+    & $fill (New-Color 184 143 87) 196 26 24 2
+    & $fill (New-Color 184 143 87) 196 35 24 2
+    & $fill (New-Color 184 143 87) 196 44 24 2
+    Draw-IsoBlock $fill $poly 256 28 (New-Color 146 104 60) (New-Color 100 69 43) (New-Color 77 56 39)
+    for ($i = 0; $i -lt 4; $i++) { & $fill (New-Color 183 139 77) (259 + $i * 13) 20 3 37 }
+    Draw-IsoBlock $fill $poly 320 26 (New-Color 132 129 100) $stoneLeft $stoneRight
+    & $fill (New-Color 92 111 60) 327 22 6 8
+    & $fill (New-Color 92 111 60) 343 16 6 8
+    Draw-IsoBlock $fill $poly 384 18 (New-Color 166 113 64) (New-Color 106 71 43) (New-Color 78 54 38)
+    & $fill (New-Color 91 59 36) 390 20 5 29
+    & $fill (New-Color 91 59 36) 438 20 5 29
+    & $fill (New-Color 218 179 110) 392 26 42 2
+    & $fill (New-Color 218 179 110) 392 41 42 2
+    Draw-IsoBlock $fill $poly 448 24 (New-Color 157 114 66) (New-Color 108 76 46) (New-Color 81 59 40)
+    & $poly (New-Color 219 184 125) @(456, 21, 480, 33, 480, 37, 456, 25)
+    & $poly (New-Color 62 92 64) @(459, 20, 481, 31, 481, 34, 459, 23)
+}
+
+# Isometric concrete-city ground: roads, pavement, curbs and marked surfaces.
+Save-Sprite "tiles/iso_city_floor.png" 512 32 {
+    param($fill, $poly)
+    $concrete = New-Color 145 148 145
+    $asphalt = New-Color 52 58 64
+    $paver = New-Color 119 127 129
+    for ($i = 0; $i -lt 8; $i++) {
+        $ox = $i * 64
+        $base = @($concrete, $asphalt, $asphalt, $concrete, $paver, $concrete, $asphalt, $concrete)[$i]
+        Draw-IsoDiamond $poly $ox 0 0 (New-Color 40 47 52)
+        Draw-IsoDiamond $poly $ox 0 2 $base
+        switch ($i) {
+            0 {
+                & $fill (New-Color 105 111 111) ($ox + 32) 2 1 28
+                & $fill (New-Color 105 111 111) ($ox + 5) 15 54 1
+                & $fill (New-Color 177 179 171) ($ox + 10) 7 2 2
+            }
+            1 {
+                for ($d = 0; $d -lt 4; $d++) { & $fill (New-Color 188 188 176) ($ox + 16 + $d * 10) (13 + (($d % 2) * 3)) 6 2 }
+            }
+            2 {
+                for ($d = 0; $d -lt 4; $d++) { & $poly (New-Color 201 201 190) @(($ox + 12 + $d * 12), 8, ($ox + 18 + $d * 12), 11, ($ox + 14 + $d * 12), 23, ($ox + 8 + $d * 12), 20) }
+            }
+            3 {
+                Draw-IsoDiamond $poly $ox 0 8 (New-Color 169 169 157)
+                & $fill (New-Color 230 157 64) ($ox + 8) 15 6 2
+                & $fill (New-Color 230 157 64) ($ox + 50) 15 6 2
+            }
+            4 {
+                & $poly (New-Color 48 53 56) @(($ox + 32), 7, ($ox + 45), 14, ($ox + 32), 22, ($ox + 19), 15)
+                & $poly (New-Color 86 91 94) @(($ox + 32), 10, ($ox + 40), 14, ($ox + 32), 19, ($ox + 24), 15)
+                & $poly (New-Color 39 43 46) @(($ox + 32), 12, ($ox + 36), 14, ($ox + 32), 17, ($ox + 28), 15)
+            }
+            5 {
+                for ($d = 0; $d -lt 5; $d++) { & $fill (New-Color 91 99 101) ($ox + 8 + $d * 10) (7 + (($d % 2) * 8)) 8 7 }
+                & $fill (New-Color 185 190 184) ($ox + 7) 15 50 1
+            }
+            6 {
+                & $fill (New-Color 227 227 211) ($ox + 14) 14 36 2
+                & $fill (New-Color 227 227 211) ($ox + 14) 21 36 2
+                & $fill (New-Color 227 227 211) ($ox + 14) 28 36 2
+            }
+            7 {
+                & $poly (New-Color 30 34 38) @(($ox + 32), 3, ($ox + 57), 16, ($ox + 32), 29, ($ox + 7), 16)
+                & $poly (New-Color 94 103 107) @(($ox + 32), 6, ($ox + 52), 16, ($ox + 32), 26, ($ox + 12), 16)
+                for ($d = 0; $d -lt 4; $d++) { & $fill (New-Color 24 30 34) ($ox + 19 + $d * 8) (13 + (($d % 2) * 3)) 4 1 }
+            }
+        }
+    }
+}
+
+# Isometric city pieces: concrete walls, glass facades and street fixtures.
+Save-Sprite "tiles/iso_city_blocks.png" 512 64 {
+    param($fill, $poly)
+    $wallTop = New-Color 158 162 163
+    $wallLeft = New-Color 103 110 114
+    $wallRight = New-Color 76 84 89
+    Draw-IsoBlock $fill $poly 0 8 $wallTop $wallLeft $wallRight
+    for ($i = 0; $i -lt 4; $i++) { & $fill (New-Color 74 81 85) (4 + $i * 8) 29 2 2 }
+    & $fill (New-Color 179 181 177) 7 21 3 2
+    Draw-IsoBlock $fill $poly 64 8 (New-Color 86 133 145) $wallLeft $wallRight
+    & $fill (New-Color 41 80 93) 70 22 23 25
+    & $fill (New-Color 157 190 185) 72 23 2 22
+    & $fill (New-Color 157 190 185) 84 23 2 22
+    & $fill (New-Color 157 190 185) 96 23 2 22
+    Draw-IsoBlock $fill $poly 128 8 (New-Color 81 133 145) (New-Color 47 86 99) (New-Color 35 68 82)
+    & $fill (New-Color 26 56 69) 135 22 20 22
+    & $fill (New-Color 113 183 190) 138 24 14 15
+    & $fill (New-Color 181 207 195) 151 22 2 22
+    Draw-IsoBlock $fill $poly 192 8 (New-Color 147 151 151) (New-Color 92 99 103) (New-Color 69 77 81)
+    & $fill (New-Color 37 61 72) 197 24 14 22
+    & $fill (New-Color 116 171 178) 199 26 10 11
+    & $fill (New-Color 195 153 83) 209 38 2 3
+    Draw-IsoBlock $fill $poly 256 28 (New-Color 136 141 141) (New-Color 89 96 99) (New-Color 68 76 81)
+    for ($i = 0; $i -lt 4; $i++) { & $fill (New-Color 62 70 74) (260 + $i * 14) 23 2 35 }
+    Draw-IsoBlock $fill $poly 320 24 (New-Color 117 124 126) (New-Color 77 85 90) (New-Color 59 68 73)
+    & $fill (New-Color 203 151 72) 329 29 2 2
+    & $fill (New-Color 203 151 72) 345 29 2 2
+    & $fill (New-Color 203 151 72) 361 29 2 2
+    Draw-IsoBlock $fill $poly 384 14 (New-Color 69 92 99) (New-Color 43 60 68) (New-Color 34 48 58)
+    & $fill (New-Color 231 167 78) 409 23 3 3
+    & $fill (New-Color 227 87 73) 409 30 3 3
+    & $fill (New-Color 70 184 137) 409 37 3 3
+    Draw-IsoBlock $fill $poly 448 26 (New-Color 119 130 127) (New-Color 76 87 88) (New-Color 59 69 72)
+    & $fill (New-Color 68 111 75) 457 20 10 10
+    & $fill (New-Color 88 136 83) 472 17 10 12
+    & $fill (New-Color 105 151 88) 488 20 8 10
 }
 
 # Isometric player: 5x5 frames of 32x48 with the feet at y=44. Rows face S, SE, E, NE, N;

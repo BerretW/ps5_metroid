@@ -1,6 +1,7 @@
 #pragma once
 
 #include "echo/framework/data.hpp"
+#include "echo/framework/power.hpp"
 #include "game/game.hpp"
 
 #include <array>
@@ -405,9 +406,9 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
 
 inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
                                       framework::GameState& candidate,
-                                      void*) noexcept {
+                                      void* context) noexcept {
     using namespace framework;
-    if (fromVersion < 1 || fromVersion > 5) return false;
+    if (fromVersion < 1 || fromVersion > 6) return false;
     if (fromVersion == 1) {
         const Status countStatus = candidate.set(
             {StateScope::Global, {}, "inventory.count"}, StateValue::fromInteger(1));
@@ -460,6 +461,11 @@ inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
                        StateValue::fromInteger(0)) ||
         !candidate.set({StateScope::Global, {}, "quest.reward_claimed"},
                        StateValue::fromBoolean(false))) return false;
+    if (context != nullptr) {
+        const Status powerStatus =
+            static_cast<PowerModule*>(context)->saveState(candidate, true);
+        if (!powerStatus) return false;
+    }
     return true;
 }
 

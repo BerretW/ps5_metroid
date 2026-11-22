@@ -390,12 +390,13 @@ void Game::start() noexcept {
     for (std::size_t index = 0; index < enemies_.size(); ++index) {
         const EnemySpawn& spawn = world_->enemies[index];
         enemies_[index] = {spawn.room, spawn.bounds, spawn.patrolLeft, spawn.patrolRight,
-                           spawn.speed, spawn.health, true, spawn.type};
+                           spawn.speed, spawn.health, true, spawn.type, 0.0F, spawn.id};
     }
     spawnRoamers();
     lootDrops_.fill({});
     projectiles_.fill({});
     enemyProjectiles_.fill({});
+    runtimePropTransforms_.fill({});
     abilityPickup_ = world_->abilityPickup;
     coyoteTimer_ = 0.0F;
     jumpBufferTimer_ = 0.0F;
@@ -425,6 +426,75 @@ void Game::start() noexcept {
     inventory_ = {};
     equipmentItems_.fill({});
     activeItem_ = {};
+}
+
+bool Game::propPosition(RoomId room, std::string_view id, Vec2& position) const noexcept {
+    if (room >= RoomId::Count || id.empty()) return false;
+    const std::span<const PropLayout> props = world_->propList();
+    for (std::size_t index = 0; index < props.size(); ++index) {
+        const PropLayout& prop = props[index];
+        if (prop.room != room || std::string_view(prop.id.data()) != id) continue;
+        position = runtimePropTransforms_[index].overridden
+            ? runtimePropTransforms_[index].position
+            : prop.position;
+        return true;
+    }
+    return false;
+}
+
+framework::Status Game::setPropPosition(RoomId room, std::string_view id,
+                                        Vec2 position) noexcept {
+    if (room >= RoomId::Count || id.empty() ||
+        !std::isfinite(position.x) || !std::isfinite(position.y)) {
+        return {framework::ErrorCode::InvalidArgument, "world.prop.transform",
+                "A prop transform needs a valid room, ID and finite position."};
+    }
+    const std::span<const PropLayout> props = world_->propList();
+    for (std::size_t index = 0; index < props.size(); ++index) {
+        const PropLayout& prop = props[index];
+        if (prop.room != room || std::string_view(prop.id.data()) != id) continue;
+        const float width = prop.archetype != nullptr ? prop.archetype->width() : 0.0F;
+        const float height = prop.archetype != nullptr ? prop.archetype->height() : 0.0F;
+        if (position.x < 0.0F || position.y < 0.0F ||
+            position.x + width > world_->rooms[static_cast<std::size_t>(room)].width() ||
+            position.y + height > static_cast<float>(kRoomHeight)) {
+            return {framework::ErrorCode::InvalidValue, id,
+                    "The prop transform must remain inside its room."};
+        }
+        runtimePropTransforms_[index] = {position, true};
+        return framework::Status::success();
+    }
+    return {framework::ErrorCode::MissingDependency, id,
+            "The named prop is not placed in the requested room."};
+}
+
+const PropLayout* Game::nearbyPowerPanel(Vec2 playerPosition) const noexcept {
+    if (!std::isfinite(playerPosition.x) || !std::isfinite(playerPosition.y)) return nullptr;
+    constexpr float kInteractionRadius = 48.0F;
+    constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
+    const float playerCenterX = playerPosition.x + kPlayerWidth * 0.5F;
+    const float playerCenterY = playerPosition.y + kPlayerHeight * 0.5F;
+    const std::span<const PropLayout> props = world_->propList();
+    const PropLayout* closest{};
+    float closestDistanceSquared = kInteractionRadiusSquared;
+    for (std::size_t index = 0; index < props.size(); ++index) {
+        const PropLayout& prop = props[index];
+        if (prop.room != room_ || prop.interaction != "toggle_power" ||
+            prop.circuit.empty() || prop.archetype == nullptr) continue;
+        const Vec2 position = runtimePropTransforms_[index].overridden
+            ? runtimePropTransforms_[index].position
+            : prop.position;
+        const float deltaX = playerCenterX -
+            (position.x + prop.archetype->width() * 0.5F);
+        const float deltaY = playerCenterY -
+            (position.y + prop.archetype->height() * 0.5F);
+        const float distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared <= closestDistanceSquared) {
+            closest = &prop;
+            closestDistanceSquared = distanceSquared;
+        }
+    }
+    return closest;
 }
 
 GameCheckpoint Game::checkpoint() const noexcept {
@@ -1020,7 +1090,7 @@ void Game::spawnRoamers() noexcept {
     for (const EnemySpawn& spawn : world_->roamerList()) {
         if (spawn.room != room_ || roamerCount_ == roamers_.size()) continue;
         roamers_[roamerCount_++] = {spawn.room, spawn.bounds, 0.0F, 0.0F, spawn.speed,
-                                    spawn.health, true, EnemyType::Stalker};
+                                    spawn.health, true, EnemyType::Stalker, 0.0F, spawn.id};
     }
 }
 

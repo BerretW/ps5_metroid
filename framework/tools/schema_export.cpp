@@ -20,6 +20,9 @@
 #ifdef ECHO_MANIFEST_HAS_WORLD
 #include "echo/framework/world.hpp"
 #endif
+#ifdef ECHO_MANIFEST_HAS_POWER
+#include "echo/framework/power.hpp"
+#endif
 #ifdef ECHO_PROJECT_COMPONENTS
 #include "game/project_components.hpp"
 #endif
@@ -49,7 +52,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    std::array<echo::framework::CapabilityManifestFragment, 10> fragments{{
+    std::array<echo::framework::CapabilityManifestFragment, 11> fragments{{
         echo::framework::frameworkCapabilityManifestFragment(),
     }};
 #ifdef ECHO_MANIFEST_HAS_NARRATIVE
@@ -78,6 +81,9 @@ int main(int argc, char** argv) {
 #endif
 #ifdef ECHO_MANIFEST_HAS_WORLD
     fragments[fragmentCount++] = echo::framework::worldCapabilityManifestFragment();
+#endif
+#ifdef ECHO_MANIFEST_HAS_POWER
+    fragments[fragmentCount++] = echo::framework::powerCapabilityManifestFragment();
 #endif
 #ifdef ECHO_PROJECT_COMPONENTS
     fragments[fragmentCount++] = echo::projectCapabilityManifestFragment();

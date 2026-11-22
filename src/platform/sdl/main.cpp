@@ -144,13 +144,14 @@ using Bindings = echo::platform::Bindings;
 
 constexpr std::string_view kGameId = "echo.project_echo";
 constexpr std::string_view kAutosaveSlot = "autosave";
-constexpr std::uint32_t kSaveFormatVersion = 6;
+constexpr std::uint32_t kSaveFormatVersion = 7;
 constexpr std::string_view kSettingsGameId = "echo.project_echo.settings";
 constexpr std::string_view kSettingsSlot = "settings";
 constexpr std::uint32_t kSettingsFormatVersion = 1;
-constexpr std::array<echo::framework::ModuleVersion, 2> kSaveModules{{
+constexpr std::array<echo::framework::ModuleVersion, 3> kSaveModules{{
     {"echo.state", 1, true},
     {"echo.project_echo", 1, true},
+    {"echo.power", 1, false},
 }};
 constexpr std::array<echo::framework::ModuleVersion, 1> kSettingsModules{{
     {"echo.settings", 1, true},
@@ -781,6 +782,8 @@ int main(int, char**) {
     diagnosticCheckpoint("ECHO DIAG 06: before renderer creation");
 #endif
     echo::platform::Renderer renderer{kControlScheme};
+    renderer.setPowerModule(framework.powerModule());
+    renderer.setGameState(&framework.gameState());
 #ifdef ECHO_PS5_VULKAN
     echo::rendering::VulkanBackend gpuBackend{};
     echo::platform::GpuCanvas gpuCanvas{gpuBackend};
@@ -1379,6 +1382,20 @@ int main(int, char**) {
             logMessage(status.detail);
             return false;
         }
+        if (echo::framework::PowerModule* power = framework.powerModule()) {
+            status = power->saveState(snapshot);
+            if (!status) {
+                logMessage("Power state encoding failed");
+                logMessage(status.detail);
+                return false;
+            }
+        }
+        status = framework.saveWorldLightOverrides(snapshot);
+        if (!status) {
+            logMessage("World-light state encoding failed");
+            logMessage(status.detail);
+            return false;
+        }
         status = framework.gameState().replaceValues(snapshot);
         if (!status) {
             logMessage("Framework save state synchronization failed");
@@ -1407,7 +1424,7 @@ int main(int, char**) {
         echo::framework::Status status = echo::framework::SaveService::load(
             saveStorage, kAutosaveSlot, kGameId, kSaveFormatVersion, kSaveModules,
             loadedState, header, saveScratch.data(), saveScratch.size(),
-            &echo::platform::migrateGameCheckpointSave);
+            &echo::platform::migrateGameCheckpointSave, framework.powerModule());
         if (!status) {
             logMessage("Gameplay autosave load failed");
             logMessage(status.detail);
@@ -2091,13 +2108,31 @@ int main(int, char**) {
                 }
             }
 
+            bool powerPanelHandled = false;
+            if (pendingInteract && !game.dialogueActive()) {
+                const echo::PropLayout* powerPanel =
+                    game.nearbyPowerPanel(game.player().position);
+                if (powerPanel != nullptr) {
+                    const echo::framework::Status status =
+                        framework.togglePowerCircuit(powerPanel->circuit);
+                    if (!status) {
+                        logMessage("Power-panel interaction failed");
+                        logMessage(status.detail);
+                    } else {
+                        powerPanelHandled = true;
+                        if (!saveCurrentGame()) {
+                            logMessage("Power state changed but could not be autosaved");
+                        }
+                    }
+                }
+            }
             const echo::Input input{
                 .moveX = std::clamp(moveX, -1, 1),
                 .moveY = std::clamp(moveY, -1, 1),
                 .jumpPressed = pendingJump,
                 .jumpHeld = jumpHeld,
                 .shootHeld = shootHeld,
-                .interactPressed = pendingInteract,
+                .interactPressed = pendingInteract && !powerPanelHandled,
                 .useItemPressed = pendingUseItem,
                 .aimX = aimX,
                 .aimY = aimY,
