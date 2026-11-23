@@ -123,9 +123,8 @@ if ($RunTests) {
 }
 
 if (-not $LegacySDL) {
-    Write-Output ("Build complete: Vulkan {0}; legacy SDL {1}" -f
-        (Join-Path $buildDir "project_echo_vulkan.exe"),
-        (Join-Path $buildDir "project_echo.exe"))
+    Write-Output ("Build complete: Vulkan {0}" -f
+        (Join-Path $buildDir "project_echo_vulkan.exe"))
 } else {
     Write-Output ("Build complete: legacy SDL {0}" -f (Join-Path $buildDir "project_echo.exe"))
 }

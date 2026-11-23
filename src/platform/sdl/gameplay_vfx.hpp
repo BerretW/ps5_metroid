@@ -18,6 +18,9 @@ public:
         std::array<Enemy, kEnemyCount> enemies{};
         std::array<Enemy, kMaxRoamers> roamers{};
         std::size_t roamerCount{};
+        Vec2 playerPosition{384.0F, 192.0F};
+        float roomWidth{768.0F};
+        float roomHeight{384.0F};
     };
 
     [[nodiscard]] static Snapshot capture(const Game& game) noexcept {
@@ -28,6 +31,9 @@ public:
         const auto roamers = game.roamers();
         result.roamerCount = roamers.size();
         std::copy(roamers.begin(), roamers.end(), result.roamers.begin());
+        result.playerPosition = game.player().position;
+        result.roomWidth = game.roomWidth();
+        result.roomHeight = game.roomHeight();
         return result;
     }
 
@@ -105,15 +111,15 @@ public:
         if (before.room != after.room || before.deaths != after.deaths) {
             auto status = reset();
             if (!status) return status;
-            if (after.room == RoomId::CargoHold) return primeFog();
+            if (after.room == RoomId::CargoHold) return primeFog(after);
             return framework::Status::success();
         }
         if (after.room == RoomId::CargoHold) {
             if (!fogActive_) {
-                const auto status = primeFog();
+                const auto status = primeFog(after);
                 if (!status) return status;
             }
-            const auto status = system_.setPosition(fogEmitter_, fogPoint(fogSpawnIndex_));
+            const auto status = system_.setPosition(fogEmitter_, fogPoint(fogSpawnIndex_, after));
             if (!status) return status;
             fogSpawnIndex_ = (fogSpawnIndex_ + 1U) % kFogPointCount;
         }
@@ -143,19 +149,24 @@ private:
     static constexpr std::size_t kFogPointCount = kFogGridWidth * kFogGridWidth;
     static constexpr std::size_t kFogParticlesPerPoint = 8;
 
-    [[nodiscard]] static rendering::Vec3 fogPoint(std::size_t index) noexcept {
+    [[nodiscard]] static rendering::Vec3 fogPoint(std::size_t index,
+                                                  const Snapshot& snapshot) noexcept {
         const std::size_t column = index % kFogGridWidth;
         const std::size_t row = index / kFogGridWidth;
-        return {96.0F + static_cast<float>(column) * 192.0F,
-                48.0F + static_cast<float>(row) * 96.0F, 0.0F};
+        const float originX = std::clamp(snapshot.playerPosition.x - 288.0F,
+                                         0.0F, std::max(0.0F, snapshot.roomWidth - 576.0F));
+        const float originY = std::clamp(snapshot.playerPosition.y - 144.0F,
+                                         0.0F, std::max(0.0F, snapshot.roomHeight - 288.0F));
+        return {originX + static_cast<float>(column) * 192.0F,
+                originY + static_cast<float>(row) * 96.0F, 0.0F};
     }
 
-    [[nodiscard]] framework::Status primeFog() noexcept {
+    [[nodiscard]] framework::Status primeFog(const Snapshot& snapshot) noexcept {
         fogConfig_.continuous = true;
         auto status = system_.configureEmitter(fogEmitter_, fogConfig_);
         if (!status) return status;
         for (std::size_t index = 0; index < kFogPointCount; ++index) {
-            status = system_.setPosition(fogEmitter_, fogPoint(index));
+            status = system_.setPosition(fogEmitter_, fogPoint(index, snapshot));
             if (!status) return status;
             status = system_.emitBurst(fogEmitter_, kFogParticlesPerPoint);
             if (!status) return status;

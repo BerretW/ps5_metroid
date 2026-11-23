@@ -232,6 +232,17 @@ void testGameplayVfx() {
     check(static_cast<bool>(effects->step(cargoSnapshot, transition)) &&
               effects->fog().empty(),
           "leaving the Cargo Hold clears its ambient fog");
+    auto distantCargo = cargoSnapshot;
+    distantCargo.playerPosition = {2400.0F, 1100.0F};
+    distantCargo.roomWidth = 3072.0F;
+    distantCargo.roomHeight = 1536.0F;
+    check(static_cast<bool>(effects->step(transition, distantCargo)) &&
+              effects->fog().size() == 128 &&
+              effects->fog()[0].position.x == 2112.0F &&
+              effects->fog()[0].position.y == 956.0F &&
+              effects->fog()[127].position.x == 2688.0F &&
+              effects->fog()[127].position.y == 1244.0F,
+          "fog covers the player's distant sector of an expanded room");
 
     echo::Game hunter;
     auto hunt = hunter.checkpoint();

@@ -8,14 +8,27 @@
   only; no new rendering, shader, VFX, material or UI graphics work.
 - **SDL platform services remain.** Input, audio, events and storage can use SDL
   APIs; SDL rendering APIs are not presentation architecture.
-- **Presentation extraction is incomplete.** PROJECT ECHO records menus, HUD,
-  world, lighting, particles and UI through `echo::rendering::ICanvas2D` and
-  `CanvasBatch2D`, but the game presentation implementation still shares the
-  SDL renderer, SDL types and SDL timing. Canvas assets, GPU canvas, glyph
-  helpers, bitmap text rasterization, sprite definitions and projection/animation
-  helpers have been moved to presentation code.
+- **Presentation extraction is incomplete.** Main menu, options and inventory
+  draw directly to `echo::rendering::ICanvas2D` in SDL-free presentation code.
+  The Vulkan target still compiles the SDL renderer for world, HUD, lighting,
+  particles and the remaining UI, which continue to use SDL types and timing.
+  The legacy renderer uses an SDL canvas adapter for the extracted screens.
+  Canvas assets, GPU canvas, glyph helpers, bitmap text rasterization, sprite
+  definitions and projection/animation helpers are also independent of SDL.
 - **GPU ownership is Vulkan.** `framework/rendering_vulkan/` owns device,
   swapchain, resources, synchronization and presentation.
+
+```text
+SDL platform services -> simulation -> presentation -> ICanvas2D -> Vulkan
+                            |           |
+                            |           +-- legacy SDL adapter (optional)
+                            +-- no SDL or GPU dependencies
+```
+
+The diagram is the target ownership model; the world and remaining UI have not
+yet been extracted from the SDL renderer. The default Windows configuration no
+longer creates the legacy application target, although the compatibility tests
+and Vulkan game still compile the mixed renderer.
 
 - `src/game/`: deterministic 60 Hz movement, tile collision, combat, room transitions, health, hazards, NPC interaction/dialogue, bounded inventory, and ability progression.
 - `src/platform/sdl/`: SDL lifecycle, keyboard/controller mapping, PNG/WAV asset loading (`assets.cpp`, stb_image in `stb_image_impl.c`), sprite renderer with built-in rectangle fallback, 8-voice callback audio mixer, menu, dialogue, inventory HUD, map, and pause overlay.

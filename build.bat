@@ -5,7 +5,7 @@ if errorlevel 1 exit /b 1
 
 echo PROJECT ECHO
 echo.
-echo W or 1 - Windows: Vulkan Release, legacy SDL available, tests
+echo W or 1 - Windows: Vulkan Release and tests
 echo P or 2 - PS5: controller prompts, keyboard/IME disabled
 echo Q or 0 - Cancel
 echo.

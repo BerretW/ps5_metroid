@@ -6,8 +6,8 @@
 #include "echo/framework/vfx.hpp"
 #include "input/dualsense_diagnostics.hpp"
 #include "platform/presentation.hpp"
+#include "platform/presentation/presentation_types.hpp"
 #include "platform/sdl/inventory_menu.hpp"
-#include "platform/sdl/settings_persistence.hpp"
 
 #include <SDL.h>
 
@@ -18,34 +18,6 @@
 #include <string_view>
 
 namespace echo::platform {
-
-enum class ControlScheme { Keyboard, PlayStation };
-
-struct RenderDebugInfo {
-    bool vulkan{};
-    bool timingAvailable{};
-    bool backendStatsAvailable{};
-    unsigned fps{};
-    unsigned frameTenthsMs{};
-    std::uint32_t drawCalls{};
-    std::uint32_t triangles{};
-};
-
-class DamageFlash {
-public:
-    static constexpr unsigned kDurationSteps = 12;
-    static constexpr std::uint8_t kMaximumOpacity = 64;
-
-    void trigger() noexcept { remaining_ = kDurationSteps; }
-    void step() noexcept { if (remaining_ != 0) --remaining_; }
-    void clear() noexcept { remaining_ = 0; }
-    [[nodiscard]] std::uint8_t opacity() const noexcept {
-        return static_cast<std::uint8_t>(kMaximumOpacity * remaining_ / kDurationSteps);
-    }
-
-private:
-    unsigned remaining_{};
-};
 
 class Renderer {
 public:

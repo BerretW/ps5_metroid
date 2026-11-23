@@ -1,5 +1,6 @@
 #include "game/game.hpp"
 #include "platform/sdl/framework_integration.hpp"
+#include "platform/sdl/game_persistence.hpp"
 
 #include <cstdlib>
 #include <cstdio>
@@ -332,13 +333,122 @@ int main() {
                            a.requiresEchoStep == b.requiresEchoStep &&
                            (!a.open || a.completesGame || a.room == b.room);
                 };
+                const bool expandedCargo = index == static_cast<std::size_t>(echo::RoomId::CargoHold);
                 roomsMatch = roomsMatch && room.name == reference.name &&
-                             room.columns == reference.columns && room.tiles == reference.tiles &&
+                             (expandedCargo || (room.columns == reference.columns &&
+                                                room.rows == reference.rows &&
+                                                room.tiles == reference.tiles)) &&
                              room.background == reference.background &&
                              sameExit(room.left, reference.left) &&
                              sameExit(room.right, reference.right) && room.definition != nullptr;
             }
-            check(roomsMatch, "JSON rooms reproduce the compiled collision, exits and backgrounds");
+            check(roomsMatch, "JSON rooms preserve side-view collision, exits and backgrounds");
+            const auto& cargoRoom = loaded->rooms[static_cast<std::size_t>(echo::RoomId::CargoHold)];
+            check(cargoRoom.isometric && cargoRoom.columns == 96 && cargoRoom.rows == 48 &&
+                      loaded->roamerCount == 6,
+                  "Cargo Hold loads the requested 96 by 48 isometric level and six stalkers");
+            {
+                const auto& oldCargo = expected.rooms[static_cast<std::size_t>(echo::RoomId::CargoHold)];
+                bool oldFloorPreserved = true;
+                for (int row = 0; row < oldCargo.rows; ++row) {
+                    for (int column = 0; column < oldCargo.columns; ++column) {
+                        const auto index = static_cast<std::size_t>(
+                            row * echo::kMaxLayoutColumns + column);
+                        if (oldCargo.tiles[index] != echo::Tile::Solid &&
+                            cargoRoom.tiles[index] == echo::Tile::Solid) {
+                            oldFloorPreserved = false;
+                        }
+                    }
+                }
+                check(oldFloorPreserved, "expanded Cargo Hold keeps the original walkable floor open");
+            }
+            {
+                constexpr int width = 96;
+                constexpr int height = 48;
+                std::array<bool, width * height> reached{};
+                std::array<int, width * height> queue{};
+                std::size_t front = 0;
+                std::size_t back = 0;
+                queue[back++] = 5 * width + 94;
+                reached[queue[0]] = true;
+                while (front < back) {
+                    const int cell = queue[front++];
+                    const int x = cell % width;
+                    const int y = cell / width;
+                    for (const auto& [dx, dy] : std::array<std::pair<int, int>, 4>{
+                             {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}}) {
+                        const int nx = x + dx;
+                        const int ny = y + dy;
+                        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+                        const int next = ny * width + nx;
+                        if (reached[next] ||
+                            cargoRoom.tiles[ny * echo::kMaxLayoutColumns + nx] == echo::Tile::Solid) {
+                            continue;
+                        }
+                        reached[next] = true;
+                        queue[back++] = next;
+                    }
+                }
+                bool placementsReachable = true;
+                for (const auto& prop : loaded->propList()) {
+                    if (prop.room != echo::RoomId::CargoHold) continue;
+                    const int x = static_cast<int>(prop.position.x) / echo::kTileSize;
+                    const int y = static_cast<int>(prop.position.y) / echo::kTileSize;
+                    placementsReachable = placementsReachable && reached[y * width + x];
+                }
+                for (const auto& roamer : loaded->roamerList()) {
+                    const int x = static_cast<int>(roamer.bounds.x) / echo::kTileSize;
+                    const int y = static_cast<int>(roamer.bounds.y) / echo::kTileSize;
+                    placementsReachable = placementsReachable && reached[y * width + x];
+                }
+                check(placementsReachable && back > 3900,
+                      "Cargo Hold panels, props and stalkers connect to the eastern entrance");
+            }
+            {
+                echo::Game cargoGame = game;
+                auto checkpoint = cargoGame.checkpoint();
+                checkpoint.room = echo::RoomId::CargoHold;
+                checkpoint.playerVelocity = {};
+                checkpoint.playerPosition = {700.0F, 178.0F};
+                check(cargoGame.restore(checkpoint),
+                      "a checkpoint from the original Cargo Hold remains restorable");
+                checkpoint.playerPosition = {2500.0F, 1200.0F};
+                check(cargoGame.restore(checkpoint),
+                      "a checkpoint beyond the old room bounds is restorable");
+                echo::framework::GameState saved{};
+                echo::GameCheckpoint decoded{};
+                check(echo::platform::encodeGameCheckpoint(cargoGame, saved) &&
+                          echo::platform::decodeGameCheckpoint(saved, decoded) &&
+                          cargoGame.restore(decoded) &&
+                          cargoGame.player().position.x == 2500.0F &&
+                          cargoGame.player().position.y == 1200.0F,
+                      "expanded Cargo Hold positions survive checkpoint encoding and restoration");
+                checkpoint.playerPosition = {300.0F, 120.0F};
+                checkpoint.activeItem = {echo::ItemId::BlastCharge, 1};
+                check(cargoGame.restore(checkpoint), "Cargo Hold blast-charge fixture restores");
+                const int nearHealth = cargoGame.roamers()[0].health;
+                const int farHealth = cargoGame.roamers()[1].health;
+                check(cargoGame.update({.useItemPressed = true}) &&
+                          cargoGame.roamers()[0].health == nearHealth - 2 &&
+                          cargoGame.roamers()[1].health == farHealth,
+                      "blast charge damages nearby stalkers without hitting distant ones");
+            }
+            {
+                echo::Game traveler = game;
+                bool updatesOk = true;
+                for (int tick = 0; tick < 300 && traveler.roomId() != echo::RoomId::CargoHold;
+                     ++tick) {
+                    if (!traveler.update({.moveX = -1})) updatesOk = false;
+                }
+                const bool entered = traveler.roomId() == echo::RoomId::CargoHold &&
+                                     traveler.player().position.x > 3000.0F;
+                for (int tick = 0; tick < 60 && traveler.roomId() == echo::RoomId::CargoHold;
+                     ++tick) {
+                    if (!traveler.update({.moveX = 1, .moveY = 1})) updatesOk = false;
+                }
+                check(updatesOk && entered && traveler.roomId() == echo::RoomId::LandingBay,
+                      "the expanded eastern doorway allows entry and return to Landing Bay");
+            }
             bool enemiesMatch = true;
             for (std::size_t index = 0; index < echo::kEnemyCount; ++index) {
                 const echo::EnemySpawn& enemy = loaded->enemies[index];

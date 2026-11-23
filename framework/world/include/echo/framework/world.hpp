@@ -26,8 +26,8 @@ inline constexpr std::size_t kMaxRoomLayers = 4;
 inline constexpr std::size_t kMaxRoomPlacements = 16;
 inline constexpr std::size_t kMaxRoomLights = 16;
 inline constexpr int kMinRoomColumns = 20;
-inline constexpr int kMaxRoomColumns = 64;
-inline constexpr int kMaxRoomRows = 16;
+inline constexpr int kMaxRoomColumns = 96;
+inline constexpr int kMaxRoomRows = 48;
 inline constexpr std::size_t kMaxWorldJsonBytes = 32 * 1024;
 
 enum class ObjectCategory : std::uint8_t {

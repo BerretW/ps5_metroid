@@ -22,6 +22,9 @@ public:
     [[nodiscard]] rendering::Status shutdown() noexcept;
 
 private:
+    [[nodiscard]] rendering::Status releaseSprites() noexcept;
+    [[nodiscard]] rendering::Status releaseWorldSprites() noexcept;
+
     rendering::IRenderBackend& backend_;
     std::unique_ptr<rendering::CanvasBatch2D> batch_{};
     rendering::TextureHandle white_{};

@@ -56,7 +56,7 @@ bounds and at least one animation whose frames fit the sheet.
 
 | Field | Meaning |
 |---|---|
-| `size` | `columns` (20–64) and `rows` (at most 16; PROJECT ECHO uses 12). |
+| `size` | `columns` (20–96) and `rows` (at most 48; PROJECT ECHO side-view rooms use 12). |
 | `projection` | `side` (default), `top-down` or `isometric`; inherited like other room fields. |
 | `background` | RGB clear colour. |
 | `lighting` | Optional per-room ambient/directional lighting, a room day/night cycle and up to 16 point/spot definitions. |
@@ -112,8 +112,8 @@ RGB, `emissiveIntensity` is 0–8, and an optional `emissiveCircuit` gates the
 emitter. Material definitions inherit with objects and tilesets; an explicit
 empty `material` object clears inherited maps.
 
-The current playable example is the Cargo Hold: its console toggles the main
-power circuit, while the emergency circuit remains independent. Its emergency
+The current playable example is the Cargo Hold: its consoles toggle the main
+or emergency power circuit independently. Its original emergency
 point light is attached to the `power_panel` placement and follows its runtime
 transform. Circuit requested/effective state is included in the game's saved
 framework state.
@@ -174,9 +174,10 @@ placements per room, 8 properties per placement, 32 KiB per file.
 `src/game/world_layout.cpp` converts the resolved data into `echo::WorldLayout`
 and rejects layouts the simulation cannot represent:
 
-- The six rooms (the five-room route plus the isometric Cargo Hold), 12 rows
-  each, are fixed; their size, tiles, exits, enemies, door, pickup and props
-  come from JSON.
+- The six rooms (the five-room route plus the isometric Cargo Hold) are fixed;
+  side-view rooms have 12 rows, while isometric rooms may have up to 48.
+  Rooms have at most 96 columns. Their tiles, exits, enemies, door, pickup
+  and props come from JSON. The shipped Cargo Hold is 96 by 48 cells.
 - Enemies need `behavior` and `health` properties (`speed`, `patrolMin`,
   `patrolMax` optional). Save slots are assigned in placement order; each room
   keeps its existing enemy count so checkpoints remain compatible.
@@ -197,8 +198,9 @@ and rejects layouts the simulation cannot represent:
 
 If the selected `echo.world` data fails to load or validate, startup logs the
 error and exits instead of silently running different content. The built-in
-`defaultWorldLayout()` (identical to the shipped JSON) is used only by
-configurations that do not select `echo.world`, such as headless tests.
+`defaultWorldLayout()` is used only by configurations that do not select
+`echo.world`, such as headless tests. It retains the original smaller Cargo
+Hold; the shipped JSON contains the expanded level.
 
 ## Isometric rooms
 
@@ -233,8 +235,9 @@ flips.
 - `tests/game_tests.cpp`: a wider custom room, a moved engineer spawn,
   rejected invalid layouts and isometric movement, walls, pools, stalkers,
   diagonal shots and the Cargo Hold doorways.
-- `tests/framework_integration_tests.cpp`: shipped JSON equals the built-in
-  layout, including the engineer spawn.
+- `tests/framework_integration_tests.cpp`: unchanged side rooms match the
+  built-in layout; expanded Cargo dimensions, reachable placements, doorway,
+  checkpoint compatibility and the engineer spawn are checked separately.
 - `tests/sdl_renderer_tests.cpp`: offscreen sheet loading, tile drawing and an
   isometric frame that follows the player.
 - `scripts/test-ps5-package.ps1`: packaged manifest, IDs, sprite references

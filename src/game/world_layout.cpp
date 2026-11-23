@@ -179,7 +179,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     return std::isfinite(bounds.x) && std::isfinite(bounds.y) && bounds.width > 0.0F &&
            bounds.height > 0.0F && bounds.x >= 0.0F && bounds.y >= 0.0F &&
            bounds.x + bounds.width <= room.width() &&
-           bounds.y + bounds.height <= static_cast<float>(kRoomHeight);
+           bounds.y + bounds.height <= room.height();
 }
 
 [[nodiscard]] bool collides(const RoomLayout& room, const Rect& bounds) noexcept {
@@ -187,7 +187,7 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     const int right = static_cast<int>(std::floor((bounds.x + bounds.width - 0.01F) / kTileSize));
     const int top = static_cast<int>(std::floor(bounds.y / kTileSize));
     const int bottom = static_cast<int>(std::floor((bounds.y + bounds.height - 0.01F) / kTileSize));
-    for (int row = std::max(0, top); row <= std::min(kRoomRows - 1, bottom); ++row) {
+    for (int row = std::max(0, top); row <= std::min(room.rows - 1, bottom); ++row) {
         for (int column = std::max(0, left); column <= std::min(room.columns - 1, right); ++column) {
             if (room.tiles[static_cast<std::size_t>(row * kMaxLayoutColumns + column)] == Tile::Solid) {
                 return true;
@@ -363,8 +363,10 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
     for (std::size_t index = 0; index < kRoomCount; ++index) {
         const RoomLayout& room = layout.rooms[index];
         if (room.columns < framework::kMinRoomColumns || room.columns > kMaxLayoutColumns ||
-            room.name.empty()) {
-            return invalid(kRoomResourceIds[index], "Rooms need a name and 20-64 columns.");
+            room.rows < 1 || room.rows > kMaxLayoutRows ||
+            (!room.isometric && room.rows != kRoomRows) || room.name.empty()) {
+            return invalid(kRoomResourceIds[index],
+                           "Rooms need a name, 20-96 columns and a supported height.");
         }
         for (const RoomExitLayout* exit : {&room.left, &room.right}) {
             if (exit->open && !exit->completesGame && exit->room >= RoomId::Count) {
@@ -466,17 +468,19 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
             return {ErrorCode::MissingDependency, kRoomResourceIds[index],
                     "A required game room is missing or abstract."};
         }
-        if (definition->rows() != kRoomRows) {
-            return invalid(kRoomResourceIds[index], "Game rooms must be exactly 12 tiles tall.");
+        if (definition->projection() != framework::RoomProjection::Isometric &&
+            definition->rows() != kRoomRows) {
+            return invalid(kRoomResourceIds[index], "Side-view game rooms must be exactly 12 tiles tall.");
         }
         RoomLayout& room = layout.rooms[index];
         room.name = definition->name();
         room.columns = definition->columns();
+        room.rows = definition->rows();
         room.background = definition->background();
         room.projection = definition->projection();
         room.isometric = definition->projection() == framework::RoomProjection::Isometric;
         room.definition = definition;
-        for (int row = 0; row < kRoomRows; ++row) {
+        for (int row = 0; row < room.rows; ++row) {
             for (int column = 0; column < room.columns; ++column) {
                 const framework::TileCollision collision = definition->collision(column, row);
                 room.tiles[static_cast<std::size_t>(row * kMaxLayoutColumns + column)] =

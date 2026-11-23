@@ -1,6 +1,7 @@
 #pragma once
 
 #include "echo/framework/data.hpp"
+#include "platform/presentation/presentation_types.hpp"
 
 #include <SDL.h>
 
@@ -15,9 +16,6 @@ struct Bindings {
     SDL_Keycode shoot{SDLK_j};
     SDL_Keycode interact{SDLK_e};
 };
-
-// Windows window size choices; PS5 always presents fullscreen and ignores this value.
-enum class DisplayMode : std::uint8_t { Window720, Window1080, Fullscreen, Count };
 
 namespace settings_detail {
 

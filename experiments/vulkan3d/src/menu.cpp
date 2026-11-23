@@ -11,6 +11,7 @@
 #include "platform/sdl/game_persistence.hpp"
 #include "platform/presentation/gpu_canvas.hpp"
 #include "platform/presentation/menu_glyph.hpp"
+#include "platform/presentation/ui_presentation.hpp"
 #include "platform/sdl/renderer.hpp"
 
 #include <array>
@@ -656,7 +657,9 @@ int main(int argc, char** argv) {
                 }
             } else {
                 accumulator = 0.0F;
-                if (!gameMenu.recordMenu(geometry, selection, false, glyph.ready())) {
+                if (!geometry.clear({7, 12, 22, 255}) ||
+                    !echo::platform::drawMainMenu(geometry, echo::platform::ControlScheme::Keyboard,
+                                                  selection, false, glyph.ready())) {
                     std::fprintf(stderr, "Game menu recording failed\n");
                     return false;
                 }

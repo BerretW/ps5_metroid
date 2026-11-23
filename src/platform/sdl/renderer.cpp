@@ -3,6 +3,7 @@
 #include "platform/sdl/assets.hpp"
 #include "platform/presentation/bitmap_text.hpp"
 #include "platform/presentation/sprite_sheets.hpp"
+#include "platform/presentation/ui_presentation.hpp"
 #include "platform/presentation/world_projection.hpp"
 
 #include <algorithm>
@@ -44,6 +45,22 @@ constexpr SDL_Color kGreen{107, 221, 153, 255};
 void setColor(SDL_Renderer* renderer, SDL_Color color) noexcept {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
 }
+
+class LegacyUiCanvas final : public rendering::ICanvas2D {
+public:
+    explicit LegacyUiCanvas(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
+    bool clear(rendering::Color2D) noexcept override { return false; }
+    bool fill(rendering::Rect2D bounds, rendering::Color2D color) noexcept override {
+        const SDL_Rect rect{bounds.x, bounds.y, bounds.w, bounds.h};
+        return SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a) == 0 &&
+               SDL_RenderFillRect(renderer_, &rect) == 0;
+    }
+    bool texture(rendering::TextureHandle, rendering::Rect2D, rendering::Vec4,
+                 rendering::Vec4, float) noexcept override { return false; }
+
+private:
+    SDL_Renderer* renderer_;
+};
 
 } // namespace
 
@@ -599,44 +616,11 @@ bool Renderer::recordMenu(rendering::ICanvas2D& sink, int selection, bool contin
 }
 
 void Renderer::drawMenuContent(int selection, bool continueAvailable, bool modelWindow) noexcept {
-    for (int y = 34; y < 360; y += 32) {
-        if (modelWindow && y >= 160 && y < 300) {
-            panel({0, y, 366, 1}, SDL_Color{18, 35, 48, 255});
-            panel({540, y, 100, 1}, SDL_Color{18, 35, 48, 255});
-        } else {
-            panel({0, y, 640, 1}, SDL_Color{18, 35, 48, 255});
-        }
-    }
-    if (modelWindow) {
-        panel({74, 62, 492, 98}, kPanel);
-        panel({74, 160, 292, 140}, kPanel);
-        panel({540, 160, 26, 140}, kPanel);
-        panel({74, 300, 492, 6}, kPanel);
-    } else {
-        panel({74, 62, 492, 244}, kPanel);
-    }
-    panel({74, 62, 492, 3}, kCyan);
-    text(120, 94, "PROJECT ECHO", 4, kText);
-    text(122, 135, "FACILITY 07  /  SIGNAL LOST", 1, kMuted);
-
-    constexpr std::array<std::string_view, 5> labels{
-        "NEW GAME", "CONTINUE", "OPTIONS", "DUALSENSE LAB", "EXIT"};
-    for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
-        const int y = 169 + index * 27;
-        if (index == selection) {
-            panel({112, y - 4, 230, 22}, kPanelLight);
-            panel({112, y - 5, 3, 24}, kCyan);
-        }
-        const SDL_Color color = index == 1 && !continueAvailable
-                                    ? kMuted
-                                    : index == selection ? kCyan : kText;
-        text(128, y, labels[static_cast<std::size_t>(index)], index == 3 ? 1 : 2, color);
-    }
-
-    if (controls_ == ControlScheme::PlayStation) {
-        text(86, 326, "\x05 SELECT  \x01 CONFIRM", 2, kMuted);
-    } else {
-        text(86, 326, "ARROWS SELECT  ENTER CONFIRM", 1, kMuted);
+    LegacyUiCanvas legacy{renderer_};
+    rendering::ICanvas2D& canvas = drawSink_ != nullptr ? *drawSink_ : legacy;
+    if (!drawMainMenu(canvas, controls_, selection, continueAvailable, modelWindow)) {
+        drawSinkFailed_ = true;
+        if (drawSink_ == nullptr) SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Menu drawing failed: %s", SDL_GetError());
     }
 }
 
@@ -670,56 +654,14 @@ void Renderer::drawOptionsContent(int selection, int volume,
                                   std::string_view jumpKey, std::string_view shootKey,
                                   std::string_view interactKey, DisplayMode display,
                                   bool renderDebug) noexcept {
-    panel({74, 38, 492, 284}, kPanel);
-    panel({74, 38, 492, 3}, kCyan);
-    text(110, 62, "OPTIONS", 3, kText);
-    if (controls_ == ControlScheme::PlayStation) {
-        text(110, 94, "FIXED CONTROLLER BUTTONS", 1, kMuted);
-    }
-
-    std::array<std::string_view, 8> rows{
-        "VOLUME", "JUMP", "FIRE", "INTERACT", "DIALOGUE", "DISPLAY", "RENDER DEBUG", "BACK"
-    };
-    rows[static_cast<std::size_t>(kRenderDebugOption)] = "RENDER DEBUG";
-    rows[static_cast<std::size_t>(optionCount() - 1)] = "BACK";
-    constexpr int spacing = 22;
-    for (int index = 0; index < optionCount(); ++index) {
-        const int y = 110 + index * spacing;
-        if (selection == index) {
-            panel({102, y - 3, 436, 21}, kPanelLight);
-            panel({102, y - 3, 3, 21}, kCyan);
-        }
-        text(118, y, rows[static_cast<std::size_t>(index)], 2,
-             selection == index ? kCyan : kText);
-        if (index == 0) {
-#ifdef __PROSPERO__
-            std::array<char, 16> percentage{};
-            SDL_snprintf(percentage.data(), percentage.size(), "%d%%", volume);
-            text(390, y, percentage.data(), 2, kText);
-#else
-            text(390, y, std::to_string(volume) + "%", 2, kText);
-#endif
-        } else if (index < 4) {
-            const std::string_view keyName = controls_ == ControlScheme::PlayStation
-                ? (index == 1 ? "\x01" : index == 2 ? "\x02" : "\x03")
-                : (index == 1 ? jumpKey : index == 2 ? shootKey : interactKey);
-            text(390, y, keyName, 2, kText);
-        } else if (index == 4) {
-            text(390, y, language == framework::DialogueLanguage::Czech ? "CS" : "EN",
-                 2, kText);
-        } else if (index == kDisplayOption && kHasDisplayOption) {
-            text(390, y, display == DisplayMode::Fullscreen ? "FULLSCREEN"
-                         : display == DisplayMode::Window1080 ? "1920X1080" : "1280X720",
-                 2, kText);
-        } else if (index == kRenderDebugOption) {
-            text(390, y, renderDebug ? "ON" : "OFF", 2, kText);
-        }
-    }
-    if (controls_ == ControlScheme::PlayStation) {
-        text(104, 294, "\x05 SELECT/CHANGE  \x04 BACK", 1, kMuted);
-    } else {
-        text(104, 294, waitingForKey ? "PRESS A NEW KEY  ESC CANCEL"
-                                    : "ENTER REBIND  LEFT RIGHT CHANGE", 1, kMuted);
+    LegacyUiCanvas legacy{renderer_};
+    rendering::ICanvas2D& canvas = drawSink_ != nullptr ? *drawSink_ : legacy;
+    const OptionsPresentation options{selection, volume, language, waitingForKey,
+                                      jumpKey, shootKey, interactKey, display,
+                                      renderDebug, kHasDisplayOption};
+    if (!drawOptionsMenu(canvas, controls_, options)) {
+        drawSinkFailed_ = true;
+        if (drawSink_ == nullptr) SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Options drawing failed: %s", SDL_GetError());
     }
 }
 
@@ -1005,7 +947,7 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
         if (alpha != 255) SDL_SetTextureAlphaMod(sheet->texture, 255);
     };
 
-    const int rows = kRoomRows;
+    const int rows = game.roomRows();
     const int columns = game.roomColumns();
     for (int row = 0; row < rows; ++row) {
         for (int column = 0; column < columns; ++column) drawTile(0, column, row, 255);
@@ -1019,7 +961,8 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
         std::uint16_t index;
         std::uint8_t layer;
     };
-    std::array<Drawable, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows * 2 + 64> drawables{};
+    std::array<Drawable, static_cast<std::size_t>(kMaxLayoutColumns) * kMaxLayoutRows *
+                             (framework::kMaxRoomLayers - 1) + 64> drawables{};
     std::size_t count = 0;
     const auto push = [&](float depth, Kind kind, std::size_t index, std::size_t layer) noexcept {
         if (count == drawables.size()) return;
@@ -1048,6 +991,18 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
         if (prop.room != game.roomId() || prop.archetype == nullptr) continue;
         Vec2 position{};
         if (!game.propPosition(prop.room, prop.id.data(), position)) continue;
+        const SDL_Point anchor = screenOf(
+            position.x + prop.archetype->width() * 0.5F,
+            position.y + prop.archetype->height() * 0.5F);
+        const auto& spec = prop.archetype->sprite();
+        const int spriteX = anchor.x + (prop.facingLeft
+            ? -spec.frameWidth - spec.offsetX : spec.offsetX);
+        const SDL_Rect spriteBounds{spriteX, anchor.y + spec.offsetY,
+                                    spec.frameWidth, spec.frameHeight};
+        const SDL_Rect shadowBounds{anchor.x - 12, anchor.y - 2, 24, 4};
+        const SDL_Rect fallbackBounds{anchor.x - 10, anchor.y - 18, 20, 16};
+        if (!visible(spriteBounds) && !visible(shadowBounds) &&
+            !visible(fallbackBounds)) continue;
         push(position.x + position.y + prop.archetype->width() +
                  prop.archetype->height(),
              Kind::Prop, index, 0);
@@ -2131,50 +2086,12 @@ bool Renderer::recordInventory(rendering::ICanvas2D& sink, const Game& game,
 
 void Renderer::drawInventoryContent(const Game& game, const InventoryMenu& menu,
                                     std::string_view message) noexcept {
-    panel({16, 16, 608, 328}, kPanel);
-    panel({16, 16, 608, 3}, kCyan);
-    text(28, 28, "INVENTORY", 2, kText);
-    text(230, 30, Game::itemName(game.inventorySlot(menu.selected).item), 1, kCyan);
-    text(28, 54, "BACKPACK 20 SLOTS", 1, kMuted);
-    for (std::size_t slot = 0; slot < Game::kInventorySlotCount; ++slot) {
-        const int column = static_cast<int>(slot % 5);
-        const int row = static_cast<int>(slot / 5);
-        const int x = 28 + column * 116;
-        const int y = row < 4 ? 72 + row * 42 : 264;
-        if (row == 4) text(x, 247, Game::inventorySlotName(slot), 1, kMuted);
-        const SDL_Color border = slot == menu.selected ? kCyan :
-                                 slot == menu.source ? kOrange : kPanelLight;
-        panel({x, y, 108, 36}, border);
-        panel({x + 2, y + 2, 104, 32}, kBackground);
-        const ItemStack stack = game.inventorySlot(slot);
-        text(x + 5, y + 6, Game::itemName(stack.item), 1,
-             stack.item == ItemId::None ? kMuted : kText);
-        std::array<char, 32> quantity{};
-        std::snprintf(quantity.data(), quantity.size(), "%02u QTY %u",
-                      static_cast<unsigned>(slot + 1), static_cast<unsigned>(stack.quantity));
-        text(x + 5, y + 22, quantity.data(), 1, slot == menu.source ? kOrange : kMuted);
+    LegacyUiCanvas legacy{renderer_};
+    rendering::ICanvas2D& canvas = drawSink_ != nullptr ? *drawSink_ : legacy;
+    if (!drawInventoryMenu(canvas, controls_, game, menu.selected, menu.source, message)) {
+        drawSinkFailed_ = true;
+        if (drawSink_ == nullptr) SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Inventory drawing failed: %s", SDL_GetError());
     }
-    const std::size_t length = std::min<std::size_t>(message.size(), 94);
-    text(28, 311, {message.data(), length}, 1, kOrange);
-    const ItemId selected = game.inventorySlot(menu.selected).item;
-    std::string_view effect{};
-    switch (selected) {
-    case ItemId::JumpVisor: effect = "HEAD: JUMP +40"; break;
-    case ItemId::VitalVest: effect = "BODY: MAX HEALTH +1"; break;
-    case ItemId::PowerBarrel: effect = "WEAPON: SHOT DAMAGE +1"; break;
-    case ItemId::SprintModule: effect = "ACCESSORY: SPEED +15"; break;
-    case ItemId::MedPatch: effect = "ACTIVE: HEAL 1"; break;
-    case ItemId::MedKit: effect = "ACTIVE: HEAL 4"; break;
-    case ItemId::ShieldCell: effect = "ACTIVE: SHIELD 4 SECONDS"; break;
-    case ItemId::SpeedCharge: effect = "ACTIVE: SPEED +25 FOR 8 SECONDS"; break;
-    case ItemId::JumpCharge: effect = "ACTIVE: JUMP +60 FOR 8 SECONDS"; break;
-    case ItemId::BlastCharge: effect = "ACTIVE: NEARBY ENEMIES TAKE 2 DAMAGE"; break;
-    default: break;
-    }
-    text(28, 321, effect, 1, kCyan);
-    text(28, 333, controls_ == ControlScheme::PlayStation
-                     ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/BACK"
-                     : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/BACK", 1, kMuted);
 }
 
 void Renderer::drawDualSenseLab(const input::ControllerSnapshot& controller,

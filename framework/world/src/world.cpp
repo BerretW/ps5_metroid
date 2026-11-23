@@ -775,7 +775,7 @@ Status WorldParser::parseRoom(JsonValue document, RoomDefinition& output) noexce
         if (!allowedFields(size, kSizeFields) ||
             !readInt(size.find("columns"), kMinRoomColumns, kMaxRoomColumns, columns) ||
             !readInt(size.find("rows"), 1, kMaxRoomRows, rows)) {
-            return invalid("world.room.size", "Room size needs columns 20-64 and rows 1-16.");
+            return invalid("world.room.size", "Room size needs columns 20-96 and rows 1-48.");
         }
         output.columns_ = columns;
         output.rows_ = rows;

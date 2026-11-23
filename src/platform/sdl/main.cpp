@@ -4,6 +4,7 @@
 #include "platform/sdl/game_persistence.hpp"
 #include "platform/sdl/gameplay_vfx.hpp"
 #include "platform/sdl/renderer.hpp"
+#include "platform/presentation/ui_presentation.hpp"
 #include "platform/sdl/settings_persistence.hpp"
 #include "echo/framework/data.hpp"
 
@@ -2358,20 +2359,28 @@ int main(int argc, char** argv) {
         bool recorded = false;
         auto& canvas = gpuCanvas.batch();
         if (screen == Screen::MainMenu) {
-            recorded = renderer.recordMenu(canvas, menuSelection, continueAvailable, menuGlyph.ready());
+            recorded = canvas.clear({7, 12, 22, 255}) &&
+                       echo::platform::drawMainMenu(canvas, kControlScheme, menuSelection,
+                                                    continueAvailable, menuGlyph.ready());
         } else if (screen == Screen::DualSenseLab) {
             refreshControllerSnapshot();
             recorded = renderer.recordDualSenseLab(canvas, controllerSnapshot, SDL_NumJoysticks());
         } else if (screen == Screen::Inventory) {
-            recorded = renderer.recordInventory(canvas, game, inventoryMenu, inventoryMessage.data());
+            recorded = canvas.clear({7, 12, 22, 255}) &&
+                       echo::platform::drawInventoryMenu(canvas, kControlScheme, game,
+                                                         inventoryMenu.selected, inventoryMenu.source,
+                                                         inventoryMessage.data());
         } else {
             const auto jump = keyName(bindings.jump);
             const auto shoot = keyName(bindings.shoot);
             const auto interact = keyName(bindings.interact);
             if (screen == Screen::Options) {
-                recorded = renderer.recordOptions(canvas, optionSelection, volume, dialogueLanguage,
-                                                  waitingForKey, jump.data(), shoot.data(),
-                                                  interact.data(), displayMode, renderDebug);
+                const echo::platform::OptionsPresentation options{
+                    optionSelection, volume, dialogueLanguage, waitingForKey,
+                    jump.data(), shoot.data(), interact.data(), displayMode, renderDebug,
+                    echo::platform::Renderer::kHasDisplayOption};
+                recorded = canvas.clear({7, 12, 22, 255}) &&
+                           echo::platform::drawOptionsMenu(canvas, kControlScheme, options);
             } else {
                 recorded = renderer.recordGame(canvas, game, showMap, paused, jump.data(),
                                                shoot.data(), interact.data(), &gpuCanvas.sprites(),

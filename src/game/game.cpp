@@ -457,7 +457,7 @@ framework::Status Game::setPropPosition(RoomId room, std::string_view id,
         const float height = prop.archetype != nullptr ? prop.archetype->height() : 0.0F;
         if (position.x < 0.0F || position.y < 0.0F ||
             position.x + width > world_->rooms[static_cast<std::size_t>(room)].width() ||
-            position.y + height > static_cast<float>(kRoomHeight)) {
+            position.y + height > world_->rooms[static_cast<std::size_t>(room)].height()) {
             return {framework::ErrorCode::InvalidValue, id,
                     "The prop transform must remain inside its room."};
         }
@@ -535,7 +535,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         checkpointValue.playerPosition.x < 0.0F ||
         checkpointValue.playerPosition.x > world_->rooms[index].width() - kPlayerWidth ||
         checkpointValue.playerPosition.y < 0.0F ||
-        checkpointValue.playerPosition.y > static_cast<float>(kRoomHeight) - kPlayerHeight ||
+        checkpointValue.playerPosition.y > world_->rooms[index].height() - kPlayerHeight ||
         checkpointValue.playerHealth < 1 ||
         (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
         checkpointValue.deaths < 0 ||
@@ -646,7 +646,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
             drop.position.x < 0.0F ||
             drop.position.x > world_->rooms[dropRoom].width() - 16.0F ||
             drop.position.y < 0.0F ||
-            drop.position.y > static_cast<float>(kRoomHeight) - 16.0F) return false;
+            drop.position.y > world_->rooms[dropRoom].height() - 16.0F) return false;
         if (drop.active) {
             if (checkpointValue.enemyHealth[lootEnemy(lootIndex)] != 0 ||
                 drop.stack != expectedLoot(lootIndex) ||
@@ -696,7 +696,7 @@ std::string_view Game::roomName() const noexcept {
 }
 
 Tile Game::tileAt(int column, int row) const noexcept {
-    if (row >= kRoomRows) {
+    if (row >= roomRows()) {
         return Tile::Solid;
     }
     if (column < 0 || column >= roomColumns() || row < 0) {
@@ -1081,7 +1081,7 @@ void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcep
         snap(player_.position.y, previousY, player_.velocity.y, kPlayerHeight, false);
     }
     player_.position.y = std::clamp(player_.position.y, 0.0F,
-                                    static_cast<float>(kRoomHeight) - kPlayerHeight);
+                                    roomHeight() - kPlayerHeight);
 }
 
 void Game::spawnRoamers() noexcept {
@@ -1114,7 +1114,7 @@ void Game::updateRoamers(float deltaSeconds) noexcept {
         }
         roamer.bounds.y += stepY;
         if (collidesWithWorld(roamer.bounds) || roamer.bounds.y < 0.0F ||
-            roamer.bounds.y + roamer.bounds.height > static_cast<float>(kRoomHeight)) {
+            roamer.bounds.y + roamer.bounds.height > roomHeight()) {
             roamer.bounds.y -= stepY;
         }
     }
@@ -1206,7 +1206,7 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
         projectile.bounds.y += projectile.velocityY * deltaSeconds;
         if (projectile.room != room_ || projectile.bounds.x < 0.0F ||
             projectile.bounds.x > roomWidth() || projectile.bounds.y < 0.0F ||
-            projectile.bounds.y > static_cast<float>(kRoomHeight)) {
+            projectile.bounds.y > roomHeight()) {
             projectile.active = false;
             continue;
         }
@@ -1578,6 +1578,15 @@ framework::Status Game::useActiveItem() noexcept {
             if (enemies_[index].alive && enemies_[index].room == room_ &&
                 std::abs(enemies_[index].bounds.x - player_.position.x) < 140.0F) {
                 damageEnemy(index, 2);
+            }
+        }
+        for (std::size_t index = 0; index < roamerCount_; ++index) {
+            Enemy& roamer = roamers_[index];
+            const float dx = roamer.bounds.x - player_.position.x;
+            const float dy = roamer.bounds.y - player_.position.y;
+            if (roamer.alive && dx * dx + dy * dy < 140.0F * 140.0F) {
+                roamer.health = std::max(0, roamer.health - 2);
+                roamer.alive = roamer.health > 0;
             }
         }
     } else {

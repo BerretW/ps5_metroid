@@ -136,6 +136,7 @@ inline constexpr std::size_t kEnemyCount = 5;
 inline constexpr std::size_t kLootDropCount = 12;
 inline constexpr std::size_t kRoomCount = static_cast<std::size_t>(RoomId::Count);
 inline constexpr int kMaxLayoutColumns = framework::kMaxRoomColumns;
+inline constexpr int kMaxLayoutRows = framework::kMaxRoomRows;
 inline constexpr std::size_t kMaxWorldDoors = 8;
 inline constexpr std::size_t kMaxWorldProps = 24;
 inline constexpr std::size_t kMaxRoamers = 6;
@@ -158,7 +159,8 @@ struct RoomExitLayout {
 struct RoomLayout {
     std::string_view name;
     int columns{kRoomColumns};
-    std::array<Tile, static_cast<std::size_t>(kMaxLayoutColumns) * kRoomRows> tiles{};
+    int rows{kRoomRows};
+    std::array<Tile, static_cast<std::size_t>(kMaxLayoutColumns) * kMaxLayoutRows> tiles{};
     std::array<std::uint8_t, 3> background{13, 30, 43};
     RoomExitLayout left{};
     RoomExitLayout right{};
@@ -170,6 +172,9 @@ struct RoomLayout {
 
     [[nodiscard]] float width() const noexcept {
         return static_cast<float>(columns * kTileSize);
+    }
+    [[nodiscard]] float height() const noexcept {
+        return static_cast<float>(rows * kTileSize);
     }
 };
 
@@ -326,7 +331,9 @@ public:
         return world_->rooms[static_cast<std::size_t>(room_)];
     }
     [[nodiscard]] int roomColumns() const noexcept { return currentRoom().columns; }
+    [[nodiscard]] int roomRows() const noexcept { return currentRoom().rows; }
     [[nodiscard]] float roomWidth() const noexcept { return currentRoom().width(); }
+    [[nodiscard]] float roomHeight() const noexcept { return currentRoom().height(); }
     [[nodiscard]] bool isometric() const noexcept { return currentRoom().isometric; }
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,

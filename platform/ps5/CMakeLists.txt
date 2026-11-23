@@ -68,6 +68,7 @@ if(ECHO_PS5_GAME)
         "${echo_root}/src/platform/sdl/main.cpp"
         "${echo_root}/src/platform/sdl/framework_integration.cpp"
         "${echo_root}/src/platform/sdl/renderer.cpp"
+        "${echo_root}/src/platform/presentation/ui_presentation.cpp"
         "${echo_root}/src/input/dualsense_diagnostics.cpp"
         "${echo_root}/src/platform/sdl/assets.cpp"
         "${echo_root}/src/platform/sdl/stb_image_impl.c"

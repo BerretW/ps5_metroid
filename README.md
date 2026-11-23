@@ -6,9 +6,10 @@ Vulkan is the default and actively maintained graphics backend on Windows and PS
 The SDL application remains available only as an explicit legacy/diagnostic target:
 `.\scripts\build-windows.ps1 -LegacySDL` and `.\scripts\build-ps5.ps1 -Target Game -LegacySDL`.
 SDL is retained for platform services (window/events, controller input and audio) and
-the legacy renderer. The shared canvas and Vulkan backend are SDL-independent, but
-the game presentation code still resides in the SDL renderer and uses SDL types
-and timing; extracting it fully remains unfinished. New graphics work targets Vulkan.
+the legacy renderer. The shared canvas, Vulkan backend, main menu, options and
+inventory presentation are SDL-independent. The remaining game-world, HUD and
+other presentation still reside in the SDL renderer and use SDL types and timing;
+extracting them fully remains unfinished. New graphics work targets Vulkan.
 
 PROJECT ECHO is a playable 2D sci-fi Metroidvania prototype and the reference integration game for **Echo Framework 0.2**, a modular C++20 foundation. Gameplay is shared code; the SDL2 application uses original procedurally generated PNG sprites and WAV sound effects (see [assets](docs/ASSETS.md)) rather than third-party game assets.
 

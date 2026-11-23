@@ -2,6 +2,30 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**Partial presentation extraction (2026-11-23):** main menu, options and
+inventory now use SDL-free canvas presentation, directly in the Vulkan path
+and through an SDL adapter in the legacy path. The default Windows build no
+longer creates the legacy application target. PNG reads close the file on a
+short read, and canvas initialization and sprite-upload failures roll back
+completed resources. Windows Debug and Release pass 22/22 tests including the
+production Vulkan smoke test; the Vulkan experiment GPU/readback suite passes.
+PS5 Vulkan cross-build and package rejection tests pass statically; this new
+package has NOT been tested on hardware. The Vulkan game still compiles the
+SDL renderer for the world and remaining UI, so the migration is incomplete.
+
+### Manual PS5 verification for a new Vulkan candidate
+
+Back up the existing title package and saves before manual transfer; retain
+PPSA91007 and install only one variant. Record the installed digest, firmware,
+loader, observations and any errors.
+
+- Boot and menu, options and prompts; start a new game.
+- Move, jump, aim and shoot in the platformer; verify audio.
+- Enter Cargo Hold, move and fight, and check its lighting and effects.
+- Open inventory, dialogue, map, pause and cutscene screens.
+- Save, return to menu, Continue and verify restored state.
+- Shut down and relaunch; check for errors and controller reconnection.
+
 **Vulkan-first migration checkpoint (2026-11-22):** the native Windows Vulkan
 production target and PS5 Vulkan game path build successfully. The Vulkan GPU
 experiment passes 35/35 tests, Windows Debug/Release pass 20/20 CTest cases, and

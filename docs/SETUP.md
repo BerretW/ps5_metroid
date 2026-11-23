@@ -44,6 +44,10 @@ directory. Add `-VulkanGpuTests` to `-RunTests` to launch the production game,
 render, resize and render another menu frame, and close without accessing save data; this requires a
 Windows GPU and display.
 For the legacy SDL-only Windows build use `-LegacySDL -RunTests` instead.
+The default configuration creates only the Vulkan game executable; the SDL
+compatibility tests still compile the legacy renderer until the presentation
+extraction is complete. A previous `project_echo.exe` may remain in an existing
+build directory and is not evidence that the default build rebuilt it.
 
 Logs are written to `logs\project_echo.log`. Print the latest lines with:
 

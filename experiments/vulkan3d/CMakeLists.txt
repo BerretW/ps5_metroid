@@ -57,6 +57,7 @@ add_executable(echo_vulkan_menu
     "${ECHO_ROOT}/src/game/world_layout.cpp"
     "${ECHO_ROOT}/src/platform/sdl/framework_integration.cpp"
     "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
+    "${ECHO_ROOT}/src/platform/presentation/ui_presentation.cpp"
     "${ECHO_ROOT}/src/platform/presentation/canvas_assets.cpp"
     "${ECHO_ROOT}/src/platform/presentation/gpu_canvas.cpp"
     "${ECHO_ROOT}/src/platform/presentation/menu_glyph.cpp"

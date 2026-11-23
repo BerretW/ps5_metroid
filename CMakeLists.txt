@@ -120,10 +120,12 @@ target_include_directories(echo_assets PUBLIC src PRIVATE third_party)
 target_compile_features(echo_assets PUBLIC cxx_std_20)
 target_link_libraries(echo_assets PUBLIC SDL2-static)
 
+if(ECHO_GRAPHICS_BACKEND STREQUAL "SDL" OR NOT WIN32)
 add_executable(project_echo
     src/platform/sdl/main.cpp
     src/platform/sdl/framework_integration.cpp
     src/platform/sdl/renderer.cpp
+    src/platform/presentation/ui_presentation.cpp
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(project_echo PRIVATE cxx_std_20)
@@ -131,16 +133,11 @@ target_include_directories(project_echo PRIVATE framework/rendering/include)
 target_compile_definitions(project_echo PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(project_echo PRIVATE echo_game echo_assets SDL2-static
     EchoFramework::Core EchoFramework::Data EchoFramework::Power EchoFramework::VFX)
-# Runtime assets are loaded from <executable dir>/assets, including on incremental builds.
-add_custom_target(echo_runtime_assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:project_echo>/assets")
-add_dependencies(project_echo echo_runtime_assets)
-
 if(MSVC)
     target_compile_options(project_echo PRIVATE /W4 /permissive-)
 else()
     target_compile_options(project_echo PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 endif()
 
     if(WIN32 AND ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan")
@@ -148,6 +145,7 @@ endif()
             src/platform/sdl/main.cpp
             src/platform/sdl/framework_integration.cpp
             src/platform/sdl/renderer.cpp
+            src/platform/presentation/ui_presentation.cpp
             src/platform/presentation/canvas_assets.cpp
             src/platform/presentation/gpu_canvas.cpp
             src/platform/presentation/menu_glyph.cpp
@@ -186,7 +184,6 @@ endif()
                 "$<TARGET_FILE_DIR:project_echo_vulkan>/assets/shaders"
             DEPENDS ${echo_game_shaders} VERBATIM)
         add_dependencies(project_echo_vulkan echo_game_vulkan_shaders)
-        add_dependencies(project_echo_vulkan echo_runtime_assets)
         if(MSVC)
             target_compile_options(project_echo_vulkan PRIVATE /W4 /permissive-)
         else()
@@ -194,6 +191,17 @@ endif()
         endif()
         set_target_properties(project_echo_vulkan PROPERTIES OUTPUT_NAME "project_echo_vulkan")
     endif()
+
+# Runtime assets are loaded from the selected executable's directory.
+if(TARGET project_echo_vulkan)
+    set(echo_game_target project_echo_vulkan)
+else()
+    set(echo_game_target project_echo)
+endif()
+add_custom_target(echo_runtime_assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:${echo_game_target}>/assets")
+add_dependencies(${echo_game_target} echo_runtime_assets)
 
 enable_testing()
 option(ECHO_VULKAN_GPU_TESTS "Run Vulkan tests that require a Windows GPU and display" OFF)
@@ -210,10 +218,25 @@ target_compile_features(echo_tests PRIVATE cxx_std_20)
 target_compile_definitions(echo_tests PRIVATE ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 add_test(NAME echo_gameplay COMMAND echo_tests)
 
+add_executable(echo_gpu_canvas_tests
+    tests/gpu_canvas_tests.cpp
+    src/platform/presentation/canvas_assets.cpp
+    src/platform/presentation/gpu_canvas.cpp
+    src/platform/presentation/ui_presentation.cpp
+)
+target_compile_features(echo_gpu_canvas_tests PRIVATE cxx_std_20)
+target_include_directories(echo_gpu_canvas_tests PRIVATE src)
+target_compile_definitions(echo_gpu_canvas_tests PRIVATE
+    ECHO_SOURCE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
+target_link_libraries(echo_gpu_canvas_tests PRIVATE echo_game EchoFramework::Power
+    EchoFramework::Rendering)
+add_test(NAME echo_gpu_canvas_lifecycle COMMAND echo_gpu_canvas_tests)
+
 add_executable(echo_sdl_tests
     tests/sdl_renderer_tests.cpp
     src/platform/sdl/framework_integration.cpp
     src/platform/sdl/renderer.cpp
+    src/platform/presentation/ui_presentation.cpp
     src/input/dualsense_diagnostics.cpp
 )
 target_compile_features(echo_sdl_tests PRIVATE cxx_std_20)

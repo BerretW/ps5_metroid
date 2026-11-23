@@ -353,6 +353,15 @@ void testDataDrivenWorldLayout() {
     echo::Game rejected;
     check(!rejected.configureWorld(invalid) && rejected.roomColumns() == echo::kRoomColumns,
           "an out-of-bounds layout is rejected and the previous world is kept");
+    static echo::WorldLayout invalidHeight = echo::defaultWorldLayout();
+    invalidHeight.rooms[0].rows = echo::kRoomRows + 1;
+    check(!rejected.configureWorld(invalidHeight),
+          "side-view rooms cannot exceed their fixed simulation height");
+    invalidHeight = echo::defaultWorldLayout();
+    invalidHeight.rooms[static_cast<std::size_t>(echo::RoomId::CargoHold)].rows =
+        echo::kMaxLayoutRows + 1;
+    check(!rejected.configureWorld(invalidHeight),
+          "isometric rooms cannot exceed their fixed-capacity height");
     static echo::WorldLayout weakEnemy = echo::defaultWorldLayout();
     weakEnemy.enemies[0].health = 0;
     check(!rejected.configureWorld(weakEnemy), "enemy spawns outside the save contract are rejected");

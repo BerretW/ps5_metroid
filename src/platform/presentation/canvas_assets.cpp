@@ -36,8 +36,11 @@ bool loadPngRgba(const char* path, RgbaImage& image) noexcept {
     }
     std::unique_ptr<unsigned char[]> bytes{new (std::nothrow) unsigned char[static_cast<std::size_t>(size)]};
     if (!bytes) { std::fclose(file); return false; }
-    if (std::fread(bytes.get(), 1, static_cast<std::size_t>(size), file) != static_cast<std::size_t>(size) ||
-        std::fclose(file) != 0) return false;
+    const bool readComplete =
+        std::fread(bytes.get(), 1, static_cast<std::size_t>(size), file) ==
+        static_cast<std::size_t>(size);
+    const bool closed = std::fclose(file) == 0;
+    if (!readComplete || !closed) return false;
     int width{}, height{};
     image.pixels = echo_decode_png_rgba(bytes.get(), static_cast<int>(size), &width, &height);
     if (!image.pixels || width <= 0 || height <= 0 ||
@@ -129,6 +132,10 @@ bool uploadCanvasTexture(rendering::IRenderBackend& backend, const char* path,
                          rendering::TextureHandle& texture,
                          std::uint32_t& width, std::uint32_t& height,
                          rendering::TextureColorSpace colorSpace) noexcept {
+    if (texture.valid()) {
+        std::fprintf(stderr, "Canvas texture upload requires an empty destination\n");
+        return false;
+    }
     texture = {};
     width = height = 0;
     RgbaImage image{};
