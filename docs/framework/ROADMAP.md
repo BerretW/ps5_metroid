@@ -5,8 +5,73 @@ The project owner's accepted long-term direction is recorded in
 The framework is not yet a fully data-driven, general-purpose engine.
 The decision applies to all existing and future game-specific content, not
 only the Cargo example. Use its delivery sequence to prioritize a whole-codebase
-content audit and migration; do not imply that planned Lua, 3D, animation, or
+content audit and migration; do not imply that planned Lua, native visual editing, 3D, animation, or
 PBR capabilities are already implemented.
+
+The owner selected Lua for a bounded prototype and a native Windows visual
+editor. The first end-to-end authoring milestones must cover both enemy AI and
+game UI; neither a production script runtime nor a general scene editor exists yet. The future
+editor must validate and serialize the same versioned content consumed by the
+game. Lua execution, resource limits, save migration and PS5 compatibility
+must be verified separately before production integration.
+
+An isolated native Windows Lua experiment exists in
+`experiments/lua-prototype`. It is not linked into PROJECT ECHO and does not
+provide an editor or a production scripting runtime. Its test contract accepts
+integer distance/health inputs and produces bounded movement, firing and UI
+visibility outputs; these are synthetic examples rather than game integration.
+Each invocation uses a fresh VM, text-only input, no opened Lua libraries,
+a 4 KiB source cap, a 256 KiB VM allocation cap and an instruction hook.
+Errors do not publish output. Repeated host tests establish only local
+repeatability, not cross-platform deterministic execution or a security
+boundary for hostile third-party content.
+
+An initial Windows native map workspace edits tile layers in PROJECT ECHO's real
+rooms. A secondary property inspector edits player attributes, quest text and
+stalker tuning. The map view is a symbolic grid, not the game's renderer;
+object placement, scene management, UI layout and script behavior remain
+unfinished. It is not connected to the Lua experiment. See
+[the editor workflow](EDITOR.md).
+
+To build and test the host experiment using the installed Visual Studio C++
+tools:
+
+```powershell
+cmake -S .\experiments\lua-prototype -B .\build\lua-prototype
+cmake --build .\build\lua-prototype --config Debug
+ctest --test-dir .\build\lua-prototype -C Debug --output-on-failure
+```
+
+Lua source is fetched from the URL and SHA-256 pinned in
+`dependencies.ps5.json`; this prototype does not add Lua to PS5 packages.
+Before game integration, establish script lifecycle and entity/UI bindings,
+atomic gameplay command application, stronger isolation and resource checks,
+versioned script state and save migrations, editor workflows, deterministic
+fixed-step tests, target ABI/linking and separate PS5 hardware evidence.
+
+### AI and UI authoring milestones
+
+1. Define versioned scene, entity, UI and script-binding schemas with stable
+   IDs. The editor and runtime must share validators and compiled capability
+   descriptors, rather than maintaining separate lists of supported behavior.
+2. Replace the experiment's synthetic input/output with explicit per-entity
+   lifecycle hooks, bounded snapshots and validated command buffers. Commit
+   commands only after successful script execution; never expose raw engine
+   pointers, host file access or dynamic native loading to scripts.
+3. Implement a native Windows editor with scene hierarchy, inspector, 2D
+   viewport and UI layout preview, script editing and actionable validation
+   errors. Save the same content the runtime loads. Test round trips and
+   failure handling before treating the editor as an authoring tool.
+4. Integrate both a scripted enemy and a scripted UI interaction in PROJECT
+   ECHO, with fixed-step headless tests and Windows visual/input checks.
+   Replace the corresponding compiled game-specific behavior rather than
+   keeping competing sources of truth.
+5. Define persisted script state and explicit content/save migrations. Test
+   budgets, failures, event ordering and reproducibility on both targets.
+   Cross-build and statically validate PS5 before manual hardware testing;
+   never treat either as evidence for the other.
+6. Author a second small game without modifying PROJECT ECHO's game code, then
+   extend the same editor/runtime contracts to 3D, animation and PBR.
 
 ## 0.2 implemented foundation
 

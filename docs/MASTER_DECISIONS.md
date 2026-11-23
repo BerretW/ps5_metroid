@@ -31,11 +31,18 @@ scripts only for behavior that genuinely needs author-written logic. A game
 must not need a new C++ branch just because its content defines another item,
 enemy, room interaction, or quest.
 
-Lua is a candidate for behavior that is too complex or expressive for authored
-data. It is not yet a binding dependency or an approved runtime contract. Before
-adopting it, a bounded prototype must demonstrate deterministic fixed-step
+Lua is the selected language for an initial scripting prototype. It is not yet
+an approved production runtime contract. Before integrating it into a game, a
+bounded prototype must demonstrate deterministic fixed-step
 behavior, a restricted host API, explicit resource limits, error reporting,
 content validation, and a safe save/migration story on the supported builds.
+
+The visual editor is intended to be a standalone native Windows application.
+The first end-to-end authoring milestones must cover both enemy AI and game UI:
+edit, validate, save, run, and reload authored changes without adding
+game-specific C++. The editor runs on the host; PS5 remains a game target and
+deployment remains manual. Neither the editor nor scripting is implemented
+merely by this decision.
 
 The target is a reusable engine for multiple kinds of games, not a guarantee
 that every conceivable game can be made without custom work. Preserve C++20,
@@ -55,8 +62,8 @@ static validation is not evidence of PS5 runtime support.
    project tables from both the game and reusable framework modules. Migrate
    every current reference-game definition while preserving the game and
    keeping schemas, validators, editors, and tests aligned.
-3. **Evaluate scripting.** Prototype Lua behind a narrow, deterministic,
-   resource-bounded engine API. Decide whether to adopt it only after
+3. **Prototype scripting and authoring.** Prototype Lua behind a narrow,
+   deterministic, resource-bounded engine API. Ship the production runtime only after
    headless tests and Windows/PS5 build integration meet the constraints above.
 4. **Complete the Vulkan 2D path.** Separate simulation, world/presentation
    data, and renderer ownership; support side-view and isometric projection

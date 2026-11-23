@@ -2,6 +2,22 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**Lua authoring prototype:** A Windows-only, non-production experiment runs
+bounded Lua snippets against synthetic AI and UI inputs/outputs. Its host tests
+pass for repeated results, invalid outputs, unavailable OS APIs, source,
+memory and instruction limits, and error handling. The Windows game build and
+22/22 existing tests also pass. The experiment is not integrated into gameplay,
+a general scene editor is not implemented, and Lua on PS5 is NOT TESTED.
+
+**Native map workspace:** Windows can build an initial room tile-grid editor
+and a secondary property inspector. Headless tests exercise edited room,
+attributes, quest and stalker data through the game world and modules, and
+check Windows file replacement and conflict detection. The grid is symbolic,
+not the game renderer; object placement, full scene editing, UI layout and Lua
+integration remain unfinished. Windows Debug build/tests pass 23/23; the
+editor window opened, but interactive map editing was not verified. PS5
+execution is unaffected and not tested by this host-only tool.
+
 **PS5 operator report (2026-11-23):** The operator reported that the current
 Vulkan package works on PS5. The binary digest, hardware setup and specific
 features exercised were not stated; the report cannot be attributed to a
