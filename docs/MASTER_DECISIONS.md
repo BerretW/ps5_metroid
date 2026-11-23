@@ -79,7 +79,8 @@ The current codebase already loads rooms, object placements, dialogues,
 quests, power circuits, item stack catalogs, cutscenes, and much of the visual
 content from JSON. It still embeds authored data in C++, including:
 
-- player movement and combat tuning in `src/game/game.cpp`;
+- enemy AI tuning and fallback values for optional gameplay modules in
+  `src/game/game.cpp`;
 - stable item and enemy save-slot mappings in `src/game/game.cpp`;
 - project-specific quest ID/order/reward validation in
   `src/game/project_quests.hpp`;
@@ -100,7 +101,14 @@ now come from the bounded version-3 item catalog; compiled handlers implement
 the effects and the Equipment module allowlists the supported modifiers. Enemy
 loot items, quantities, and save-slot-to-enemy-slot associations now come from
 the bounded version-1 loot table in `game.json`; runtime spawning remains a
-generic simulation algorithm. This is a partial migration: player
-movement/combat tuning, stable save-slot definitions, stable item save-key
-mapping, project quest constraints, and fixed world/save assumptions remain to
-be audited and migrated.
+generic simulation algorithm. Side-view movement physics tuning now comes from
+the version-1 Attributes block; the shared simulation retains algorithms and
+fallback values for configurations that do not select that optional module.
+Player weapon speed, firing interval, and invulnerability duration now also
+come from the bounded Attributes block. Charger detection range and charge
+speed, stalker detection range, and sentry range, projectile speed and fire
+interval, and the armored enemy's guard cycle and damage reduction now come
+from inherited world-object properties with optional placement overrides.
+Reusable behavior composition, stable save-slot definitions, stable item
+save-key mapping, project quest constraints, and fixed world/save assumptions
+remain to be audited and migrated.

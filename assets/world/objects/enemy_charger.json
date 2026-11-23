@@ -13,6 +13,8 @@
   "properties": {
     "behavior": "charger",
     "health": 3,
-    "speed": 70
+    "speed": 70,
+    "detectionRange": 220,
+    "chargeSpeed": 130
   }
 }

@@ -100,7 +100,7 @@ private:
     framework_detail::StateModule stateModule_{};
     framework_detail::ProjectEchoModule projectModule_{};
     std::unique_ptr<framework::InventoryModule> inventoryModule_{};
-    framework::AttributesModule attributesModule_{};
+    std::unique_ptr<framework::AttributesModule> attributesModule_{};
     std::unique_ptr<framework::EquipmentModule> equipmentModule_{};
     framework::QuestModule questModule_{};
     framework::CutsceneModule cutsceneModule_{};

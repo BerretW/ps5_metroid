@@ -104,6 +104,17 @@ struct Enemy {
     EnemyType type{EnemyType::Patrol};
     float attackCooldown{};
     std::array<char, 32> id{};
+    float detectionRange{};
+    float chargeSpeed{};
+    float projectileSpeed{};
+    float fireInterval{};
+    float guardCycle{};
+    float guardStart{};
+    int guardReduction{};
+
+    [[nodiscard]] bool guarding() const noexcept {
+        return type == EnemyType::Armored && attackCooldown >= guardStart;
+    }
 };
 
 struct Projectile {
@@ -189,6 +200,13 @@ struct EnemySpawn {
     EnemyType type{EnemyType::Patrol};
     const framework::ObjectDefinition* archetype{};
     std::array<char, 32> id{};
+    float detectionRange{};
+    float chargeSpeed{};
+    float projectileSpeed{};
+    float fireInterval{};
+    float guardCycle{};
+    float guardStart{};
+    int guardReduction{};
 };
 
 // A door is drawn; a trigger is an invisible interaction area.
@@ -562,8 +580,7 @@ private:
     int dialogueDirection_{};
     framework::DialogueLanguage dialogueLanguage_{framework::DialogueLanguage::English};
     framework::InventoryModule* inventoryModule_{};
-    framework::AttributeSet<8, 8> attributes_{};
-    framework::AttributeSet<8, 8> baseAttributes_{};
+    framework::AttributeSet<16, 8> attributes_{};
     bool attributesConfigured_{};
     const framework::AbilityModule* abilityModule_{};
     framework::AbilitySet<8> abilities_{};

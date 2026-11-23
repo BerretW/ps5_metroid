@@ -166,6 +166,66 @@
         "baseValue": 1,
         "minimum": 1,
         "maximum": 3
+      },
+      {
+        "id": "echo:attribute/player.horizontal_acceleration",
+        "baseValue": 1500,
+        "minimum": 100,
+        "maximum": 5000
+      },
+      {
+        "id": "echo:attribute/player.gravity",
+        "baseValue": 1100,
+        "minimum": 100,
+        "maximum": 5000
+      },
+      {
+        "id": "echo:attribute/player.maximum_fall_speed",
+        "baseValue": 520,
+        "minimum": 100,
+        "maximum": 2000
+      },
+      {
+        "id": "echo:attribute/player.coyote_time_ms",
+        "baseValue": 100,
+        "minimum": 0,
+        "maximum": 500
+      },
+      {
+        "id": "echo:attribute/player.jump_buffer_ms",
+        "baseValue": 120,
+        "minimum": 0,
+        "maximum": 500
+      },
+      {
+        "id": "echo:attribute/player.jump_release_gravity_percent",
+        "baseValue": 170,
+        "minimum": 100,
+        "maximum": 500
+      },
+      {
+        "id": "echo:attribute/player.double_jump_percent",
+        "baseValue": 92,
+        "minimum": 1,
+        "maximum": 100
+      },
+      {
+        "id": "echo:attribute/player.projectile_speed",
+        "baseValue": 500,
+        "minimum": 100,
+        "maximum": 1500
+      },
+      {
+        "id": "echo:attribute/player.fire_interval_ms",
+        "baseValue": 220,
+        "minimum": 1,
+        "maximum": 2000
+      },
+      {
+        "id": "echo:attribute/player.invulnerability_ms",
+        "baseValue": 1000,
+        "minimum": 0,
+        "maximum": 5000
       }
     ]
   },

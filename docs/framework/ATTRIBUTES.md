@@ -22,7 +22,7 @@ The game config's `attributes` object uses schema version 1:
 }
 ```
 
-The module accepts at most 8 definitions. IDs must be unique valid content
+The module accepts at most 16 definitions. IDs must be unique valid content
 IDs, and each signed 32-bit base value must lie within its inclusive bounds.
 The module owns its copied IDs, so the parsed JSON document may be released
 after `load`.
@@ -35,9 +35,16 @@ a configured attribute, a stable source ID, and a nonzero amount; duplicate
 sources and changes outside declared bounds fail without mutation.
 
 PROJECT ECHO selects `echo.rpg.attributes` in
-`assets/framework/game.json`, which defines five attributes for player max
-health, movement speed, jump impulse, Health Cell healing, and projectile
-damage. These authored defaults and bounds no longer live in `src/game/game.cpp`.
+`assets/framework/game.json`, which defines fifteen attributes for player max
+health, movement speed, jump impulse, Health Cell healing, projectile damage,
+and seven side-view movement physics parameters. Movement parameters include
+horizontal acceleration, gravity, maximum fall speed, coyote/jump-buffer
+durations in milliseconds, jump-release gravity scaling in percent, and the
+double-jump impulse percentage. Three combat values define player projectile
+speed, firing interval, and post-hit invulnerability duration. Durations use
+milliseconds. Their project defaults and bounds are loaded from JSON; the C++
+simulation still provides fallback values when the optional attributes module
+is not selected.
 `Game::addAttributeModifier` and `Game::removeAttributeModifier` apply
 validated modifiers to those stats. The optional equipment module uses the
 same bounded path for gear modifiers. Max-health reductions clamp current

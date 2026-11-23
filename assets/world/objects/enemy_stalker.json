@@ -31,6 +31,7 @@
   "properties": {
     "behavior": "stalker",
     "health": 2,
-    "speed": 70
+    "speed": 70,
+    "detectionRange": 300
   }
 }

@@ -30,6 +30,54 @@ void check(echo::framework::Status status, std::string_view message) {
     check(static_cast<bool>(status), message);
 }
 
+bool loadWorldFixture(std::string_view changedId, std::string_view original,
+                      std::string_view replacement, echo::framework::WorldModule& world,
+                      echo::WorldLayout& layout) {
+    using namespace echo::framework;
+    auto load = [&](const char* path, auto&& apply) {
+        std::ifstream input(std::string(ECHO_SOURCE_ASSETS) + path, std::ios::binary);
+        if (!input) return false;
+        std::string source{std::istreambuf_iterator<char>(input),
+                           std::istreambuf_iterator<char>()};
+        JsonDocument document{};
+        JsonError error{};
+        return JsonDocument::parse(source.data(), source.size(), document, error) &&
+               apply(document.root());
+    };
+    if (!load("world/world.json", [&](JsonValue root) { return world.loadManifest(root); })) {
+        return false;
+    }
+    bool changed = false;
+    for (bool objects : {true, false}) {
+        const std::size_t count = objects ? world.manifestObjectCount()
+                                          : world.manifestRoomCount();
+        for (std::size_t index = 0; index < count; ++index) {
+            const std::string_view id = objects ? world.manifestObject(index)
+                                                : world.manifestRoom(index);
+            std::array<char, 160> path{};
+            if (!WorldModule::contentPath(id, path.data(), path.size())) return false;
+            std::ifstream input(std::string(ECHO_SOURCE_ASSETS) + path.data(),
+                                std::ios::binary);
+            if (!input) return false;
+            std::string source{std::istreambuf_iterator<char>(input),
+                               std::istreambuf_iterator<char>()};
+            if (id == changedId) {
+                const std::size_t position = source.find(original);
+                if (position == std::string::npos) return false;
+                source.replace(position, original.size(), replacement);
+                changed = true;
+            }
+            JsonDocument document{};
+            JsonError error{};
+            if (!JsonDocument::parse(source.data(), source.size(), document, error) ||
+                !(objects ? world.addObject(id, document.root())
+                          : world.addRoom(id, document.root()))) return false;
+        }
+    }
+    if (!changed || !world.finalize()) return false;
+    return static_cast<bool>(echo::buildWorldLayout(world, layout));
+}
+
 } // namespace
 
 int main() {
@@ -336,11 +384,134 @@ int main() {
     echo::Game game;
     check(integration->configureGame(game), "game binds the initialized dialogue module");
     {
+        auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
+        auto fixtureLayout = std::make_unique<echo::WorldLayout>();
+        check(loadWorldFixture("echo:room/maintenance_tunnel", "\"patrolMax\": 520",
+                               "\"patrolMax\": 520, \"chargeSpeed\": 50",
+                               *fixtureWorld, *fixtureLayout) &&
+                  fixtureLayout->enemies[2].chargeSpeed == 50.0F &&
+                  fixtureLayout->enemies[2].detectionRange == 220.0F &&
+                  fixtureLayout->roamers[0].detectionRange == 300.0F,
+              "enemy behavior properties inherit from archetypes and placement overrides win");
+        {
+            echo::Game overridden;
+            auto checkpoint = overridden.checkpoint();
+            checkpoint.room = echo::RoomId::MaintenanceTunnel;
+            checkpoint.playerPosition = {340.0F, 292.0F};
+            checkpoint.enemyHealth[0] = 0;
+            check(overridden.configureWorld(*fixtureLayout) && overridden.restore(checkpoint),
+                  "placement override game restores");
+            const float start = overridden.enemies()[2].bounds.x;
+            bool updated = true;
+            for (int step = 0; step < 6; ++step) {
+                if (!overridden.update({})) updated = false;
+            }
+            const float traveled = start - overridden.enemies()[2].bounds.x;
+            check(updated && traveled > 4.9F && traveled < 5.1F,
+                  "the placement override changes charger movement in the game");
+        }
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_charger", "\"chargeSpeed\": 130",
+                                "\"chargeSpeed\": \"fast\"", *fixtureWorld, *fixtureLayout),
+              "non-numeric charger speed is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_stalker", "\"detectionRange\": 300",
+                                "\"detectionRange\": 1e100", *fixtureWorld, *fixtureLayout),
+              "stalker detection range outside float bounds is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_charger", ",\n    \"chargeSpeed\": 130",
+                                "", *fixtureWorld, *fixtureLayout),
+              "missing charger speed is rejected");
+        fixtureWorld->reset();
+        check(loadWorldFixture("echo:room/research_lab", "\"patrolMax\": 1100",
+                               "\"patrolMax\": 1100, \"detectionRange\": 300, "
+                               "\"projectileSpeed\": 60, \"fireInterval\": 0.25",
+                               *fixtureWorld, *fixtureLayout) &&
+                  fixtureLayout->enemies[4].detectionRange == 300.0F &&
+                  fixtureLayout->enemies[4].projectileSpeed == 60.0F &&
+                  fixtureLayout->enemies[4].fireInterval == 0.25F,
+              "sentry tuning accepts placement overrides");
+        {
+            echo::Game overridden = game;
+            auto checkpoint = overridden.checkpoint();
+            checkpoint.room = echo::RoomId::ResearchLab;
+            checkpoint.playerPosition = {800.0F, 292.0F};
+            checkpoint.questBranch = 1;
+            check(checkpoint.inventory.add(echo::ItemId::MaintenanceKey),
+                  "sentry override fixture adds the laboratory key");
+            check(overridden.configureWorld(*fixtureLayout), "sentry override world configures");
+            check(overridden.restore(checkpoint), "sentry override checkpoint restores");
+            check(overridden.update({}), "sentry override game updates");
+            check(overridden.enemyProjectiles()[0].active &&
+                      overridden.enemyProjectiles()[0].velocityX == -60.0F &&
+                      overridden.enemies()[4].attackCooldown == 0.25F,
+                  "sentry placement overrides affect gameplay");
+        }
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_sentry", "\"projectileSpeed\": 220",
+                                "\"projectileSpeed\": \"fast\"", *fixtureWorld, *fixtureLayout),
+              "non-numeric sentry projectile speed is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_sentry", "\"fireInterval\": 1.5",
+                                "\"fireInterval\": 0", *fixtureWorld, *fixtureLayout),
+              "sentry fire interval below one fixed step is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_sentry", ",\n    \"detectionRange\": 420",
+                                "", *fixtureWorld, *fixtureLayout),
+              "missing sentry detection range is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:room/research_lab", "\"patrolMax\": 1100",
+                                "\"patrolMax\": 1100, \"projectileSpeed\": -1",
+                                *fixtureWorld, *fixtureLayout),
+              "invalid sentry placement override is rejected");
+        fixtureWorld->reset();
+        check(loadWorldFixture("echo:room/power_station", "\"patrolMax\": 650",
+                               "\"patrolMax\": 650, \"guardCycle\": 0.5, "
+                               "\"guardStart\": 0.1, \"guardReduction\": 2",
+                               *fixtureWorld, *fixtureLayout) &&
+                  fixtureLayout->enemies[3].guardCycle == 0.5F &&
+                  fixtureLayout->enemies[3].guardStart == 0.1F &&
+                  fixtureLayout->enemies[3].guardReduction == 2,
+              "armored tuning accepts placement overrides");
+        {
+            echo::Game overridden;
+            auto checkpoint = overridden.checkpoint();
+            checkpoint.room = echo::RoomId::PowerStation;
+            checkpoint.playerPosition = {400.0F, 292.0F};
+            check(overridden.configureWorld(*fixtureLayout) && overridden.restore(checkpoint),
+                  "armored override fixture restores");
+            bool updated = true;
+            for (int step = 0; step < 7; ++step) {
+                if (!overridden.update({})) updated = false;
+            }
+            check(updated && overridden.enemies()[3].guarding() &&
+                      overridden.enemies()[3].guardReduction == 2,
+                  "armored placement overrides affect the runtime guard phase");
+        }
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_armored", "\"guardReduction\": 1",
+                                "\"guardReduction\": 1.5", *fixtureWorld, *fixtureLayout),
+              "fractional armor reduction is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:object/enemy_armored", ",\n    \"guardStart\": 2",
+                                "", *fixtureWorld, *fixtureLayout),
+              "missing armor guard start is rejected");
+        fixtureWorld->reset();
+        check(!loadWorldFixture("echo:room/power_station", "\"patrolMax\": 650",
+                                "\"patrolMax\": 650, \"guardStart\": 3",
+                                *fixtureWorld, *fixtureLayout),
+              "armor placement override cannot start guarding at cycle end");
+    }
+    {
         const echo::WorldLayout* loaded = integration->worldLayout();
         const echo::WorldLayout& expected = echo::defaultWorldLayout();
         check(loaded != nullptr && &game.world() == loaded,
               "the selected world module configures the game layout from JSON");
         if (loaded != nullptr) {
+            check(loaded->enemies[3].guardCycle == 3.0F &&
+                      loaded->enemies[3].guardStart == 2.0F &&
+                      loaded->enemies[3].guardReduction == 1,
+                  "shipped armor data preserves the original guard behavior");
             echo::Vec2 consoleStart{};
             echo::Vec2 consoleMoved{};
             const auto initialConsolePosition = game.propPosition(

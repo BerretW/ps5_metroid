@@ -46,6 +46,12 @@ int main() {
                                     "echo:equipment/vitality") &&
               attributes.value("echo:attribute/player.max_health", value) && value == 5,
           "removing a modifier restores the previous value");
+    check(static_cast<bool>(attributes.addModifier("echo:attribute/player.max_health",
+                                                   "echo:equipment/vitality", 2)),
+          "a modifier can be reapplied before clearing");
+    attributes.clearModifiers();
+    check(attributes.value("echo:attribute/player.max_health", value) && value == 5,
+          "clearing modifiers restores configured base values without a duplicate attribute set");
     check(attributes.value("echo:attribute/unknown", value).code == ErrorCode::NotFound,
           "unknown attributes fail explicitly");
 

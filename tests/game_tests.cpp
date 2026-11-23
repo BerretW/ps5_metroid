@@ -223,7 +223,11 @@ void testAttributeModifiersAffectGameplay() {
         "schemaVersion": 1,
         "definitions": [
             {"id": "echo:attribute/player.max_health", "baseValue": 5, "minimum": 1, "maximum": 8},
-            {"id": "echo:attribute/player.move_speed", "baseValue": 190, "minimum": 100, "maximum": 250}
+            {"id": "echo:attribute/player.move_speed", "baseValue": 190, "minimum": 100, "maximum": 250},
+            {"id": "echo:attribute/player.horizontal_acceleration", "baseValue": 1500, "minimum": 100, "maximum": 5000},
+            {"id": "echo:attribute/player.projectile_speed", "baseValue": 650, "minimum": 100, "maximum": 1500},
+            {"id": "echo:attribute/player.fire_interval_ms", "baseValue": 500, "minimum": 1, "maximum": 2000},
+            {"id": "echo:attribute/player.invulnerability_ms", "baseValue": 1000, "minimum": 0, "maximum": 5000}
         ]
     })";
     echo::framework::JsonDocument document{};
@@ -256,6 +260,35 @@ void testAttributeModifiersAffectGameplay() {
                   "echo:attribute/player.max_health", "echo:upgrade/vitality")) &&
               game.maximumHealth() == 5,
           "bounded max-health reductions clamp health without healing on removal");
+
+    echo::Game defaultAcceleration;
+    echo::Game fasterAcceleration;
+    check(static_cast<bool>(defaultAcceleration.configureAttributes(module)) &&
+              static_cast<bool>(fasterAcceleration.configureAttributes(module)) &&
+              static_cast<bool>(fasterAcceleration.addAttributeModifier(
+                  "echo:attribute/player.horizontal_acceleration",
+                  "echo:upgrade/acceleration", 500)),
+          "horizontal acceleration is loaded and modifier-bounded through JSON attributes");
+    step(defaultAcceleration, {.moveX = 1});
+    step(fasterAcceleration, {.moveX = 1});
+    check(fasterAcceleration.player().velocity.x > defaultAcceleration.player().velocity.x,
+          "configured horizontal acceleration changes deterministic movement");
+
+    echo::Game tunedWeapon;
+    check(static_cast<bool>(tunedWeapon.configureAttributes(module)) &&
+              static_cast<bool>(tunedWeapon.update({.shootHeld = true})),
+          "projectile settings load from JSON attributes");
+    const auto firstShot = std::find_if(
+        tunedWeapon.projectiles().begin(), tunedWeapon.projectiles().end(),
+        [](const echo::Projectile& projectile) { return projectile.active; });
+    step(tunedWeapon, {.shootHeld = true}, 20);
+    std::size_t activeShots = 0;
+    for (const echo::Projectile& projectile : tunedWeapon.projectiles()) {
+        activeShots += projectile.active ? 1U : 0U;
+    }
+    check(firstShot != tunedWeapon.projectiles().end() &&
+              firstShot->velocityX == 650.0F && activeShots == 1,
+          "configured projectile speed and fire interval control shooting");
 
     echo::Game baseline;
     const float baselineX = baseline.player().position.x;
@@ -449,6 +482,49 @@ void testDataDrivenWorldLayout() {
     static echo::WorldLayout weakEnemy = echo::defaultWorldLayout();
     weakEnemy.enemies[0].health = 0;
     check(!rejected.configureWorld(weakEnemy), "enemy spawns outside the save contract are rejected");
+    static echo::WorldLayout invalidBehavior = echo::defaultWorldLayout();
+    invalidBehavior.enemies[2].chargeSpeed = std::numeric_limits<float>::infinity();
+    check(!rejected.configureWorld(invalidBehavior), "non-finite charger speed is rejected");
+    invalidBehavior = echo::defaultWorldLayout();
+    invalidBehavior.roamers[0].detectionRange = 4097.0F;
+    check(!rejected.configureWorld(invalidBehavior), "out-of-range stalker sight is rejected");
+    invalidBehavior = echo::defaultWorldLayout();
+    invalidBehavior.enemies[4].projectileSpeed = std::numeric_limits<float>::quiet_NaN();
+    check(!rejected.configureWorld(invalidBehavior), "non-finite sentry projectile speed is rejected");
+    invalidBehavior.enemies[4].projectileSpeed = 601.0F;
+    check(!rejected.configureWorld(invalidBehavior), "out-of-range sentry projectile speed is rejected");
+    invalidBehavior.enemies[4].projectileSpeed = 220.0F;
+    invalidBehavior.enemies[4].fireInterval = 0.0F;
+    check(!rejected.configureWorld(invalidBehavior), "sentry intervals shorter than one step are rejected");
+    invalidBehavior.enemies[4].fireInterval = 60.1F;
+    check(!rejected.configureWorld(invalidBehavior), "out-of-range sentry fire intervals are rejected");
+    invalidBehavior.enemies[4].detectionRange = 4096.0F;
+    invalidBehavior.enemies[4].projectileSpeed = 600.0F;
+    invalidBehavior.enemies[4].fireInterval = echo::kFixedStep;
+    check(static_cast<bool>(rejected.configureWorld(invalidBehavior)),
+          "sentry tuning accepts its fixed-step and upper bounds");
+    invalidBehavior.enemies[4].detectionRange = 0.0F;
+    invalidBehavior.enemies[4].projectileSpeed = 0.0F;
+    invalidBehavior.enemies[4].fireInterval = 60.0F;
+    check(static_cast<bool>(rejected.configureWorld(invalidBehavior)),
+          "sentry tuning accepts zero range and maximum interval");
+    invalidBehavior = echo::defaultWorldLayout();
+    invalidBehavior.enemies[3].guardCycle = std::numeric_limits<float>::quiet_NaN();
+    check(!rejected.configureWorld(invalidBehavior), "non-finite armor cycle is rejected");
+    invalidBehavior.enemies[3].guardCycle = 0.049F;
+    check(!rejected.configureWorld(invalidBehavior), "armor cycle cannot be shorter than a gameplay update");
+    invalidBehavior.enemies[3].guardCycle = 3.0F;
+    invalidBehavior.enemies[3].guardStart = 3.0F;
+    check(!rejected.configureWorld(invalidBehavior), "armor guard start must precede cycle end");
+    invalidBehavior.enemies[3].guardStart = 0.0F;
+    invalidBehavior.enemies[3].guardReduction = -1;
+    check(!rejected.configureWorld(invalidBehavior), "negative armor reduction is rejected");
+    invalidBehavior.enemies[3].guardReduction = 100;
+    check(!rejected.configureWorld(invalidBehavior), "excessive armor reduction is rejected");
+    invalidBehavior.enemies[3].guardCycle = 0.05F;
+    invalidBehavior.enemies[3].guardReduction = 99;
+    check(static_cast<bool>(rejected.configureWorld(invalidBehavior)),
+          "armor tuning accepts its minimum cycle and maximum reduction");
 
     static echo::WorldLayout movedEngineer = echo::defaultWorldLayout();
     movedEngineer.engineer.x = 400.0F;
@@ -804,6 +880,25 @@ void testProjectileCombatAndDamage() {
               restoredDamage.cameraShakeOffset().y == 0.0F,
           "restoring a checkpoint clears transient camera shake");
 
+    echo::Game noInvulnerabilityGame;
+    check(static_cast<bool>(fixture.bind(
+              noInvulnerabilityGame, echo::kDefaultInteractionReach, true)) &&
+              moveUntilRoom(noInvulnerabilityGame,
+                            echo::RoomId::MaintenanceTunnel, 1),
+          "configurable invulnerability fixture binds and reaches an enemy");
+    auto noInvulnerabilityCheckpoint = noInvulnerabilityGame.checkpoint();
+    noInvulnerabilityCheckpoint.playerPosition = {760.0F, 292.0F};
+    noInvulnerabilityCheckpoint.enemyHealth[2] = 0;
+    check(noInvulnerabilityGame.restore(noInvulnerabilityCheckpoint) &&
+              static_cast<bool>(noInvulnerabilityGame.addAttributeModifier(
+                  "echo:attribute/player.invulnerability_ms",
+                  "echo:upgrade/no_invulnerability", -1000)),
+          "invulnerability duration can be configured to zero");
+    const int healthBeforeRapidHits = noInvulnerabilityGame.player().health;
+    step(noInvulnerabilityGame, {}, 2);
+    check(noInvulnerabilityGame.player().health <= healthBeforeRapidHits - 2,
+          "configured invulnerability duration controls repeat contact damage");
+
     step(damageGame, {}, 1);
     const echo::Vec2 advancedShake = damageGame.cameraShakeOffset();
     check(damageGame.player().health == damagedHealth &&
@@ -919,6 +1014,15 @@ void testIsometricCargoHold() {
     const float initialDistance = distance(hunter);
     step(hunter, {}, 30);
     check(distance(hunter) < initialDistance, "stalkers chase the player in the isometric room");
+    static echo::WorldLayout shortSight = echo::defaultWorldLayout();
+    shortSight.roamers[0].detectionRange = 10.0F;
+    echo::Game shortSightHunter;
+    check(shortSightHunter.configureWorld(shortSight) && shortSightHunter.restore(hunt),
+          "custom stalker sight fixture restores");
+    const float shortSightDistance = distance(shortSightHunter);
+    step(shortSightHunter, {}, 30);
+    check(distance(shortSightHunter) == shortSightDistance,
+          "stalkers outside their configured sight range do not chase");
     step(hunter, {.moveX = -1, .moveY = -1});
     step(hunter, {.shootHeld = true}, 150);
     check(hunter.roomId() == echo::RoomId::CargoHold && !hunter.roamers().empty() &&
@@ -970,6 +1074,27 @@ void testNewEnemyBehaviorsAndItems() {
     step(game, {}, 10);
     check(game.enemies()[2].bounds.x < chargerX,
           "charger pursues a nearby player rather than continuing its patrol");
+    static echo::WorldLayout slowCharge = echo::defaultWorldLayout();
+    slowCharge.enemies[2].chargeSpeed = 30.0F;
+    echo::Game slowCharger;
+    check(slowCharger.configureWorld(slowCharge) && fixture.bind(slowCharger) &&
+              slowCharger.restore(checkpoint),
+          "custom charger speed fixture restores");
+    const float slowStart = slowCharger.enemies()[2].bounds.x;
+    step(slowCharger, {}, 10);
+    const float slowDistance = slowStart - slowCharger.enemies()[2].bounds.x;
+    check(slowDistance > 4.9F && slowDistance < 5.1F,
+          "charger uses the configured charge speed");
+    static echo::WorldLayout shortChargeRange = echo::defaultWorldLayout();
+    shortChargeRange.enemies[2].detectionRange = 10.0F;
+    echo::Game shortRangeCharger;
+    check(shortRangeCharger.configureWorld(shortChargeRange) && fixture.bind(shortRangeCharger) &&
+              shortRangeCharger.restore(checkpoint),
+          "custom charger range fixture restores");
+    const float patrolStart = shortRangeCharger.enemies()[2].bounds.x;
+    step(shortRangeCharger, {}, 10);
+    check(shortRangeCharger.enemies()[2].bounds.x > patrolStart,
+          "charger patrols when the player is outside its configured range");
 
     checkpoint = game.checkpoint();
     checkpoint.room = echo::RoomId::PowerStation;
@@ -990,6 +1115,30 @@ void testNewEnemyBehaviorsAndItems() {
     check(game.enemies()[3].attackCooldown >= 2.0F, "armored enemy enters guard phase");
     step(game, {.useItemPressed = true});
     check(game.enemies()[3].health == 5, "armored guard reduces incoming blast damage");
+    static echo::WorldLayout tunedArmor = echo::defaultWorldLayout();
+    tunedArmor.enemies[3].guardCycle = 0.5F;
+    tunedArmor.enemies[3].guardStart = 0.1F;
+    tunedArmor.enemies[3].guardReduction = 2;
+    auto armored = std::make_unique<echo::Game>();
+    check(armored->configureWorld(tunedArmor) && fixture.bind(*armored) &&
+              armored->restore(checkpoint),
+          "custom armor fixture restores");
+    step(*armored, {.useItemPressed = true});
+    check(armored->enemies()[3].health == 4,
+          "the configured armor does not reduce damage before guarding");
+    check(armored->restore(checkpoint), "custom armor fixture resets");
+    step(*armored, {}, 7);
+    check(armored->enemies()[3].guarding(), "armor enters its configured guard phase");
+    const float guardingX = armored->enemies()[3].bounds.x;
+    step(*armored, {}, 3);
+    check(armored->enemies()[3].bounds.x == guardingX,
+          "armor stops moving while guarding");
+    step(*armored, {.useItemPressed = true});
+    check(armored->enemies()[3].health == 6,
+          "the configured armor reduction applies while guarding");
+    step(*armored, {}, 21);
+    check(!armored->enemies()[3].guarding() && armored->enemies()[3].bounds.x > guardingX,
+          "armor resumes patrol after the configured cycle");
 
     checkpoint = game.checkpoint();
     checkpoint.room = echo::RoomId::ResearchLab;
@@ -997,6 +1146,36 @@ void testNewEnemyBehaviorsAndItems() {
     checkpoint.enemyHealth[3] = 0;
     check(checkpoint.inventory.add(ItemId::MaintenanceKey) && game.restore(checkpoint),
           "sentry fixture restores in the laboratory");
+    auto distantCheckpoint = checkpoint;
+    distantCheckpoint.playerPosition.x = 800.0F;
+    static echo::WorldLayout shortSentryRange = echo::defaultWorldLayout();
+    shortSentryRange.enemies[4].detectionRange = 100.0F;
+    echo::Game shortRangeSentry;
+    check(shortRangeSentry.configureWorld(shortSentryRange) && fixture.bind(shortRangeSentry) &&
+              shortRangeSentry.restore(distantCheckpoint),
+          "custom sentry detection fixture restores");
+    step(shortRangeSentry, {}, 1);
+    check(std::none_of(shortRangeSentry.enemyProjectiles().begin(),
+                       shortRangeSentry.enemyProjectiles().end(),
+                       [](const echo::Projectile& shot) { return shot.active; }),
+          "sentry does not fire outside its configured range");
+    static echo::WorldLayout tunedSentry = echo::defaultWorldLayout();
+    tunedSentry.enemies[4].projectileSpeed = 60.0F;
+    tunedSentry.enemies[4].fireInterval = 0.25F;
+    echo::Game customizedSentry;
+    check(customizedSentry.configureWorld(tunedSentry) && fixture.bind(customizedSentry) &&
+              customizedSentry.restore(distantCheckpoint),
+          "custom sentry shot fixture restores");
+    step(customizedSentry, {}, 1);
+    check(customizedSentry.enemyProjectiles()[0].active &&
+              customizedSentry.enemyProjectiles()[0].velocityX == -60.0F,
+          "sentry fires at the configured projectile speed");
+    step(customizedSentry, {}, 14);
+    check(!customizedSentry.enemyProjectiles()[1].active,
+          "sentry waits for the configured interval");
+    step(customizedSentry, {}, 3);
+    check(customizedSentry.enemyProjectiles()[1].active,
+          "sentry fires again after the configured interval");
     step(game, {}, 1);
     bool fired = false;
     for (const auto& shot : game.enemyProjectiles()) fired |= shot.active;

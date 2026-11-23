@@ -2,6 +2,48 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**Data-driven armored guard (2026-11-23):** Guard cycle, start and damage
+reduction load from inherited object properties with placement overrides.
+Gameplay, damage and side-view rendering use the same guard state. Windows
+Debug build/tests pass 22/22, including headless behavior and invalid-content
+tests and an offscreen guard-marker check. Both native Windows PS5 variants
+compile, link, pass static validation and their package tests under
+`PPSA91007`; package tests do not check the gameplay-specific guard bounds,
+which world loading validates. Controller FSELF: 1,942,337 bytes, SHA-256
+`7b6c99e7e8b3bfc2e6046b0d337f0f7c1659dfbf85e7998d5b7eca63d4b00f46`.
+Vulkan FSELF: 28,216,717 bytes, SHA-256
+`f656d0a960cc8cb27314915a278daa9036976e373b70e22dfd88b73e5bd8f47d`.
+Both contain the 416-byte armored object with SHA-256
+`c1467d36089f8bc14422cf9c5627d3b1a040368ac78afd7e2fde2bcb589b2dbb`.
+These packages have not been tested on PS5 hardware.
+
+**Data-driven sentry firing (2026-11-23):** Sentry detection range, projectile
+speed and fire interval now load from inherited world-object properties, with
+placement overrides and bounded validation. Headless tests cover tuning,
+boundaries, malformed data and gameplay from a placement override. Windows
+Debug build/tests pass 22/22. Both native Windows PS5 variants compile, link,
+pass static validation and their package tests under `PPSA91007`; package
+tests do not check the new gameplay-specific bounds, which world loading
+validates. Controller FSELF: 1,941,649 bytes, SHA-256
+`45b5f8db02dc787d0b4d9f99dcdd293246c8ceec6bb196dd4b141b5f784387e8`.
+Vulkan FSELF: 28,216,077 bytes, SHA-256
+`ba013a947ee82897568ef2176e988f515ca13f465d05ff0149b4ca1f5c4f6737`.
+Both contain the 351-byte sentry object with SHA-256
+`2ec34f9744efc61ac2524238b57776ad9db715c435715885fc51b5a154caa5d7`.
+These packages have not been tested on PS5 hardware.
+
+**Data-driven enemy pursuit (2026-11-23):** Charger detection range and charge
+speed, and stalker detection range, load from inherited world-object properties
+with room-placement overrides. Headless tests exercise pursuit, overrides and
+invalid inputs; Windows Debug build/tests pass 22/22. Both native Windows PS5
+variants compile, link, pass static validation and their package tests under
+`PPSA91007`. Those package tests do not validate the new gameplay-specific
+property bounds; world loading does. Controller FSELF: 1,940,897 bytes,
+SHA-256 `349ed1df460ed65477586630ca8dbf3ad95258a33f4376bafb63a4edaf5d9366`.
+Vulkan FSELF: 28,215,309 bytes, SHA-256
+`64ea1c1c2ef3139d363a9bf654ee356c51a6b35383b4d9fad4233ddee4218968`.
+These packages have not been tested on PS5 hardware.
+
 **Data-driven item effects (schema v2, 2026-11-23):** At that milestone, the
 version-2 item catalog provides bounded descriptions and use-effect parameters
 for healing, shielding, speed/jump boosts, and area damage. Gameplay dispatches
@@ -47,6 +89,23 @@ Neither package has been individually verified on PS5 hardware. On
 2026-11-23, the operator reported that a PS5 build passed and the game works;
 the tested variant, package digest, and setup were not specified, so this
 report cannot be attributed to either recorded package.
+
+**Data-driven player movement and combat tuning (2026-11-23):** The Attributes
+block in `assets/framework/game.json` now defines seven side-view movement parameters:
+horizontal acceleration, gravity, maximum fall speed, coyote and jump-buffer
+times, jump-release gravity scaling, and double-jump impulse scaling. They are
+bounded integer attributes; times use milliseconds and scales use percent.
+It also defines the player projectile speed, fire interval, and invulnerability
+duration. The fixed-step simulation reads these values while preserving its
+existing algorithms. Windows Debug tests pass 22/22. Both native Windows PS5
+variants compile, link, pass static validation, and pass their package tests under
+`PPSA91007`. The controller FSELF is 1,938,881 bytes, SHA-256
+`8b16fb242f786d516ce075399f0625c6ec2965a34c845a6f4ba9c61b8b81062e`; the
+Vulkan FSELF is 28,213,453 bytes, SHA-256
+`498a7d1a9dcb17a5da935663d4b83791533310c4365d16a066053ce51e54ff66`. Both
+package the 9,841-byte `game.json` with SHA-256
+`2a6a3d349433dcb0e328e01756433f6819e95ec9e2c95561a7936bd9a42b6c86`. These
+specific versions have not been tested on PS5 hardware.
 
 **Partial presentation extraction (2026-11-23):** main menu, options and
 inventory now use SDL-free canvas presentation, directly in the Vulkan path
@@ -188,22 +247,23 @@ manually, not both at once.
 | 53 | Defeat explosions and Cargo Hold fog | PASS (Windows Debug 19/19, including deterministic VFX and SDL/canvas render tests; operator-reported PS5 package build, upload and test; exact variant/digest not supplied) | Defeating an enemy adds a larger bounded explosion burst alongside impact sparks. The Cargo Hold starts with an evenly distributed translucent fog field and continues fixed-step emission. Room transitions and respawn reset the effects; SDL and canvas output match in the isometric render test. |
 | 54 | Data-driven side-view parallax layers | PASS (Windows Debug 19/19, including world schema bounds and canvas draw-position tests; operator-reported PS5 package build, upload and test; exact variant/digest not supplied) | Tile layers accept validated `scrollFactorX` metadata from 0 to 1; omitted values keep prior camera tracking. The Landing Bay's original background decorations now scroll at 0.35 while terrain and object props retain foreground movement. Isometric rooms reject parallax factors to preserve depth sorting. |
 | 55 | Reusable 2D lighting and power circuits | PARTIAL (Windows Debug and Release Vulkan GPU/readback 35/35 each; production Windows 20/20; PS5 Vulkan candidate static/package tests PASS; hardware NOT TESTED) | `game.json` defines world ambient/directional lighting and a smooth day/night cycle; rooms can override those values and define bounded static point/spot lights. Object/tileset JSON binds linear normal maps, emissive masks and power-circuit-driven emission; the Cargo Hold console uses the emergency circuit, and its player-attached spotlight follows aim. Persistent/room light-enable overrides use framework state and save integration; room lights can smoothly fade when enabled state or power circuits change. Stable prop IDs now expose bounded runtime transforms used by prop draws, panel interactions and prop-attached lights; transforms reset on new game and are not saved in `GameCheckpoint`. Point attenuation and spotlight cones use projected world-space distances/directions, including isometric projection; GPU readbacks verify projected light geometry, side/top-down/isometric transforms, camera invariance, blackout, UI isolation, directional normals and emissive masks. The Cargo Hold GPU integration scenario round-trips the game checkpoint, main/emergency circuits and persistent light override through versioned SaveCodec bytes, then verifies overhead dimming and the emergency emissive display by pixel readback. A Landing Bay GPU scenario verifies the circuit-controlled lamp outage, independent emissive backup indicator, and projectile-light movement and expiry. A bounded GPU shadow path uses the 32 nearest visible solid-tile, prop, player, and living-enemy edges; Windows readback verifies light blocking and UI isolation. Generic entity-component attachment, static-light accumulation caching, projectile/particle occlusion and HDR bloom remain incomplete; no PS5 hardware PASS is claimed. See [world lighting notes](framework/WORLD.md#lighting-data). |
-| 56 | Versioned JSON attribute and equipment definitions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (PS5 hardware) | `game.json` now provides five bounded attributes and the equipment module's versioned definitions; the generic Attributes module owns validated JSON definitions, and the duplicate attribute table was removed from `game.cpp`. The content validator rejects invalid attribute bounds. Controller and Vulkan package negative tests pass; both packages keep `PPSA91007`. This is a partial content migration, not a fully data-driven engine. |
+| 56 | Versioned JSON attribute and equipment definitions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (PS5 hardware) | `game.json` provides bounded attributes and the equipment module's versioned definitions; the generic Attributes module owns validated JSON definitions, and the duplicate attribute table was removed from `game.cpp`. The content validator rejects invalid attribute bounds. Controller and Vulkan package negative tests pass; both packages keep `PPSA91007`. This is a partial content migration, not a fully data-driven engine. |
 | 57 | Versioned JSON ability definitions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (PS5 hardware) | The Echo Step ability ID is now declared in `game.json`; the bounded Abilities module validates the version, ID shape, uniqueness, and capacity, then owns its data. Runtime startup and the host validator load the same definitions; malformed content is covered by focused tests. Both variants retain `PPSA91007`. |
 | 58 | Versioned JSON item-use effects and descriptions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package rejection tests); NOT TESTED (this revision on PS5 hardware) | The version-2 item catalog supplies bounded descriptions and parameters for healing, shielding, speed/jump boosts and area damage. Compiled effect handlers remain allowlisted; catalog data cannot load code. Autosave format 8 persists boost magnitudes and migrates formats 1-7 with legacy values. Package tests reject unknown effect IDs. |
+| 59 | Data-driven movement physics and player combat tuning | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (this revision on PS5 hardware) | Ten tunables now load through the versioned Attributes block, with bounded values and preserved defaults. Focused headless tests verify configurable acceleration, projectile speed, and fire interval. |
 
 ## Echo Framework verification
 
 Latest statically validated controller package: `dist/ps5-controller/PPSA91007`,
-`eboot.bin` **1,936,305 bytes**, SHA256
-`a4e7a0d21beebfb85e3e64ccde41799feb3ad0f44fa817dfbe9f9f77af5421fb`; static
+`eboot.bin` **1,938,881 bytes**, SHA256
+`8b16fb242f786d516ce075399f0625c6ec2965a34c845a6f4ba9c61b8b81062e`; static
 report: PASS, hardware NOT TESTED. The matching Vulkan candidate is
-`dist/ps5-vulkan/PPSA91007`, `eboot.bin` **28,210,829 bytes**, SHA256
-`496b6cd75b90b1a733d060146dea014487a1e841f156422f344d20e168e5309e`; static
+`dist/ps5-vulkan/PPSA91007`, `eboot.bin` **28,213,453 bytes**, SHA256
+`498a7d1a9dcb17a5da935663d4b83791533310c4365d16a066053ce51e54ff66`; static
 report: PASS, hardware NOT TESTED. Both retain title ID `PPSA91007`; controller
 imports remain free of keyboard/IME modules. Packaged `assets/framework/game.json`
-is 7,201 bytes, SHA256
-`111a4d98fd94dfb6f392ffa3c823ec63a095b829776f761c3358a3a1b1457929`;
+is 9,841 bytes, SHA256
+`2a6a3d349433dcb0e328e01756433f6819e95ec9e2c95561a7936bd9a42b6c86`;
 `items.json` is 2,376 bytes, SHA256
 `ed42cdffc9be8a052df882386848364906ef29ae36e51c5761576927caa4d4a7`. The
 controller package contains 71 assets and the Vulkan package 73. The seven

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 
 namespace echo {
 namespace {
@@ -20,6 +21,12 @@ constexpr float kLayoutPlayerWidth = 20.0F;
 constexpr float kLayoutPlayerHeight = 28.0F;
 constexpr int kMaxEnemyHealth = 99;
 constexpr float kMaxEnemySpeed = 400.0F;
+constexpr float kMaxEnemyDetectionRange = 4096.0F;
+constexpr float kMaxSentryProjectileSpeed = 600.0F;
+constexpr float kMaxSentryFireInterval = 60.0F;
+constexpr float kMinGuardCycle = 0.05F;
+constexpr float kMaxGuardCycle = 60.0F;
+constexpr int kMaxGuardReduction = 99;
 constexpr std::string_view kEchoStepAbility = "echo:ability/echo_step";
 constexpr std::string_view kMaintenanceKeyItem = "echo:item/maintenance_key";
 
@@ -120,6 +127,16 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     layout.roamers[1] = {RoomId::CargoHold, {560.0F, 280.0F, 24.0F, 24.0F}, 0.0F, 0.0F,
                          70.0F, 2, EnemyType::Stalker};
     layout.roamerCount = 2;
+    layout.enemies[2].detectionRange = 220.0F;
+    layout.enemies[2].chargeSpeed = 130.0F;
+    layout.enemies[3].guardCycle = 3.0F;
+    layout.enemies[3].guardStart = 2.0F;
+    layout.enemies[3].guardReduction = 1;
+    layout.enemies[4].detectionRange = 420.0F;
+    layout.enemies[4].projectileSpeed = 220.0F;
+    layout.enemies[4].fireInterval = 1.5F;
+    layout.roamers[0].detectionRange = 300.0F;
+    layout.roamers[1].detectionRange = 300.0F;
     layout.startRoom = RoomId::LandingBay;
     layout.playerStart = {42.0F, kLayoutFloorY};
     layout.engineer = {108.0F, 280.0F, 28.0F, 40.0F};
@@ -153,11 +170,29 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
 [[nodiscard]] bool readNumber(const ObjectProperty* property, float& output) noexcept {
     if (property == nullptr || (property->type != ObjectPropertyType::Integer &&
                                 property->type != ObjectPropertyType::Number) ||
-        !std::isfinite(property->number)) {
+        !std::isfinite(property->number) ||
+        std::abs(property->number) > std::numeric_limits<float>::max()) {
         return false;
     }
     output = static_cast<float>(property->number);
     return true;
+}
+
+[[nodiscard]] bool validSentryTuning(const EnemySpawn& enemy) noexcept {
+    return std::isfinite(enemy.detectionRange) && enemy.detectionRange >= 0.0F &&
+           enemy.detectionRange <= kMaxEnemyDetectionRange &&
+           std::isfinite(enemy.projectileSpeed) && enemy.projectileSpeed >= 0.0F &&
+           enemy.projectileSpeed <= kMaxSentryProjectileSpeed &&
+           std::isfinite(enemy.fireInterval) && enemy.fireInterval >= kFixedStep &&
+           enemy.fireInterval <= kMaxSentryFireInterval;
+}
+
+[[nodiscard]] bool validArmoredTuning(const EnemySpawn& enemy) noexcept {
+    return std::isfinite(enemy.guardCycle) && enemy.guardCycle >= kMinGuardCycle &&
+           enemy.guardCycle <= kMaxGuardCycle &&
+           std::isfinite(enemy.guardStart) && enemy.guardStart >= 0.0F &&
+           enemy.guardStart < enemy.guardCycle && enemy.guardReduction >= 0 &&
+           enemy.guardReduction <= kMaxGuardReduction;
 }
 
 [[nodiscard]] bool readText(const ObjectProperty* property, std::string_view& output) noexcept {
@@ -251,6 +286,45 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     else if (behavior == "armored") enemy.type = EnemyType::Armored;
     else if (behavior == "sentry") enemy.type = EnemyType::Sentry;
     else return invalid(placement.object.data(), "Unknown enemy behavior.");
+    if (enemy.type == EnemyType::Charger &&
+        (!readNumber(findProperty(placement, object, "detectionRange"),
+                     enemy.detectionRange) ||
+         !readNumber(findProperty(placement, object, "chargeSpeed"), enemy.chargeSpeed) ||
+         !std::isfinite(enemy.detectionRange) || enemy.detectionRange < 0.0F ||
+         enemy.detectionRange > kMaxEnemyDetectionRange ||
+         !std::isfinite(enemy.chargeSpeed) || enemy.chargeSpeed < 0.0F ||
+         enemy.chargeSpeed > kMaxEnemySpeed)) {
+        return invalid(placement.object.data(),
+                       "Chargers need detectionRange 0-4096 and chargeSpeed 0-400.");
+    }
+    if (enemy.type == EnemyType::Sentry &&
+        (!readNumber(findProperty(placement, object, "detectionRange"),
+                     enemy.detectionRange) ||
+         !readNumber(findProperty(placement, object, "projectileSpeed"),
+                     enemy.projectileSpeed) ||
+         !readNumber(findProperty(placement, object, "fireInterval"), enemy.fireInterval) ||
+         !validSentryTuning(enemy))) {
+        return invalid(placement.object.data(),
+                       "Sentries need detectionRange 0-4096, projectileSpeed 0-600 "
+                       "and fireInterval from one fixed step to 60 seconds.");
+    }
+    if (enemy.type == EnemyType::Armored) {
+        const ObjectProperty* reduction = findProperty(placement, object, "guardReduction");
+        if (!readNumber(findProperty(placement, object, "guardCycle"), enemy.guardCycle) ||
+            !readNumber(findProperty(placement, object, "guardStart"), enemy.guardStart) ||
+            reduction == nullptr || reduction->type != ObjectPropertyType::Integer ||
+            reduction->integer < 0 || reduction->integer > kMaxGuardReduction) {
+            return invalid(placement.object.data(),
+                           "Armored enemies need guardCycle 0.05-60, guardStart and "
+                           "integer guardReduction 0-99.");
+        }
+        enemy.guardReduction = static_cast<int>(reduction->integer);
+        if (!validArmoredTuning(enemy)) {
+            return invalid(placement.object.data(),
+                           "Armored guardStart must be non-negative and below guardCycle "
+                           "(0.05-60 seconds).");
+        }
+    }
     if (health != std::floor(health) || health < 1.0F || health > kMaxEnemyHealth) {
         return invalid(placement.object.data(), "Enemy health must be an integer from 1 to 99.");
     }
@@ -303,9 +377,13 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     if (!readNumber(findProperty(placement, object, "health"), health) ||
         health != std::floor(health) || health < 1.0F || health > kMaxEnemyHealth ||
         !readNumber(findProperty(placement, object, "speed"), roamer.speed) ||
-        roamer.speed < 0.0F || roamer.speed > kMaxEnemySpeed) {
+        roamer.speed < 0.0F || roamer.speed > kMaxEnemySpeed ||
+        !readNumber(findProperty(placement, object, "detectionRange"),
+                    roamer.detectionRange) ||
+        !std::isfinite(roamer.detectionRange) || roamer.detectionRange < 0.0F ||
+        roamer.detectionRange > kMaxEnemyDetectionRange) {
         return invalid(placement.object.data(),
-                       "Stalkers need integer health 1-99 and speed 0-400.");
+                       "Stalkers need health 1-99, speed 0-400 and detectionRange 0-4096.");
     }
     roamer.health = static_cast<int>(health);
     layout.roamers[layout.roamerCount++] = roamer;
@@ -379,6 +457,13 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         if (enemy.room != kEnemySlotRooms[index] || enemy.health < 1 ||
             enemy.health > kMaxEnemyHealth || !std::isfinite(enemy.speed) ||
             std::abs(enemy.speed) > kMaxEnemySpeed ||
+            (enemy.type == EnemyType::Charger &&
+             (!std::isfinite(enemy.detectionRange) || enemy.detectionRange < 0.0F ||
+              enemy.detectionRange > kMaxEnemyDetectionRange ||
+              !std::isfinite(enemy.chargeSpeed) || enemy.chargeSpeed < 0.0F ||
+              enemy.chargeSpeed > kMaxEnemySpeed)) ||
+            (enemy.type == EnemyType::Sentry && !validSentryTuning(enemy)) ||
+            (enemy.type == EnemyType::Armored && !validArmoredTuning(enemy)) ||
             !fitsRoom(enemy.bounds, layout.rooms[static_cast<std::size_t>(enemy.room)]) ||
             enemy.bounds.x < enemy.patrolLeft ||
             enemy.bounds.x + enemy.bounds.width > enemy.patrolRight) {
@@ -395,6 +480,8 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         if (!room.isometric || roamer.type != EnemyType::Stalker || roamer.health < 1 ||
             roamer.health > kMaxEnemyHealth || !std::isfinite(roamer.speed) ||
             roamer.speed < 0.0F || roamer.speed > kMaxEnemySpeed ||
+            !std::isfinite(roamer.detectionRange) || roamer.detectionRange < 0.0F ||
+            roamer.detectionRange > kMaxEnemyDetectionRange ||
             !fitsRoom(roamer.bounds, room) || collides(room, roamer.bounds)) {
             return invalid("world.roamers",
                            "Stalkers must start on open floor inside an isometric room.");

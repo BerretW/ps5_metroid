@@ -25,7 +25,7 @@ Supported resource types are `generic`, `item`, `ability`, `dialogue`, `cutscene
 Selected modules may also consume bounded, versioned definition blocks from
 `game.json`. The Abilities module loads `abilities` (schema version 1, up to 32
 stable IDs), the Attributes module loads `attributes` (schema version 1, up to
-8 stable-ID definitions), and the Equipment module loads `equipment` (schema
+16 stable-ID definitions), and the Equipment module loads `equipment` (schema
 version 1). PROJECT ECHO also loads a bounded `loot` table (schema version 1)
 against its item catalog. These are data interpreted by compiled systems; they
 cannot load native code. See [abilities](ABILITIES.md), [attributes](ATTRIBUTES.md),

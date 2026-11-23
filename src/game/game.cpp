@@ -15,8 +15,13 @@ constexpr float kHorizontalAcceleration = 1500.0F;
 constexpr float kGravity = 1100.0F;
 constexpr float kJumpImpulse = 420.0F;
 constexpr float kMaximumFallSpeed = 520.0F;
-constexpr float kCoyoteSeconds = 0.10F;
-constexpr float kJumpBufferSeconds = 0.12F;
+constexpr int kDefaultProjectileSpeed = 500;
+constexpr int kDefaultFireIntervalMs = 220;
+constexpr int kDefaultInvulnerabilityMs = 1000;
+constexpr int kDefaultCoyoteTimeMs = 100;
+constexpr int kDefaultJumpBufferMs = 120;
+constexpr int kDefaultJumpReleaseGravityPercent = 170;
+constexpr int kDefaultDoubleJumpPercent = 92;
 constexpr std::array<Vec2, kCameraShakeDurationSteps> kCameraShakeOffsets{{
     {-8.0F, -5.0F}, {8.0F, 5.0F}, {-7.0F, 4.0F}, {7.0F, -4.0F},
     {-6.0F, -4.0F}, {6.0F, 4.0F}, {-5.0F, 3.0F}, {5.0F, -3.0F},
@@ -28,6 +33,23 @@ constexpr std::string_view kMaxHealthAttribute = "echo:attribute/player.max_heal
 constexpr std::string_view kMoveSpeedAttribute = "echo:attribute/player.move_speed";
 constexpr std::string_view kJumpImpulseAttribute = "echo:attribute/player.jump_impulse";
 constexpr std::string_view kProjectileDamageAttribute = "echo:attribute/player.projectile_damage";
+constexpr std::string_view kHorizontalAccelerationAttribute =
+    "echo:attribute/player.horizontal_acceleration";
+constexpr std::string_view kGravityAttribute = "echo:attribute/player.gravity";
+constexpr std::string_view kMaximumFallSpeedAttribute =
+    "echo:attribute/player.maximum_fall_speed";
+constexpr std::string_view kCoyoteTimeAttribute = "echo:attribute/player.coyote_time_ms";
+constexpr std::string_view kJumpBufferAttribute = "echo:attribute/player.jump_buffer_ms";
+constexpr std::string_view kJumpReleaseGravityAttribute =
+    "echo:attribute/player.jump_release_gravity_percent";
+constexpr std::string_view kDoubleJumpImpulseAttribute =
+    "echo:attribute/player.double_jump_percent";
+constexpr std::string_view kProjectileSpeedAttribute =
+    "echo:attribute/player.projectile_speed";
+constexpr std::string_view kFireIntervalAttribute =
+    "echo:attribute/player.fire_interval_ms";
+constexpr std::string_view kInvulnerabilityAttribute =
+    "echo:attribute/player.invulnerability_ms";
 constexpr std::string_view kEngineerDialogue = "echo:dialogue/engineer";
 constexpr std::string_view kCargoEmergencyCircuit = "echo:power/cargo_emergency";
 constexpr std::string_view kGrantItemAction = "echo.inventory.grant";
@@ -164,7 +186,6 @@ framework::Status Game::configureAttributes(
     }
     const framework::Status status = attributes_.configure(module.definitions());
     if (status) {
-        baseAttributes_ = attributes_;
         attributesConfigured_ = true;
         player_.health = std::min(player_.health, maximumHealth());
     }
@@ -516,7 +537,7 @@ framework::Status Game::configureDialogue(
 }
 
 void Game::start() noexcept {
-    if (attributesConfigured_) attributes_ = baseAttributes_;
+    if (attributesConfigured_) attributes_.clearModifiers();
     equipment_.resetAfterAttributesReset();
     room_ = world_->startRoom;
     player_ = {world_->playerStart, {}, maximumHealth(), 1, true, false};
@@ -524,7 +545,10 @@ void Game::start() noexcept {
     for (std::size_t index = 0; index < enemies_.size(); ++index) {
         const EnemySpawn& spawn = world_->enemies[index];
         enemies_[index] = {spawn.room, spawn.bounds, spawn.patrolLeft, spawn.patrolRight,
-                           spawn.speed, spawn.health, true, spawn.type, 0.0F, spawn.id};
+                           spawn.speed, spawn.health, true, spawn.type, 0.0F, spawn.id,
+                           spawn.detectionRange, spawn.chargeSpeed, spawn.projectileSpeed,
+                           spawn.fireInterval, spawn.guardCycle, spawn.guardStart,
+                           spawn.guardReduction};
     }
     spawnRoamers();
     lootDrops_.fill({});
@@ -784,9 +808,12 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     const float playerJumpImpulse = static_cast<float>(
         restored.attributeValue(kJumpImpulseAttribute, static_cast<int>(kJumpImpulse))) +
         static_cast<float>(restored.jumpBoostAmount_);
+    const float maximumFallSpeed = static_cast<float>(
+        restored.attributeValue(kMaximumFallSpeedAttribute,
+                                static_cast<int>(kMaximumFallSpeed)));
     if (std::abs(checkpointValue.playerVelocity.x) > maximumPlayerSpeed ||
         checkpointValue.playerVelocity.y < -playerJumpImpulse ||
-        checkpointValue.playerVelocity.y > kMaximumFallSpeed ||
+        checkpointValue.playerVelocity.y > maximumFallSpeed ||
         checkpointValue.playerHealth > restored.maximumHealth()) {
         return false;
     }
@@ -1119,13 +1146,15 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
     const float jumpImpulse =
         static_cast<float>(attributeValue(kJumpImpulseAttribute, static_cast<int>(kJumpImpulse))) +
         (jumpBoostSeconds_ > 0 ? static_cast<float>(jumpBoostAmount_) : 0.0F);
+    const float horizontalAcceleration = static_cast<float>(attributeValue(
+        kHorizontalAccelerationAttribute, static_cast<int>(kHorizontalAcceleration)));
     const int direction = std::clamp(input.moveX, -1, 1);
     if (direction != 0) {
         player_.facing = direction;
-        player_.velocity.x += static_cast<float>(direction) * kHorizontalAcceleration * deltaSeconds;
+        player_.velocity.x += static_cast<float>(direction) * horizontalAcceleration * deltaSeconds;
         player_.velocity.x = std::clamp(player_.velocity.x, -playerSpeed, playerSpeed);
     } else {
-        const float slowdown = kHorizontalAcceleration * deltaSeconds;
+        const float slowdown = horizontalAcceleration * deltaSeconds;
         if (std::abs(player_.velocity.x) <= slowdown) {
             player_.velocity.x = 0.0F;
         } else {
@@ -1135,13 +1164,15 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
     player_.velocity.x = std::clamp(player_.velocity.x, -playerSpeed, playerSpeed);
 
     if (input.jumpPressed) {
-        jumpBufferTimer_ = kJumpBufferSeconds;
+        jumpBufferTimer_ = static_cast<float>(
+            attributeValue(kJumpBufferAttribute, kDefaultJumpBufferMs)) / 1000.0F;
     } else {
         jumpBufferTimer_ = std::max(0.0F, jumpBufferTimer_ - deltaSeconds);
     }
 
     if (player_.onGround) {
-        coyoteTimer_ = kCoyoteSeconds;
+        coyoteTimer_ = static_cast<float>(
+            attributeValue(kCoyoteTimeAttribute, kDefaultCoyoteTimeMs)) / 1000.0F;
     } else {
         coyoteTimer_ = std::max(0.0F, coyoteTimer_ - deltaSeconds);
     }
@@ -1154,13 +1185,24 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
         coyoteTimer_ = 0.0F;
     } else if (jumpBufferTimer_ > 0.0F && hasAbility(kEchoStepAbilityId) &&
                !player_.onGround && !doubleJumpUsed_) {
-        player_.velocity.y = -jumpImpulse * 0.92F;
+        const float doubleJumpScale = static_cast<float>(
+            attributeValue(kDoubleJumpImpulseAttribute, kDefaultDoubleJumpPercent)) /
+            100.0F;
+        player_.velocity.y = -jumpImpulse * doubleJumpScale;
         doubleJumpUsed_ = true;
         jumpBufferTimer_ = 0.0F;
     }
 
-    const float gravityScale = !input.jumpHeld && player_.velocity.y < 0.0F ? 1.7F : 1.0F;
-    player_.velocity.y = std::min(player_.velocity.y + kGravity * gravityScale * deltaSeconds, kMaximumFallSpeed);
+    const float gravity = static_cast<float>(
+        attributeValue(kGravityAttribute, static_cast<int>(kGravity)));
+    const float gravityScale = !input.jumpHeld && player_.velocity.y < 0.0F
+        ? static_cast<float>(attributeValue(
+              kJumpReleaseGravityAttribute, kDefaultJumpReleaseGravityPercent)) / 100.0F
+        : 1.0F;
+    const float maximumFallSpeed = static_cast<float>(attributeValue(
+        kMaximumFallSpeedAttribute, static_cast<int>(kMaximumFallSpeed)));
+    player_.velocity.y = std::min(
+        player_.velocity.y + gravity * gravityScale * deltaSeconds, maximumFallSpeed);
 
     player_.position.x += player_.velocity.x * deltaSeconds;
     Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
@@ -1200,7 +1242,8 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
                 if (player_.velocity.y > 0.0F) {
                     player_.position.y = static_cast<float>(row * kTileSize) - kPlayerHeight;
                     player_.onGround = true;
-                    coyoteTimer_ = kCoyoteSeconds;
+                    coyoteTimer_ = static_cast<float>(
+                        attributeValue(kCoyoteTimeAttribute, kDefaultCoyoteTimeMs)) / 1000.0F;
                     doubleJumpUsed_ = false;
                 } else if (player_.velocity.y < 0.0F) {
                     player_.position.y = static_cast<float>((row + 1) * kTileSize);
@@ -1238,7 +1281,8 @@ void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcep
     player_.velocity = {direction.x * playerSpeed, direction.y * playerSpeed};
     player_.onGround = true;
     jumpBufferTimer_ = 0.0F;
-    coyoteTimer_ = kCoyoteSeconds;
+    coyoteTimer_ = static_cast<float>(
+        attributeValue(kCoyoteTimeAttribute, kDefaultCoyoteTimeMs)) / 1000.0F;
     doubleJumpUsed_ = false;
 
     const auto snap = [this](float& position, float previous, float velocity, float size,
@@ -1275,12 +1319,12 @@ void Game::spawnRoamers() noexcept {
     for (const EnemySpawn& spawn : world_->roamerList()) {
         if (spawn.room != room_ || roamerCount_ == roamers_.size()) continue;
         roamers_[roamerCount_++] = {spawn.room, spawn.bounds, 0.0F, 0.0F, spawn.speed,
-                                    spawn.health, true, EnemyType::Stalker, 0.0F, spawn.id};
+                                    spawn.health, true, EnemyType::Stalker, 0.0F, spawn.id,
+                                    spawn.detectionRange, spawn.chargeSpeed};
     }
 }
 
 void Game::updateRoamers(float deltaSeconds) noexcept {
-    constexpr float kSightRange = 300.0F;
     const float targetX = player_.position.x + kPlayerWidth * 0.5F;
     const float targetY = player_.position.y + kPlayerHeight * 0.5F;
     for (std::size_t index = 0; index < roamerCount_; ++index) {
@@ -1289,7 +1333,7 @@ void Game::updateRoamers(float deltaSeconds) noexcept {
         const float dx = targetX - (roamer.bounds.x + roamer.bounds.width * 0.5F);
         const float dy = targetY - (roamer.bounds.y + roamer.bounds.height * 0.5F);
         const float distance = std::sqrt(dx * dx + dy * dy);
-        if (distance > kSightRange || distance < 1.0F) continue;
+        if (distance > roamer.detectionRange || distance < 1.0F) continue;
         const float stepX = dx / distance * roamer.speed * deltaSeconds;
         const float stepY = dy / distance * roamer.speed * deltaSeconds;
         roamer.bounds.x += stepX;
@@ -1313,27 +1357,27 @@ void Game::updateEnemies(float deltaSeconds) noexcept {
         if (enemy.type == EnemyType::Sentry) {
             enemy.attackCooldown = std::max(0.0F, enemy.attackCooldown - deltaSeconds);
             if (enemy.attackCooldown == 0.0F &&
-                std::abs(player_.position.x - enemy.bounds.x) < 420.0F) {
+                std::abs(player_.position.x - enemy.bounds.x) < enemy.detectionRange) {
                 const auto shot = std::find_if(enemyProjectiles_.begin(), enemyProjectiles_.end(),
                     [](const Projectile& projectile) { return !projectile.active; });
                 if (shot != enemyProjectiles_.end()) {
                     const float direction = player_.position.x < enemy.bounds.x ? -1.0F : 1.0F;
                     *shot = {enemy.room, {enemy.bounds.x, enemy.bounds.y + 12.0F, 10.0F, 6.0F},
-                             direction * 220.0F, true};
-                    enemy.attackCooldown = 1.5F;
+                             direction * enemy.projectileSpeed, true};
+                    enemy.attackCooldown = enemy.fireInterval;
                 }
             }
             continue;
         }
         if (enemy.type == EnemyType::Armored) {
             enemy.attackCooldown += deltaSeconds;
-            if (enemy.attackCooldown >= 3.0F) enemy.attackCooldown -= 3.0F;
-            if (enemy.attackCooldown >= 2.0F) continue;
+            if (enemy.attackCooldown >= enemy.guardCycle) enemy.attackCooldown -= enemy.guardCycle;
+            if (enemy.guarding()) continue;
         }
         float speed = enemy.speed;
         if (enemy.type == EnemyType::Charger &&
-            std::abs(player_.position.x - enemy.bounds.x) < 220.0F) {
-            speed = player_.position.x < enemy.bounds.x ? -130.0F : 130.0F;
+            std::abs(player_.position.x - enemy.bounds.x) < enemy.detectionRange) {
+            speed = player_.position.x < enemy.bounds.x ? -enemy.chargeSpeed : enemy.chargeSpeed;
         }
         enemy.bounds.x += speed * deltaSeconds;
         if (enemy.bounds.x < enemy.patrolLeft) {
@@ -1349,8 +1393,8 @@ void Game::updateEnemies(float deltaSeconds) noexcept {
 void Game::damageEnemy(std::size_t index, int amount) noexcept {
     Enemy& enemy = enemies_[index];
     if (!enemy.alive) return;
-    if (enemy.type == EnemyType::Armored && enemy.attackCooldown >= 2.0F) {
-        amount = std::max(0, amount - 1);
+    if (enemy.guarding()) {
+        amount = std::max(0, amount - enemy.guardReduction);
     }
     enemy.health = std::max(0, enemy.health - amount);
     if (enemy.health != 0) return;
@@ -1427,14 +1471,16 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
             return !item.active;
         });
         if (freeProjectile != projectiles_.end()) {
+            const float projectileSpeed = static_cast<float>(
+                attributeValue(kProjectileSpeedAttribute, kDefaultProjectileSpeed));
             freeProjectile->room = room_;
             if (isometric()) {
                 freeProjectile->bounds = {
                     player_.position.x + kPlayerWidth * 0.5F - 4.0F + player_.aim.x * 12.0F,
                     player_.position.y + kPlayerHeight * 0.5F - 4.0F + player_.aim.y * 12.0F,
                     8.0F, 8.0F};
-                freeProjectile->velocityX = player_.aim.x * 500.0F;
-                freeProjectile->velocityY = player_.aim.y * 500.0F;
+                freeProjectile->velocityX = player_.aim.x * projectileSpeed;
+                freeProjectile->velocityY = player_.aim.y * projectileSpeed;
             } else {
                 freeProjectile->bounds = {
                     player_.position.x + (player_.facing > 0 ? kPlayerWidth : -10.0F),
@@ -1442,11 +1488,13 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
                     10.0F,
                     6.0F,
                 };
-                freeProjectile->velocityX = static_cast<float>(player_.facing) * 500.0F;
+                freeProjectile->velocityX =
+                    static_cast<float>(player_.facing) * projectileSpeed;
                 freeProjectile->velocityY = 0.0F;
             }
             freeProjectile->active = true;
-            shotCooldown_ = 0.22F;
+            shotCooldown_ = static_cast<float>(
+                attributeValue(kFireIntervalAttribute, kDefaultFireIntervalMs)) / 1000.0F;
         }
     }
 }
@@ -1979,7 +2027,8 @@ void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     player_.velocity = {};
     player_.aim = {static_cast<float>(player_.facing), 0.0F};
     player_.onGround = true;
-    coyoteTimer_ = kCoyoteSeconds;
+    coyoteTimer_ = static_cast<float>(
+        attributeValue(kCoyoteTimeAttribute, kDefaultCoyoteTimeMs)) / 1000.0F;
     doubleJumpUsed_ = false;
     spawnRoamers();
     if (destination == RoomId::CentralChamber && centralCutscene_ != nullptr) {
@@ -1993,7 +2042,8 @@ void Game::damagePlayer() noexcept {
     }
 
     --player_.health;
-    invulnerabilityTimer_ = 1.0F;
+    invulnerabilityTimer_ = static_cast<float>(
+        attributeValue(kInvulnerabilityAttribute, kDefaultInvulnerabilityMs)) / 1000.0F;
     if (player_.health <= 0) {
         ++deaths_;
         player_.health = maximumHealth();

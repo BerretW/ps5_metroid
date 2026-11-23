@@ -9,6 +9,9 @@
   "properties": {
     "behavior": "sentry",
     "health": 4,
-    "speed": 0
+    "speed": 0,
+    "detectionRange": 420,
+    "projectileSpeed": 220,
+    "fireInterval": 1.5
   }
 }

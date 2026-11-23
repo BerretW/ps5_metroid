@@ -1065,6 +1065,34 @@ int main() {
         check(static_cast<bool>(integration.configureGame(game)),
               "door prompt fixture binds loaded framework content");
 
+        {
+            auto walkingLayout = std::make_unique<echo::WorldLayout>(echo::defaultWorldLayout());
+            auto guardedLayout = std::make_unique<echo::WorldLayout>(echo::defaultWorldLayout());
+            walkingLayout->enemies[3].speed = 0.0F;
+            walkingLayout->enemies[3].guardCycle = 0.5F;
+            walkingLayout->enemies[3].guardStart = 0.3F;
+            *guardedLayout = *walkingLayout;
+            guardedLayout->enemies[3].guardStart = 0.1F;
+            auto walking = std::make_unique<echo::Game>();
+            auto guarded = std::make_unique<echo::Game>();
+            auto checkpoint = walking->checkpoint();
+            checkpoint.room = echo::RoomId::PowerStation;
+            checkpoint.playerPosition = {400.0F, 292.0F};
+            check(walking->configureWorld(*walkingLayout) && walking->restore(checkpoint) &&
+                      guarded->configureWorld(*guardedLayout) && guarded->restore(checkpoint),
+                  "armored marker fixtures restore");
+            bool updated = true;
+            for (int step = 0; step < 7; ++step) {
+                if (!walking->update({}) || !guarded->update({})) updated = false;
+            }
+            keyboard.drawGame(*walking, false, false, "SPACE", "J", "E");
+            const auto patrolMarker = capture(keyboardWindow, {440, 287, 30, 3});
+            keyboard.drawGame(*guarded, false, false, "SPACE", "J", "E");
+            check(updated && guarded->enemies()[3].guarding() &&
+                      patrolMarker != capture(keyboardWindow, {440, 287, 30, 3}),
+                  "armored marker reflects the configured guard phase");
+        }
+
         keyboard.drawGame(game, false, false, "SPACE", "J", "E");
         const auto keyboardHint = capture(keyboardWindow, {12, 340, 616, 16});
         keyboard.drawGame(game, false, false, "K", "L", "F");

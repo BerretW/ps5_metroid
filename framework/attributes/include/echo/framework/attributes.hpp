@@ -144,6 +144,7 @@ public:
     }
 
     [[nodiscard]] std::size_t size() const noexcept { return count_; }
+    void clearModifiers() noexcept { modifiers_.fill({}); }
 
 private:
     struct Attribute {
@@ -174,7 +175,7 @@ private:
 
 class AttributesModule final : public IModule {
 public:
-    static constexpr std::size_t kMaxDefinitions = 8;
+    static constexpr std::size_t kMaxDefinitions = 16;
 
     AttributesModule() noexcept = default;
     AttributesModule(const AttributesModule&) = delete;

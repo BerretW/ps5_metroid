@@ -15,6 +15,9 @@
   "properties": {
     "behavior": "armored",
     "health": 6,
-    "speed": 26
+    "speed": 26,
+    "guardCycle": 3,
+    "guardStart": 2,
+    "guardReduction": 1
   }
 }

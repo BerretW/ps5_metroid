@@ -442,7 +442,12 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                 "Enemy loot content requires the echo.rpg.inventory module."};
     }
     if (attributesSelected) {
-        status = attributesModule_.load(root.find("attributes"));
+        attributesModule_.reset(new (std::nothrow) framework::AttributesModule{});
+        if (!attributesModule_) {
+            return {framework::ErrorCode::CapacityExceeded, "echo.rpg.attributes",
+                    "Attributes module allocation failed."};
+        }
+        status = attributesModule_->load(root.find("attributes"));
         if (!status) return status;
     } else if (root.find("attributes").valid()) {
         return {framework::ErrorCode::MissingDependency, "echo.rpg.attributes",
@@ -640,6 +645,13 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                     "Equipment module allocation failed."};
         }
     }
+    if (!attributesModule_) {
+        attributesModule_.reset(new (std::nothrow) framework::AttributesModule{});
+        if (!attributesModule_) {
+            return {framework::ErrorCode::CapacityExceeded, "echo.rpg.attributes",
+                    "Attributes module allocation failed."};
+        }
+    }
     status = modules_.add(stateModule_, stateSelected);
     if (!status) {
         return status;
@@ -658,7 +670,7 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
             return status;
         }
     }
-    status = modules_.add(attributesModule_, attributesSelected);
+    status = modules_.add(*attributesModule_, attributesSelected);
     if (!status) {
         return status;
     }
@@ -759,8 +771,8 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
         status = game.configureCutscenes(cutsceneModule_);
         if (!status) return status;
     }
-    if (attributesModule_.initialized()) {
-        status = game.configureAttributes(attributesModule_);
+    if (attributesModule_ && attributesModule_->initialized()) {
+        status = game.configureAttributes(*attributesModule_);
         if (!status) return status;
         if (equipmentModule_ && equipmentModule_->initialized()) {
             return game.configureEquipment(*equipmentModule_);
@@ -892,6 +904,7 @@ void FrameworkIntegration::shutdown() noexcept {
     dialogueDocumentCount_ = 0;
     lootTable_.reset();
     equipmentModule_.reset();
+    attributesModule_.reset();
     initialized_ = false;
 }
 

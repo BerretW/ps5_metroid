@@ -181,6 +181,27 @@ and rejects layouts the simulation cannot represent:
 - Enemies need `behavior` and `health` properties (`speed`, `patrolMin`,
   `patrolMax` optional). Save slots are assigned in placement order; each room
   keeps its existing enemy count so checkpoints remain compatible.
+- Chargers require numeric `detectionRange` (0-4096 world pixels) and
+  `chargeSpeed` (0-400 pixels/second); stalkers require `detectionRange` in
+  the same range. Object properties are inherited and room placements may
+  override them. Zero range disables pursuit, and zero charge speed stops a
+  charger while it detects the player. Invalid or missing values fail world
+  loading. For example, change a charger's `chargeSpeed` in its object JSON or
+  placement and restart to try a different pursuit speed.
+- Sentries require numeric `detectionRange` (0-4096 world pixels),
+  `projectileSpeed` (0-600 pixels/second), and `fireInterval` (one 1/60-second
+  fixed step through 60 seconds). These properties can also be inherited or
+  overridden by a placement. A zero range prevents firing; a zero projectile
+  speed produces stationary shots. The projectile pool remains bounded, and
+  the interval starts only when a projectile is successfully spawned.
+- Armored enemies require numeric `guardCycle` (0.05-60 seconds) and
+  `guardStart` (at least zero and strictly less than the cycle), plus integer
+  `guardReduction` (0-99 damage points). They patrol until the guard starts,
+  stop and reduce damage while guarding, then resume after the cycle wraps.
+  The minimum cycle accommodates the simulation's maximum 0.05-second update;
+  phase transitions are observed at update boundaries. These properties also
+  support inheritance and placement overrides. The guard timer resets on
+  checkpoint restore, as before.
 - `behavior: "stalker"` enemies may only be placed in isometric rooms, must
   start on open floor, are not saved and respawn whenever the room is entered.
   Saved (side-view) enemies cannot be placed in isometric rooms.

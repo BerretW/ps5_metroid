@@ -760,7 +760,7 @@ void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
         const int x = static_cast<int>(enemy.bounds.x - cameraX);
         const int y = static_cast<int>(enemy.bounds.y);
         const int width = static_cast<int>(enemy.bounds.width);
-        const bool guarding = enemy.type == EnemyType::Armored && enemy.attackCooldown >= 2.0F;
+        const bool guarding = enemy.guarding();
         const std::string_view animation =
             enemy.type == EnemyType::Sentry ? "idle" : guarding ? "guard" : "walk";
         const bool flip = enemy.type == EnemyType::Sentry
@@ -779,7 +779,7 @@ void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
         if (enemy.type != EnemyType::Patrol) {
             const SDL_Color marker = enemy.type == EnemyType::Charger ? kOrange :
                                      enemy.type == EnemyType::Armored
-                                         ? (enemy.attackCooldown >= 2.0F ? kText : kCyan)
+                                         ? (guarding ? kText : kCyan)
                                          : kRed;
             panel({x, y - 5, width, 3}, marker);
         }

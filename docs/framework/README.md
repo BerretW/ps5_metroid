@@ -15,7 +15,7 @@ in [master decisions](../MASTER_DECISIONS.md#md-001-reusable-data-driven-vulkan-
 - A fixed-capacity component metadata registry with bounded typed instances, schema validation, deterministic JSON export, and native host-side content/schema tools.
 - An optional bounded dialogue module with owned per-dialogue JSON loading, conditional choices, validated transitions, and registered action dispatch.
 - An optional bounded inventory module with a versioned item catalog and deterministic compact or stable-slot stacks. PROJECT ECHO uses a 20-slot backpack, four separate equipment slots and one physical active-item stack.
-- An optional bounded attributes module with versioned JSON definitions and fixed-capacity modifiers; PROJECT ECHO uses five configured attributes for player health, movement, jumping, healing, and projectile damage.
+- An optional bounded attributes module with versioned JSON definitions and fixed-capacity modifiers; PROJECT ECHO uses fifteen configured attributes for player health, movement, jumping, healing, projectile damage, movement physics, and combat tuning.
 - An optional bounded equipment module with slot-checked loadouts and attribute modifiers; PROJECT ECHO integrates Mira's Kinetic Coil as a persistent suit upgrade.
 - Headless examples and PROJECT ECHO integrations for ability unlock, Mira's dialogue, and her object-configured spawn.
 
