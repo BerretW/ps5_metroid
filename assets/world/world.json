@@ -10,6 +10,7 @@
     "echo:object/enemy_armored",
     "echo:object/enemy_sentry",
     "echo:object/enemy_stalker",
+    "echo:object/player_base",
     "echo:object/player",
     "echo:object/player_iso",
     "echo:object/engineer",

@@ -256,6 +256,8 @@ struct WorldLayout {
     std::size_t roamerCount{};
     RoomId startRoom{RoomId::LandingBay};
     Vec2 playerStart{};
+    Vec2 playerSize{20.0F, 28.0F};
+    int playerFacing{1};
     // The engineer stands in the start room; position and size come from her object.
     Rect engineer{};
     RoomId abilityRoom{RoomId::ResearchLab};

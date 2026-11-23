@@ -7,9 +7,6 @@
 namespace echo {
 namespace {
 
-constexpr float kPlayerWidth = 20.0F;
-constexpr float kPlayerHeight = 28.0F;
-constexpr float kFloorY = static_cast<float>(10 * kTileSize) - kPlayerHeight;
 constexpr float kPlayerSpeed = 190.0F;
 constexpr float kHorizontalAcceleration = 1500.0F;
 constexpr float kGravity = 1100.0F;
@@ -534,7 +531,8 @@ void Game::start() noexcept {
     if (attributesConfigured_) attributes_.clearModifiers();
     equipment_.resetAfterAttributesReset();
     room_ = world_->startRoom;
-    player_ = {world_->playerStart, {}, maximumHealth(), 1, true, false};
+    player_ = {world_->playerStart, {}, maximumHealth(), world_->playerFacing, true, false};
+    player_.aim = {static_cast<float>(world_->playerFacing), 0.0F};
     technician_ = world_->engineer;
     for (std::size_t index = 0; index < enemies_.size(); ++index) {
         const EnemySpawn& spawn = world_->enemies[index];
@@ -626,8 +624,8 @@ const PropLayout* Game::nearbyPowerPanel(Vec2 playerPosition) const noexcept {
     if (!std::isfinite(playerPosition.x) || !std::isfinite(playerPosition.y)) return nullptr;
     constexpr float kInteractionRadius = 48.0F;
     constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
-    const float playerCenterX = playerPosition.x + kPlayerWidth * 0.5F;
-    const float playerCenterY = playerPosition.y + kPlayerHeight * 0.5F;
+    const float playerCenterX = playerPosition.x + world_->playerSize.x * 0.5F;
+    const float playerCenterY = playerPosition.y + world_->playerSize.y * 0.5F;
     const std::span<const PropLayout> props = world_->propList();
     const PropLayout* closest{};
     float closestDistanceSquared = kInteractionRadiusSquared;
@@ -689,9 +687,9 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         !std::isfinite(checkpointValue.playerVelocity.x) ||
         !std::isfinite(checkpointValue.playerVelocity.y) ||
         checkpointValue.playerPosition.x < 0.0F ||
-        checkpointValue.playerPosition.x > world_->rooms[index].width() - kPlayerWidth ||
+        checkpointValue.playerPosition.x > world_->rooms[index].width() - world_->playerSize.x ||
         checkpointValue.playerPosition.y < 0.0F ||
-        checkpointValue.playerPosition.y > world_->rooms[index].height() - kPlayerHeight ||
+        checkpointValue.playerPosition.y > world_->rooms[index].height() - world_->playerSize.y ||
         checkpointValue.playerHealth < 1 ||
         (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
         checkpointValue.deaths < 0 ||
@@ -867,7 +865,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     restored.spawnRoamers();
     if (restored.collidesWithWorld({restored.player_.position.x,
                                     restored.player_.position.y,
-                                    kPlayerWidth, kPlayerHeight})) {
+                                    world_->playerSize.x, world_->playerSize.y})) {
         return false;
     }
     *this = restored;
@@ -889,7 +887,7 @@ Tile Game::tileAt(int column, int row) const noexcept {
 }
 
 float Game::cameraX() const noexcept {
-    const float centered = player_.position.x + kPlayerWidth * 0.5F - 320.0F;
+    const float centered = player_.position.x + world_->playerSize.x * 0.5F - 320.0F;
     return std::clamp(centered, 0.0F, roomWidth() - 640.0F);
 }
 
@@ -915,14 +913,14 @@ bool Game::technicianNearby() const noexcept {
     }
     const Rect reach{technician_.x - interactionReach_, technician_.y - 20.0F,
                      technician_.width + 2.0F * interactionReach_, technician_.height + 40.0F};
-    return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
+    return overlaps({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y}, reach);
 }
 
 const PropLayout* Game::nearbyDialogueProp() const noexcept {
     constexpr float kInteractionRadius = 48.0F;
     constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
-    const float playerCenterX = player_.position.x + kPlayerWidth * 0.5F;
-    const float playerCenterY = player_.position.y + kPlayerHeight * 0.5F;
+    const float playerCenterX = player_.position.x + world_->playerSize.x * 0.5F;
+    const float playerCenterY = player_.position.y + world_->playerSize.y * 0.5F;
     const std::span<const PropLayout> props = world_->propList();
     const PropLayout* closest = nullptr;
     float closestDistanceSquared = kInteractionRadiusSquared;
@@ -1058,7 +1056,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     updateProjectiles(input, dt);
     for (LootDrop& drop : lootDrops_) {
         if (!drop.active || drop.room != room_ ||
-            !overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight},
+            !overlaps({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y},
                       {drop.position.x, drop.position.y, 16.0F, 16.0F})) {
             continue;
         }
@@ -1092,20 +1090,20 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
         }
     }
 
-    if (overlapsHazard({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight})) {
+    if (overlapsHazard({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y})) {
         damagePlayer();
     }
 
     for (const Enemy& enemy : enemies_) {
         if (enemy.alive && enemy.room == room_ &&
-            overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, enemy.bounds)) {
+            overlaps({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y}, enemy.bounds)) {
             damagePlayer();
             break;
         }
     }
     for (std::size_t index = 0; index < roamerCount_; ++index) {
         if (roamers_[index].alive &&
-            overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight},
+            overlaps({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y},
                      roamers_[index].bounds)) {
             damagePlayer();
             break;
@@ -1113,7 +1111,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     }
 
     if (!hasAbility(kEchoStepAbilityId) && room_ == world_->abilityRoom &&
-        overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, abilityPickup_)) {
+        overlaps({player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y}, abilityPickup_)) {
         if (abilityModule_ != nullptr) {
             const framework::Status unlocked =
                 abilities_.unlock(*abilityModule_, kEchoStepAbilityId);
@@ -1199,7 +1197,7 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
         player_.velocity.y + gravity * gravityScale * deltaSeconds, maximumFallSpeed);
 
     player_.position.x += player_.velocity.x * deltaSeconds;
-    Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
+    Rect playerBounds{player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y};
     if (collidesWithWorld(playerBounds)) {
         const int left = static_cast<int>(std::floor(playerBounds.x / kTileSize));
         const int right = static_cast<int>(std::floor((playerBounds.x + playerBounds.width - 0.01F) / kTileSize));
@@ -1211,7 +1209,7 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
                     continue;
                 }
                 if (player_.velocity.x > 0.0F) {
-                    player_.position.x = static_cast<float>(column * kTileSize) - kPlayerWidth;
+                    player_.position.x = static_cast<float>(column * kTileSize) - world_->playerSize.x;
                 } else if (player_.velocity.x < 0.0F) {
                     player_.position.x = static_cast<float>((column + 1) * kTileSize);
                 }
@@ -1222,7 +1220,7 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
 
     player_.onGround = false;
     player_.position.y += player_.velocity.y * deltaSeconds;
-    playerBounds = {player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
+    playerBounds = {player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y};
     if (collidesWithWorld(playerBounds)) {
         const int left = static_cast<int>(std::floor(playerBounds.x / kTileSize));
         const int right = static_cast<int>(std::floor((playerBounds.x + playerBounds.width - 0.01F) / kTileSize));
@@ -1234,7 +1232,7 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
                     continue;
                 }
                 if (player_.velocity.y > 0.0F) {
-                    player_.position.y = static_cast<float>(row * kTileSize) - kPlayerHeight;
+                    player_.position.y = static_cast<float>(row * kTileSize) - world_->playerSize.y;
                     player_.onGround = true;
                     coyoteTimer_ = static_cast<float>(
                         attributeValue(kCoyoteTimeAttribute, kDefaultCoyoteTimeMs)) / 1000.0F;
@@ -1282,13 +1280,13 @@ void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcep
     const auto snap = [this](float& position, float previous, float velocity, float size,
                              bool horizontal) {
         if (!collidesWithWorld({player_.position.x, player_.position.y,
-                                kPlayerWidth, kPlayerHeight})) return;
+                                world_->playerSize.x, world_->playerSize.y})) return;
         const float edge = velocity > 0.0F ? position + size - 0.01F : position;
         const int cell = static_cast<int>(std::floor(edge / kTileSize));
         position = velocity > 0.0F ? static_cast<float>(cell * kTileSize) - size
                                    : static_cast<float>((cell + 1) * kTileSize);
         if (collidesWithWorld({player_.position.x, player_.position.y,
-                               kPlayerWidth, kPlayerHeight})) {
+                               world_->playerSize.x, world_->playerSize.y})) {
             position = previous;
         }
         (horizontal ? player_.velocity.x : player_.velocity.y) = 0.0F;
@@ -1296,15 +1294,15 @@ void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcep
     const float previousX = player_.position.x;
     player_.position.x += player_.velocity.x * deltaSeconds;
     if (player_.velocity.x != 0.0F) {
-        snap(player_.position.x, previousX, player_.velocity.x, kPlayerWidth, true);
+        snap(player_.position.x, previousX, player_.velocity.x, world_->playerSize.x, true);
     }
     const float previousY = player_.position.y;
     player_.position.y += player_.velocity.y * deltaSeconds;
     if (player_.velocity.y != 0.0F) {
-        snap(player_.position.y, previousY, player_.velocity.y, kPlayerHeight, false);
+        snap(player_.position.y, previousY, player_.velocity.y, world_->playerSize.y, false);
     }
     player_.position.y = std::clamp(player_.position.y, 0.0F,
-                                    roomHeight() - kPlayerHeight);
+                                    roomHeight() - world_->playerSize.y);
 }
 
 void Game::spawnRoamers() noexcept {
@@ -1319,8 +1317,8 @@ void Game::spawnRoamers() noexcept {
 }
 
 void Game::updateRoamers(float deltaSeconds) noexcept {
-    const float targetX = player_.position.x + kPlayerWidth * 0.5F;
-    const float targetY = player_.position.y + kPlayerHeight * 0.5F;
+    const float targetX = player_.position.x + world_->playerSize.x * 0.5F;
+    const float targetY = player_.position.y + world_->playerSize.y * 0.5F;
     for (std::size_t index = 0; index < roamerCount_; ++index) {
         Enemy& roamer = roamers_[index];
         if (!roamer.alive) continue;
@@ -1416,7 +1414,7 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
             collidesWithWorld(projectile.bounds)) {
             projectile.active = false;
         } else if (overlaps(projectile.bounds,
-                            {player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight})) {
+                            {player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y})) {
             projectile.active = false;
             damagePlayer();
         }
@@ -1470,15 +1468,15 @@ void Game::updateProjectiles(const Input& input, float deltaSeconds) noexcept {
             freeProjectile->room = room_;
             if (isometric()) {
                 freeProjectile->bounds = {
-                    player_.position.x + kPlayerWidth * 0.5F - 4.0F + player_.aim.x * 12.0F,
-                    player_.position.y + kPlayerHeight * 0.5F - 4.0F + player_.aim.y * 12.0F,
+                    player_.position.x + world_->playerSize.x * 0.5F - 4.0F + player_.aim.x * 12.0F,
+                    player_.position.y + world_->playerSize.y * 0.5F - 4.0F + player_.aim.y * 12.0F,
                     8.0F, 8.0F};
                 freeProjectile->velocityX = player_.aim.x * projectileSpeed;
                 freeProjectile->velocityY = player_.aim.y * projectileSpeed;
             } else {
                 freeProjectile->bounds = {
-                    player_.position.x + (player_.facing > 0 ? kPlayerWidth : -10.0F),
-                    player_.position.y + 11.0F,
+                    player_.position.x + (player_.facing > 0 ? world_->playerSize.x : -10.0F),
+                    player_.position.y + world_->playerSize.y * 0.5F - 3.0F,
                     10.0F,
                     6.0F,
                 };
@@ -1938,7 +1936,7 @@ framework::Status Game::updateDialogue(const Input& input) noexcept {
 }
 
 framework::Status Game::interact(int moveDirection) noexcept {
-    const Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
+    const Rect playerBounds{player_.position.x, player_.position.y, world_->playerSize.x, world_->playerSize.y};
     const bool engineerNearby = technicianNearby();
     const PropLayout* dialogueProp =
         engineerNearby ? nullptr : nearbyDialogueProp();
@@ -1998,13 +1996,13 @@ void Game::resolveRoomEdges() noexcept {
             if (exit.open && exit.completesGame) completed_ = true;
             if (exit.open && exit.requiresEchoStep) gateBlocked_ = true;
         }
-    } else if (player_.position.x + kPlayerWidth > width) {
+    } else if (player_.position.x + world_->playerSize.x > width) {
         const RoomExitLayout& exit = currentRoom().right;
         if (exit.open && !exit.completesGame &&
             (!exit.requiresEchoStep || hasAbility(kEchoStepAbilityId))) {
             enterRoom(exit.room, true);
         } else {
-            player_.position.x = width - kPlayerWidth;
+            player_.position.x = width - world_->playerSize.x;
             if (exit.open && exit.completesGame) completed_ = true;
             if (exit.open && exit.requiresEchoStep && !exit.completesGame) gateBlocked_ = true;
         }
@@ -2014,10 +2012,11 @@ void Game::resolveRoomEdges() noexcept {
 void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     room_ = destination;
     cameraShakeTicks_ = 0;
-    player_.position.x = fromLeft ? 16.0F : roomWidth() - kPlayerWidth - 16.0F;
+    player_.position.x = fromLeft ? 16.0F : roomWidth() - world_->playerSize.x - 16.0F;
     // Isometric rooms keep their doorways in the middle rows of the grid.
     player_.position.y = isometric()
-        ? static_cast<float>(kRoomHeight) * 0.5F - kPlayerHeight * 0.5F : kFloorY;
+        ? static_cast<float>(kRoomHeight) * 0.5F - world_->playerSize.y * 0.5F
+        : static_cast<float>(10 * kTileSize) - world_->playerSize.y;
     player_.velocity = {};
     player_.aim = {static_cast<float>(player_.facing), 0.0F};
     player_.onGround = true;

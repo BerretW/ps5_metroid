@@ -835,7 +835,7 @@ void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
         : std::abs(player.velocity.x) > 20.0F ? "run" : "idle";
     if (player.health > 0 && (flashing || !paused) &&
         !drawObject(world.archetypes.player, playerAnimation, ticks,
-                    {player.position.x, player.position.y, 20.0F, 28.0F},
+                    {player.position.x, player.position.y, world.playerSize.x, world.playerSize.y},
                     cameraX, player.facing < 0) &&
         !sprite(Sprite::Player, playerAnimationFrame(player, ticks), {playerX - 2, playerY - 2, 24, 32}, player.facing < 0)) {
         panel({playerX, playerY + 5, 20, 23}, SDL_Color{105, 163, 172, 255});
@@ -847,8 +847,6 @@ void Renderer::drawSideWorld(const Game& game, bool paused) noexcept {
 }
 
 void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
-    constexpr float kActorWidth = 20.0F;
-    constexpr float kActorHeight = 28.0F;
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
     const framework::RoomDefinition* definition = room.definition;
@@ -856,8 +854,8 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     const Uint64 ticks = SDL_GetTicks64();
 
     // Grid (x, y) maps to screen (x - y, (x + y) / 2): one 32 px cell is a 64x32 diamond.
-    const rendering::Vec2 focus = projectIsometric(player.position.x + kActorWidth * 0.5F,
-                                                    player.position.y + kActorHeight * 0.5F);
+    const rendering::Vec2 focus = projectIsometric(player.position.x + world.playerSize.x * 0.5F,
+                                                    player.position.y + world.playerSize.y * 0.5F);
     const float cameraX = std::floor(focus.x - 320.0F);
     const float cameraY = std::floor(focus.y - 196.0F);
     const auto screenOf = [&](float x, float y) noexcept {
@@ -1017,7 +1015,7 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
             push(frontDepth(projectile.bounds), Kind::Projectile, index, 0);
         }
     }
-    const Rect playerBounds{player.position.x, player.position.y, kActorWidth, kActorHeight};
+    const Rect playerBounds{player.position.x, player.position.y, world.playerSize.x, world.playerSize.y};
     const float playerDepth = frontDepth(playerBounds);
     if (player.health > 0) push(playerDepth, Kind::Player, 0, 0);
     std::sort(drawables.begin(), drawables.begin() + static_cast<std::ptrdiff_t>(count),
@@ -1161,10 +1159,8 @@ void Renderer::drawParticles(const Game& game,
     float cameraX = game.cameraX();
     float cameraY = 0.0F;
     if (game.isometric()) {
-        constexpr float kActorWidth = 20.0F;
-        constexpr float kActorHeight = 28.0F;
-        const float focusX = player.position.x + kActorWidth * 0.5F;
-        const float focusY = player.position.y + kActorHeight * 0.5F;
+        const float focusX = player.position.x + game.world().playerSize.x * 0.5F;
+        const float focusY = player.position.y + game.world().playerSize.y * 0.5F;
         const float focusScreenX = focusX - focusY;
         const float focusScreenY = (focusX + focusY) * 0.5F;
         cameraX = std::floor(focusScreenX - 320.0F);
@@ -1369,8 +1365,8 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         float cameraX = game.cameraX();
         float cameraY = 0.0F;
         if (isometric) {
-            const float focusX = game.player().position.x + 10.0F;
-            const float focusY = game.player().position.y + 14.0F;
+            const float focusX = game.player().position.x + game.world().playerSize.x * 0.5F;
+            const float focusY = game.player().position.y + game.world().playerSize.y * 0.5F;
             cameraX = std::floor((focusX - focusY) - 320.0F);
             cameraY = std::floor((focusX + focusY) * 0.5F - 196.0F);
         }
@@ -1794,10 +1790,8 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                 appendEdge(x, y, x, bottom);
             };
             const Player& player = game.player();
-            const float playerWidth = world.archetypes.player != nullptr
-                ? world.archetypes.player->width() : 20.0F;
-            const float playerHeight = world.archetypes.player != nullptr
-                ? world.archetypes.player->height() : 28.0F;
+            const float playerWidth = world.playerSize.x;
+            const float playerHeight = world.playerSize.y;
             appendRectangle(player.position.x, player.position.y,
                             playerWidth, playerHeight);
             for (const Enemy& enemy : game.enemies()) {

@@ -17,8 +17,6 @@ using framework::ObjectPropertyType;
 using framework::Status;
 
 constexpr float kLayoutFloorY = 292.0F;
-constexpr float kLayoutPlayerWidth = 20.0F;
-constexpr float kLayoutPlayerHeight = 28.0F;
 constexpr int kMaxEnemyHealth = 99;
 constexpr float kMaxEnemySpeed = 400.0F;
 constexpr float kMaxEnemyDetectionRange = 4096.0F;
@@ -532,7 +530,13 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
     }
     const RoomLayout& start = layout.rooms[static_cast<std::size_t>(RoomId::LandingBay)];
     const Rect player{layout.playerStart.x, layout.playerStart.y,
-                      kLayoutPlayerWidth, kLayoutPlayerHeight};
+                      layout.playerSize.x, layout.playerSize.y};
+    if (!std::isfinite(layout.playerSize.x) || !std::isfinite(layout.playerSize.y) ||
+        layout.playerSize.x < 1.0F || layout.playerSize.x > kTileSize ||
+        layout.playerSize.y < 1.0F || layout.playerSize.y > kTileSize ||
+        (layout.playerFacing != -1 && layout.playerFacing != 1)) {
+        return invalid("world.player", "Player bounds must be finite and between 1 and 32, with a valid facing.");
+    }
     if (layout.startRoom != RoomId::LandingBay || !fitsRoom(player, start) ||
         collides(start, player) || start.isometric) {
         return invalid("world.player", "The player must start inside the Landing Bay.");
@@ -709,16 +713,14 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
         return {ErrorCode::MissingDependency, "world.objects",
                 "Player (side and isometric), engineer, projectile and loot objects are required."};
     }
-    if (archetypes.playerIso->width() != kLayoutPlayerWidth ||
-        archetypes.playerIso->height() != kLayoutPlayerHeight) {
-        return invalid("echo:object/player_iso", "Player collision bounds are fixed at 20x28.");
-    }
-    if (archetypes.player->width() != kLayoutPlayerWidth ||
-        archetypes.player->height() != kLayoutPlayerHeight) {
-        return invalid("echo:object/player", "Player collision bounds are fixed at 20x28.");
+    if (archetypes.playerIso->width() != archetypes.player->width() ||
+        archetypes.playerIso->height() != archetypes.player->height()) {
+        return invalid("echo:object/player_iso", "Both player views must share collision bounds.");
     }
     layout.startRoom = RoomId::LandingBay;
     layout.playerStart = {archetypes.player->spawnX(), archetypes.player->spawnY()};
+    layout.playerSize = {archetypes.player->width(), archetypes.player->height()};
+    layout.playerFacing = archetypes.player->facing() == framework::Facing::Left ? -1 : 1;
     layout.engineer = {archetypes.engineer->spawnX(), archetypes.engineer->spawnY(),
                        archetypes.engineer->width(), archetypes.engineer->height()};
     const Status status = validateWorldLayout(layout);
@@ -735,8 +737,8 @@ const PropLayout* nearbyPowerPanel(const WorldLayout& world, RoomId room,
     }
     constexpr float kInteractionRadius = 48.0F;
     constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
-    const float playerCenterX = playerPosition.x + kLayoutPlayerWidth * 0.5F;
-    const float playerCenterY = playerPosition.y + kLayoutPlayerHeight * 0.5F;
+    const float playerCenterX = playerPosition.x + world.playerSize.x * 0.5F;
+    const float playerCenterY = playerPosition.y + world.playerSize.y * 0.5F;
     const PropLayout* closest{};
     float closestDistanceSquared = kInteractionRadiusSquared;
     for (const PropLayout& prop : world.propList()) {

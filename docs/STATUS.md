@@ -7,6 +7,18 @@ Vulkan package works on PS5. The binary digest, hardware setup and specific
 features exercised were not stated; the report cannot be attributed to a
 specific recorded digest or interpreted as verification of individual features.
 
+**Shared player bounds and spawn:** The side and isometric player objects inherit
+their shared collision dimensions and spawn from `player_base.json`. The game
+uses the configured dimensions for movement, collisions, aiming, presentation
+and checkpoint validation, and uses the configured facing on a new game.
+Windows Debug tests pass 22/22. Both PS5 variants compile and pass their static
+package tests under `PPSA91007`. Controller FSELF: 1,944,225 bytes, SHA-256
+`0858c1bae8e8e0e80b776fb104a04162923363cd53a2f7c232a7702c6814c689`;
+Vulkan FSELF: 28,218,573 bytes, SHA-256
+`10b9f97fc60434feb21bf2497626411d2c356f5c3d5f768b69a0d851eada0624`.
+These packages have not been tested on PS5 hardware. Player attributes still
+live in `framework/game.json`; behavior and attribute IDs remain compiled.
+
 **Data-driven main quest ordering:** The three supported objectives can be
 reordered and the route choice moved, subject to key-before-choice and
 choice-before-exit validation. Gameplay tests cover later choices and restoring

@@ -414,6 +414,50 @@ int main() {
     {
         auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
         auto fixtureLayout = std::make_unique<echo::WorldLayout>();
+        check(loadWorldFixture("echo:object/player_base", "\"bounds\": [20, 28]",
+                               "\"bounds\": [16, 24]", *fixtureWorld, *fixtureLayout),
+              "player bounds load from the player archetype");
+        check(fixtureLayout->playerSize.x == 16.0F && fixtureLayout->playerSize.y == 24.0F &&
+                  fixtureLayout->archetypes.playerIso->width() == 16.0F &&
+                  fixtureLayout->archetypes.playerIso->height() == 24.0F,
+              "isometric appearance inherits the player's collision dimensions");
+        echo::Game resized;
+        check(resized.configureWorld(*fixtureLayout), "resized player world configures");
+        for (int step = 0; step < 60; ++step) check(resized.update({}), "resized player updates");
+        check(resized.player().onGround && resized.player().position.y == 296.0F,
+              "resized player lands using the configured collision height");
+        check(resized.update({.shootHeld = true}) && resized.projectiles()[0].active &&
+                  resized.projectiles()[0].bounds.x == resized.player().position.x + 16.0F &&
+                  resized.projectiles()[0].bounds.y == resized.player().position.y + 9.0F,
+              "resized player fires from the configured collision bounds");
+        auto invalidCheckpoint = resized.checkpoint();
+        invalidCheckpoint.playerPosition.x = resized.roomWidth() - 15.0F;
+        check(!resized.restore(invalidCheckpoint),
+              "checkpoint bounds use the configured collision width");
+    }
+    {
+        auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
+        auto fixtureLayout = std::make_unique<echo::WorldLayout>();
+        check(loadWorldFixture("echo:object/player_base", "\"facing\": \"right\"",
+                               "\"facing\": \"left\"",
+                               *fixtureWorld, *fixtureLayout),
+              "player facing loads from the archetype");
+        echo::Game facing;
+        check(facing.configureWorld(*fixtureLayout) && facing.player().facing == -1 &&
+                  facing.player().aim.x == -1.0F,
+              "new games use the configured player facing and aim");
+    }
+    {
+        auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
+        auto fixtureLayout = std::make_unique<echo::WorldLayout>();
+        check(!loadWorldFixture("echo:object/player_iso", "\"sprite\": {",
+                                "\"bounds\": [19, 28], \"sprite\": {",
+                                *fixtureWorld, *fixtureLayout),
+              "inconsistent player bounds across projections are rejected");
+    }
+    {
+        auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
+        auto fixtureLayout = std::make_unique<echo::WorldLayout>();
         check(loadWorldFixture("echo:room/maintenance_tunnel", "\"patrolMax\": 520",
                                "\"patrolMax\": 520, \"chargeSpeed\": 50",
                                *fixtureWorld, *fixtureLayout) &&

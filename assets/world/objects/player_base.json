@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/player_base",
+  "parent": "echo:object/actor_base",
+  "abstract": true,
+  "category": "player",
+  "bounds": [20, 28],
+  "spawn": {
+    "position": [42, 292],
+    "facing": "right"
+  }
+}

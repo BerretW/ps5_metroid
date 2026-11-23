@@ -216,6 +216,15 @@ and rejects layouts the simulation cannot represent:
   prop's placement ID.
 - Exactly one pickup; `player`, `player_iso`, `engineer`, `projectile_player`,
   `projectile_enemy` and `loot_crate` objects must exist.
+- The two player views inherit `bounds` and `spawn` from
+  `objects/player_base.json`. The simulation uses the side-view player's
+  resolved bounds for both projections, including collision, room transitions,
+  interaction and checkpoint validation; both views must resolve to the same
+  bounds. Each dimension must be finite and between 1 and 32 world units.
+  The spawn position and facing initialize new games. Changes to bounds can
+  make an existing saved position invalid, in which case restore is rejected.
+  Player attribute definitions remain in `framework/game.json`; behavior and
+  attribute IDs are still implemented by the project game.
 - The engineer's `spawn.position`, `spawn.facing` and `bounds` in
   `objects/engineer.json` (or inherited from its parent) place and orient her in
   the Landing Bay; the spawn must fit the room and not overlap solid tiles.

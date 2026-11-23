@@ -479,6 +479,14 @@ void testDataDrivenWorldLayout() {
         echo::kMaxLayoutRows + 1;
     check(!rejected.configureWorld(invalidHeight),
           "isometric rooms cannot exceed their fixed-capacity height");
+    static echo::WorldLayout invalidPlayer = echo::defaultWorldLayout();
+    invalidPlayer.playerSize.x = std::numeric_limits<float>::quiet_NaN();
+    check(!rejected.configureWorld(invalidPlayer), "non-finite player bounds are rejected");
+    invalidPlayer.playerSize.x = 33.0F;
+    check(!rejected.configureWorld(invalidPlayer), "player bounds larger than one tile are rejected");
+    invalidPlayer.playerSize.x = 20.0F;
+    invalidPlayer.playerFacing = 0;
+    check(!rejected.configureWorld(invalidPlayer), "invalid player facing is rejected");
     static echo::WorldLayout weakEnemy = echo::defaultWorldLayout();
     weakEnemy.enemies[0].health = 0;
     check(!rejected.configureWorld(weakEnemy), "enemy spawns outside the save contract are rejected");

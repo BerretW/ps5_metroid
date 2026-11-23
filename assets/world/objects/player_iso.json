@@ -1,9 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "echo:object/player_iso",
-  "parent": "echo:object/actor_base",
+  "parent": "echo:object/player_base",
   "category": "player",
-  "bounds": [20, 28],
   "sprite": {
     "sheet": "sprites/characters/player_iso.png",
     "frameWidth": 32,
