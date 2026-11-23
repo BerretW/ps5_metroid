@@ -38,8 +38,13 @@ and have a positive quantity no greater than its stack limit. If a unique
 item (stack limit 1) is already present in the backpack, equipment or active
 slot, the reward remains pending rather than creating a duplicate. Pending
 rewards use the currently loaded definition; already-claimed rewards are not
-granted again when the data changes. The project still fixes its quest IDs,
-facts, objective order and route-to-save-slot mapping.
+granted again when the data changes. The main quest may reorder its three
+supported facts and move the branch point, provided the key objective precedes
+the choice and the exit objective follows it. These restrictions preserve
+existing save validation and place the choice before the exit in quest
+evaluation. World layouts must also keep the exit inaccessible until the
+pre-choice facts can be obtained: game completion stops further choice input.
+The project still fixes quest IDs, supported facts and route-to-save-slot mapping.
 
 This is the first branching quest milestone, not a complete quest system.
 Quest acceptance and independent journals remain future work; see

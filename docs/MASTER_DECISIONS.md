@@ -110,6 +110,8 @@ speed, stalker detection range, and sentry range, projectile speed and fire
 interval, and the armored enemy's guard cycle and damage reduction now come
 from inherited world-object properties with optional placement overrides.
 Quest branch reward items and quantities now use validated catalog references
-without a duplicate fixed reward table. Reusable behavior composition, stable
-save-slot definitions, stable item save-key mapping, remaining project quest
-constraints, and fixed world/save assumptions remain to be audited and migrated.
+without a duplicate fixed reward table. The main quest's objective order and
+branch point are also data-driven within constraints required by the current
+progression and save format. Reusable behavior composition, stable save-slot
+definitions, stable item save-key mapping, remaining project quest constraints,
+and fixed world/save assumptions remain to be audited and migrated.

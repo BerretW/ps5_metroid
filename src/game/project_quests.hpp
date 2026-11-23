@@ -21,16 +21,30 @@ inline constexpr std::array<std::string_view, 2> kMainQuestBranchIds{"coil", "se
     const framework::QuestModule& module) noexcept {
     const framework::QuestDefinition* quest = module.find(kMainQuestId);
     if (quest == nullptr || quest->objectives().size() != kMainQuestFacts.size() ||
-        quest->branches().size() != kMainQuestBranchIds.size() || quest->branchAfter() != 1) {
+        quest->branches().size() != kMainQuestBranchIds.size() ||
+        quest->branchAfter() == 0 || quest->branchAfter() >= quest->objectives().size()) {
         return {framework::ErrorCode::MissingDependency, kMainQuestId,
                 "The main quest must contain its three objectives and two route choices."};
     }
-    for (std::size_t index = 0; index < kMainQuestFacts.size(); ++index) {
-        const framework::QuestObjective& objective = quest->objectives()[index];
-        if (objective.fact.data() != kMainQuestFacts[index]) {
+    std::size_t keyIndex = quest->objectives().size();
+    std::size_t exitIndex = quest->objectives().size();
+    for (const std::string_view fact : kMainQuestFacts) {
+        const auto found = std::find_if(
+            quest->objectives().begin(), quest->objectives().end(),
+            [fact](const framework::QuestObjective& objective) {
+                return std::string_view(objective.fact.data()) == fact;
+            });
+        if (found == quest->objectives().end()) {
             return {framework::ErrorCode::MissingDependency, kMainQuestId,
-                    "The main quest objective order must match the game progression."};
+                    "The main quest must contain each supported progression fact."};
         }
+        const std::size_t index = static_cast<std::size_t>(found - quest->objectives().begin());
+        if (fact == kMainQuestFacts[0]) keyIndex = index;
+        if (fact == kMainQuestFacts[2]) exitIndex = index;
+    }
+    if (keyIndex >= quest->branchAfter() || exitIndex < quest->branchAfter()) {
+        return {framework::ErrorCode::InvalidValue, kMainQuestId,
+                "The route choice must follow the key and precede the exit objective."};
     }
     for (std::size_t index = 0; index < kMainQuestBranchIds.size(); ++index) {
         const framework::QuestBranch* branch = quest->branch(kMainQuestBranchIds[index]);

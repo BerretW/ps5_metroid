@@ -222,10 +222,17 @@ if (Test-Path -LiteralPath $assetDir) {
                 throw "Invalid framework game configuration: Cargo Hold repair quest is missing."
             }
             $branch = $mainQuest[0].branch
-            if ($null -eq $branch -or $branch.after -ne 1 -or
+            if ($null -eq $branch -or
+                ($branch.after -isnot [int] -and $branch.after -isnot [long]) -or
+                $branch.after -lt 1 -or $branch.after -ge @($mainQuest[0].objectives).Count -or
                 [string]::IsNullOrWhiteSpace($branch.prompt) -or $branch.prompt.Length -gt 48 -or
                 @($branch.choices).Count -ne 2) {
                 throw "Invalid framework game configuration: main quest routes are missing."
+            }
+            $beforeChoice = @($mainQuest[0].objectives)[0..($branch.after - 1)]
+            if (@($beforeChoice | Where-Object { $_.fact -eq "echo:fact/maintenance_key" }).Count -ne 1 -or
+                @($beforeChoice | Where-Object { $_.fact -eq "echo:fact/exit_reached" }).Count -ne 0) {
+                throw "Invalid framework game configuration: main quest route timing is invalid."
             }
             foreach ($expectedRoute in @(
                 @{ id = "coil"; fact = "echo:fact/kinetic_coil" },

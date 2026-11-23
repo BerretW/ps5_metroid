@@ -145,6 +145,36 @@ try {
     Expect-Rejection "main quest fact is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $objectives = $gameConfigData.quests.quests[0].objectives
+    $gameConfigData.quests.quests[0].objectives = @($objectives[1], $objectives[0], $objectives[2])
+    $gameConfigData.quests.quests[0].branch.after = 2
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    & $validator -PackagePath $fixture -LogDirectory $isolatedLogs -VulkanGame:$Vulkan
+    $gameConfigData.quests.quests[0].branch.after = 1
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "main quest route timing is invalid"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $objectives = $gameConfigData.quests.quests[0].objectives
+    $gameConfigData.quests.quests[0].objectives = @($objectives[0], $objectives[2], $objectives[1])
+    $gameConfigData.quests.quests[0].branch.after = 2
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "main quest route timing is invalid"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.quests.quests[0].branch.after = 1.5
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "main quest routes are missing"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.quests.quests[0].branch.choices[0].rewardItem = "echo:item/unknown"
     [IO.File]::WriteAllText($gameConfig,
         (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),

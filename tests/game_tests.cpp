@@ -1385,6 +1385,64 @@ void testAbilityGateAndBacktracking() {
               restored.questProgress().completed == 3 &&
               restored.questBranch() == 2,
           "checkpoint restore rebuilds ability ownership and quest progress");
+    {
+        std::string reordered = config;
+        const std::string keyObjective =
+            R"({"id": "key", "fact": "echo:fact/maintenance_key", "text": "GET THE KEY FROM THE ENGINEER"})";
+        const std::string abilityObjective =
+            R"({"id": "ability", "fact": "echo:fact/echo_step", "text": "FIND ECHO STEP IN THE LAB"})";
+        const std::size_t keyPosition = reordered.find(keyObjective);
+        const std::size_t abilityPosition = reordered.find(abilityObjective);
+        const std::size_t branchPosition = reordered.find("\"after\": 1");
+        check(keyPosition != std::string::npos && abilityPosition != std::string::npos &&
+                  keyPosition < abilityPosition && branchPosition != std::string::npos,
+              "reordered quest fixture finds its source fields");
+        if (keyPosition != std::string::npos && abilityPosition != std::string::npos &&
+            keyPosition < abilityPosition && branchPosition != std::string::npos) {
+            reordered.replace(branchPosition, std::string("\"after\": 1").size(), "\"after\": 2");
+            reordered.replace(abilityPosition, abilityObjective.size(), keyObjective);
+            reordered.replace(keyPosition, keyObjective.size(), abilityObjective);
+            echo::framework::JsonDocument reorderedDocument{};
+            echo::framework::JsonError reorderedError{};
+            auto reorderedQuests = std::make_unique<echo::framework::QuestModule>();
+            auto reorderedGame = std::make_unique<echo::Game>();
+            check(echo::framework::JsonDocument::parse(
+                      reordered.data(), reordered.size(), reorderedDocument, reorderedError) &&
+                      reorderedQuests->load(reorderedDocument.root().find("quests")) &&
+                      reorderedQuests->initialize(moduleContext) &&
+                      fixture.bindInventory(*reorderedGame) &&
+                      reorderedGame->configureAbilities(abilities) &&
+                      reorderedGame->configureQuests(*reorderedQuests) &&
+                      reorderedGame->restore(progression),
+                  "reordered objectives and a later branch point load");
+            check(reorderedGame->questProgress().completed == 0 &&
+                      !reorderedGame->questProgress().choiceRequired &&
+                      reorderedGame->questProgress().objective == "FIND ECHO STEP IN THE LAB",
+                  "objective order and choice timing follow the quest data");
+            auto earlyBranch = progression;
+            earlyBranch.questBranch = 2;
+            check(reorderedGame->restore(earlyBranch) &&
+                      reorderedGame->questBranch() == 2 &&
+                      reorderedGame->questProgress().completed == 0 &&
+                      !reorderedGame->questProgress().choiceRequired &&
+                      reorderedGame->questProgress().objective == "FIND ECHO STEP IN THE LAB",
+                  "an earlier saved route remains selected while the new objective is pending");
+            auto unselected = abilityCheckpoint;
+            unselected.questBranch = 0;
+            check(reorderedGame->restore(unselected) &&
+                      reorderedGame->questProgress().completed == 2 &&
+                      reorderedGame->questProgress().choiceRequired &&
+                      reorderedGame->update({.moveX = 1}) &&
+                      reorderedGame->update({.interactPressed = true}) &&
+                      reorderedGame->questBranch() == 2 &&
+                      reorderedGame->questProgress().completed == 3,
+                  "the later route choice opens after both configured objectives");
+            check(reorderedGame->restore(abilityCheckpoint) &&
+                      reorderedGame->questBranch() == 2 &&
+                      reorderedGame->questProgress().completed == 3,
+                  "previously saved route choices survive a changed quest order");
+        }
+    }
 
     step(game, {.jumpPressed = true, .jumpHeld = true});
     step(game, {.jumpHeld = true}, 10);

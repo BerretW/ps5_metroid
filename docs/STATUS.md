@@ -7,6 +7,17 @@ Vulkan package works on PS5. The binary digest, hardware setup and specific
 features exercised were not stated; the report cannot be attributed to a
 specific recorded digest or interpreted as verification of individual features.
 
+**Data-driven main quest ordering:** The three supported objectives can be
+reordered and the route choice moved, subject to key-before-choice and
+choice-before-exit validation. Gameplay tests cover later choices and restoring
+existing selected routes; Windows Debug build/tests pass 22/22. Both PS5
+controller and Vulkan packages compile and pass static package tests, including
+valid and invalid quest timings. Controller FSELF: 1,943,681 bytes, SHA-256
+`29c310fac864496ab8b4738263b6f91184c898e871e8cbeb7bb54c69e60ef785`.
+Vulkan FSELF: 28,217,997 bytes, SHA-256
+`c8765e56a27e8269ce5bb8e94fed0836e953a5f1a216b45b2bc414d8dd64781b`.
+These specific packages have not been tested on PS5 hardware.
+
 **Data-driven quest rewards (2026-11-23):** Quest route reward IDs and
 quantities are no longer duplicated in the project quest contract. Startup,
 host content validation and PS5 package checks validate the configured rewards

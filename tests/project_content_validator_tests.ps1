@@ -85,6 +85,29 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'unknown quest fact'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $objectives = $config.quests.quests[0].objectives
+    $config.quests.quests[0].objectives = @($objectives[1], $objectives[0], $objectives[2])
+    $config.quests.quests[0].branch.after = 2
+    $path = Write-JsonFixture 'reordered-quest.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $true 'reordered quest and later branch'
+
+    $config.quests.quests[0].branch.after = 1
+    $path = Write-JsonFixture 'branch-before-key.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'branch before key objective'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $objectives = $config.quests.quests[0].objectives
+    $config.quests.quests[0].objectives = @($objectives[0], $objectives[2], $objectives[1])
+    $config.quests.quests[0].branch.after = 2
+    $path = Write-JsonFixture 'branch-after-exit.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'branch after exit objective'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.after = 1.5
+    $path = Write-JsonFixture 'fractional-branch-point.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'fractional branch point'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.quests.quests[0].objectives[0].text = 'INVALID?'
     $path = Write-JsonFixture 'invalid-quest-text.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest glyph'
