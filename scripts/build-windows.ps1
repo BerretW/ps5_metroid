@@ -11,6 +11,10 @@ $ErrorActionPreference = "Stop"
 if ($LegacySDL -and $VulkanGpuTests) {
     throw "-VulkanGpuTests requires the Vulkan build, not -LegacySDL."
 }
+if (-not $LegacySDL) {
+    . (Join-Path $PSScriptRoot "windows-vulkan-sdk.ps1")
+    Initialize-WindowsVulkanSdk
+}
 $root = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $root "build\windows"
 $logDir = Join-Path $buildDir ".build-logs"
@@ -103,6 +107,9 @@ $configure = 'call "{0}" -no_logo -arch=x64 -host_arch=x64 >nul && cmake -S "{1}
     $vsDevCmd, $root, $buildDir, $Configuration, $includePrefix, $testOptions
 $configureExitCode = Invoke-CommandLine "configure" $configure
 if ($configureExitCode -ne 0) {
+    if (-not $LegacySDL) {
+        Write-Host "For Vulkan SDK prerequisites and installation, see docs\SETUP.md (or run scripts\doctor.ps1 -Target Windows)."
+    }
     throw "CMake configure failed with exit code $configureExitCode."
 }
 

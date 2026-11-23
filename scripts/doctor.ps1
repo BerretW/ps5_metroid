@@ -1,7 +1,8 @@
 #requires -Version 5.1
 param(
     [ValidateSet("Windows", "PS5", "All")]
-    [string]$Target = "Windows"
+    [string]$Target = "Windows",
+    [switch]$LegacySDL
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +42,23 @@ $lld = Get-CommandPath "ld.lld"
 Write-Check "Clang on PATH" ($null -ne $clang) "optional for Windows; PS5 uses isolated pinned LLVM" $false
 Write-Check "LLD on PATH" ($null -ne $lld) "optional for Windows; PS5 uses isolated pinned LLVM" $false
 Write-Check "PowerShell 7" ($null -ne (Get-CommandPath "pwsh")) "optional; scripts support Windows PowerShell 5.1" $false
+
+if (($Target -eq "Windows" -or $Target -eq "All") -and -not $LegacySDL) {
+    . (Join-Path $PSScriptRoot "windows-vulkan-sdk.ps1")
+    Initialize-WindowsVulkanSdk
+    foreach ($item in @(
+        @("Vulkan headers", "Include\vulkan\vulkan.h"),
+        @("Vulkan import library", "Lib\vulkan-1.lib"),
+        @("glslangValidator", "Bin\glslangValidator.exe"),
+        @("spirv-val", "Bin\spirv-val.exe")
+    )) {
+        $found = $false
+        if ($env:VULKAN_SDK) {
+            $found = Test-Path -LiteralPath (Join-Path $env:VULKAN_SDK $item[1]) -PathType Leaf
+        }
+        Write-Check $item[0] $found "set VULKAN_SDK to a complete Vulkan SDK; see docs\SETUP.md"
+    }
+}
 
 if ($Target -eq "PS5" -or $Target -eq "All") {
     $root = Split-Path -Parent $PSScriptRoot
