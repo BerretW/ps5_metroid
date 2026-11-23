@@ -74,6 +74,34 @@ namespace {
     return true;
 }
 
+[[nodiscard]] bool validRelativeResourcePath(std::string_view path) noexcept {
+    if (path.empty() || path.size() >= 128 || path.front() == '/' ||
+        path.back() == '/') {
+        return false;
+    }
+    std::size_t segmentStart = 0;
+    for (std::size_t index = 0; index <= path.size(); ++index) {
+        if (index == path.size() || path[index] == '/') {
+            const std::size_t segmentLength = index - segmentStart;
+            if (segmentLength == 0 ||
+                (segmentLength == 1 && path[segmentStart] == '.') ||
+                (segmentLength == 2 && path[segmentStart] == '.' &&
+                 path[segmentStart + 1] == '.')) {
+                return false;
+            }
+            segmentStart = index + 1;
+            continue;
+        }
+        const char character = path[index];
+        const bool validCharacter = (character >= 'a' && character <= 'z') ||
+                                    (character >= 'A' && character <= 'Z') ||
+                                    (character >= '0' && character <= '9') ||
+                                    character == '_' || character == '-' || character == '.';
+        if (!validCharacter) return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool copyText(std::array<char, 128>& destination,
                             std::string_view source) noexcept {
     if (source.empty() || source.size() >= destination.size() || !validUtf8(source)) {
@@ -687,8 +715,10 @@ Status JsonConditionTree::parseNode(JsonValue document, std::size_t nodeIndex,
 }
 
 Status ContentRegistry::add(const ResourceSpec& resource) noexcept {
-    if (!validContentId(resource.id) || resource.dependencies.size() > kMaxDependencies) {
-        return {ErrorCode::InvalidValue, resource.id, "Resource ID or dependency count is invalid."};
+    if (!validContentId(resource.id) || resource.dependencies.size() > kMaxDependencies ||
+        (!resource.source.empty() && !validRelativeResourcePath(resource.source))) {
+        return {ErrorCode::InvalidValue, resource.id,
+                "Resource ID, source path or dependency count is invalid."};
     }
     for (const Resource& current : resources_) {
         if (current.active && std::string_view(current.id.data()) == resource.id) {
@@ -704,6 +734,10 @@ Status ContentRegistry::add(const ResourceSpec& resource) noexcept {
     }
     item.type = resource.type;
     item.optional = resource.optional;
+    if (!resource.source.empty() && !copyText(item.source, resource.source)) {
+        return {ErrorCode::InvalidValue, resource.id,
+                "Resource source path is too long or invalid."};
+    }
     for (const ContentDependency& dependency : resource.dependencies) {
         if (!validContentId(dependency.id)) {
             return {ErrorCode::InvalidValue, dependency.id, "Dependency ID is invalid."};
@@ -728,11 +762,19 @@ Status ContentRegistry::add(const ResourceSpec& resource) noexcept {
 Status ContentRegistry::find(std::string_view id, ResourceInfo& resource) const noexcept {
     for (const Resource& item : resources_) {
         if (item.active && std::string_view(item.id.data()) == id) {
-            resource = {std::string_view(item.id.data()), item.type, item.optional};
+            resource = {std::string_view(item.id.data()), item.type, item.optional,
+                        item.source.data()};
             return Status::success();
         }
     }
     return {ErrorCode::NotFound, id, "Resource ID is not registered."};
+}
+
+bool ContentRegistry::at(std::size_t index, ResourceInfo& resource) const noexcept {
+    if (index >= resources_.size() || !resources_[index].active) return false;
+    const Resource& item = resources_[index];
+    resource = {item.id.data(), item.type, item.optional, item.source.data()};
+    return true;
 }
 
 Status ContentRegistry::validate() const noexcept {
@@ -826,6 +868,13 @@ Status loadResourceManifest(JsonValue document, ContentRegistry& output) noexcep
         if (optionalField.valid() && !optionalField.boolean(optional)) {
             return {ErrorCode::InvalidValue, "optional", "Resource optional field must be boolean."};
         }
+        std::string_view source;
+        const JsonValue sourceField = item.find("source");
+        if (sourceField.valid() &&
+            (!sourceField.string(source) || source.empty())) {
+            return {ErrorCode::InvalidValue, "source",
+                    "Resource source must be a safe relative asset path."};
+        }
         std::size_t dependencyCount = 0;
         for (const auto& field : {std::pair{"dependsOn", true},
                                   std::pair{"optionalDependencies", false}}) {
@@ -846,8 +895,8 @@ Status loadResourceManifest(JsonValue document, ContentRegistry& output) noexcep
                 dependencies[dependencyCount++].required = field.second;
             }
         }
-        const Status added = candidate.add({id, type, optional,
-                                            {dependencies.data(), dependencyCount}});
+        const Status added = candidate.add(
+            {id, type, optional, {dependencies.data(), dependencyCount}, source});
         if (!added) {
             return added;
         }

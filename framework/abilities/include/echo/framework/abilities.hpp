@@ -1,6 +1,7 @@
 #pragma once
 
 #include "echo/framework/capability_manifest.hpp"
+#include "echo/framework/data.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,21 +20,28 @@ struct AbilityDefinition {
 
 class AbilityModule final : public IModule {
 public:
-    explicit AbilityModule(std::span<const AbilityDefinition> definitions) noexcept
-        : definitions_(definitions) {}
+    AbilityModule() noexcept = default;
+    AbilityModule(const AbilityModule&) = delete;
+    AbilityModule& operator=(const AbilityModule&) = delete;
+    AbilityModule(AbilityModule&&) = delete;
+    AbilityModule& operator=(AbilityModule&&) = delete;
 
     [[nodiscard]] const ModuleInfo& info() const noexcept override;
     bool initialize(ModuleContext&) noexcept override;
     void shutdown() noexcept override;
 
+    [[nodiscard]] Status load(JsonValue document) noexcept;
     [[nodiscard]] const AbilityDefinition* find(std::string_view id) const noexcept;
     [[nodiscard]] std::span<const AbilityDefinition> definitions() const noexcept {
-        return definitions_;
+        return {definitions_.data(), definitionCount_};
     }
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
 
 private:
-    std::span<const AbilityDefinition> definitions_;
+    std::array<std::array<char, kAbilityIdStorage>, kMaxAbilityDefinitions> ids_{};
+    std::array<AbilityDefinition, kMaxAbilityDefinitions> definitions_{};
+    std::size_t definitionCount_{};
+    bool loaded_{};
     bool initialized_{};
 };
 

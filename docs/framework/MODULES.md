@@ -25,7 +25,7 @@ The optional `EchoFramework::Inventory` target provides module ID `echo.rpg.inve
 
 The optional `EchoFramework::Attributes` target provides module ID `echo.rpg.attributes` and the fixed-capacity `AttributeSet` utility. It requires `EchoFramework::Data` for stable content-ID validation. See [attributes](ATTRIBUTES.md) for bounds, modifier behavior, and the PROJECT ECHO integration.
 
-The optional `EchoFramework::Equipment` target provides module ID `echo.rpg.equipment`, a compiled equipment definition catalog, and fixed-capacity slot loadouts. It requires `echo.rpg.attributes`; equipping applies its declared bounded modifiers, and unequipping removes them. See [equipment](EQUIPMENT.md) for slot and persistence behavior.
+The optional `EchoFramework::Equipment` target provides module ID `echo.rpg.equipment`, a bounded JSON equipment catalog, and fixed-capacity slot loadouts. It requires `echo.rpg.attributes`; equipping applies its declared bounded modifiers, and unequipping removes them. See [equipment](EQUIPMENT.md) for the schema, limits, and persistence behavior.
 
 The optional `EchoFramework::Abilities` target provides module ID `echo.rpg.abilities`, requires `EchoFramework::Data`, validates compiled stable ability IDs, and tracks unlocked abilities in fixed-capacity sets. Ability definitions must remain alive for the module lifetime. See [abilities](ABILITIES.md) for unlock behavior and the PROJECT ECHO integration.
 

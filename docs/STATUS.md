@@ -2,6 +2,52 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**Data-driven item effects (schema v2, 2026-11-23):** At that milestone, the
+version-2 item catalog provides bounded descriptions and use-effect parameters
+for healing, shielding, speed/jump boosts, and area damage. Gameplay dispatches
+only compiled effect handlers; the JSON cannot load code. Autosave format 8
+persists boost magnitudes and migrates formats 1-7 using legacy values. Windows
+tests pass 22/22. Both native Windows PS5 variants compiled, linked, passed
+static validation, and passed package rejection tests under `PPSA91007`. FSELF
+SHA-256 values for that schema-v2 revision were
+`a4e7a0d21beebfb85e3e64ccde41799feb3ad0f44fa817dfbe9f9f77af5421fb` (SDL
+controller, 1,936,305 bytes) and
+`496b6cd75b90b1a733d060146dea014487a1e841f156422f344d20e168e5309e` (Vulkan,
+28,210,829 bytes). Neither package has been tested on PS5 hardware. The
+operator's 2026-11-23 PS5 report did not identify the tested variant or digest
+and does not verify this revision. The earlier `echo_control_prompts` stack
+overflow did not recur in the full suite after the fixed-capacity equipment
+module was moved out of the stack-resident integration object; a call-stack
+diagnosis was not available.
+
+**Catalog equipment bindings (2026-11-23):** Item catalog schema version 3
+moves item-to-equipment and slot bindings into `assets/framework/items.json`.
+Stable numeric item keys still preserve save compatibility, while the compiled
+Equipment module remains the allowlist for gear modifiers. Windows Debug
+build/tests pass 22/22. Both native Windows PS5 variants compile and link;
+static validation and package rejection tests pass. The controller package
+(`dist/ps5-controller/PPSA91007/eboot.bin`) is 1,933,025 bytes, SHA-256
+`49a201a2fb722eec973cb2a4af3bf7651c99d825966ae94418d272cf93b4f766`; the
+Vulkan package (`dist/ps5-vulkan/PPSA91007/eboot.bin`) is 28,207,581 bytes,
+SHA-256 `6bf8fc92da231a2baff3f74508561ecf574f37a7e617ba006b157d8cd3479e64`.
+Neither schema-v3 package has been tested on PS5 hardware.
+
+**Data-driven enemy loot (2026-11-23):** Item IDs, quantities, and mappings
+from the 12 stable loot save slots to enemy slots now load from the bounded
+version-1 `loot` table in `assets/framework/game.json`. Existing save formats
+are unchanged; active extra loot records are reconstructed using the configured
+table and validated by gameplay restore. Windows Debug build/tests pass 22/22.
+Both native Windows PS5 variants compile, link, pass static validation, and pass
+package rejection tests, including malformed loot references and duplicate
+save slots. The controller package is 1,936,513 bytes, SHA-256
+`f1d01ae39e295a9602bd3fb1c12532f68051a0702199bd12231b16d2a0c8347c`; the
+Vulkan package is 28,211,085 bytes, SHA-256
+`dccfc354ced1cb64b0d7917a04072feb7cd0552c623dd112255958b8cdf18def`.
+Neither package has been individually verified on PS5 hardware. On
+2026-11-23, the operator reported that a PS5 build passed and the game works;
+the tested variant, package digest, and setup were not specified, so this
+report cannot be attributed to either recorded package.
+
 **Partial presentation extraction (2026-11-23):** main menu, options and
 inventory now use SDL-free canvas presentation, directly in the Vulkan path
 and through an SDL adapter in the legacy path. The default Windows build no
@@ -142,10 +188,29 @@ manually, not both at once.
 | 53 | Defeat explosions and Cargo Hold fog | PASS (Windows Debug 19/19, including deterministic VFX and SDL/canvas render tests; operator-reported PS5 package build, upload and test; exact variant/digest not supplied) | Defeating an enemy adds a larger bounded explosion burst alongside impact sparks. The Cargo Hold starts with an evenly distributed translucent fog field and continues fixed-step emission. Room transitions and respawn reset the effects; SDL and canvas output match in the isometric render test. |
 | 54 | Data-driven side-view parallax layers | PASS (Windows Debug 19/19, including world schema bounds and canvas draw-position tests; operator-reported PS5 package build, upload and test; exact variant/digest not supplied) | Tile layers accept validated `scrollFactorX` metadata from 0 to 1; omitted values keep prior camera tracking. The Landing Bay's original background decorations now scroll at 0.35 while terrain and object props retain foreground movement. Isometric rooms reject parallax factors to preserve depth sorting. |
 | 55 | Reusable 2D lighting and power circuits | PARTIAL (Windows Debug and Release Vulkan GPU/readback 35/35 each; production Windows 20/20; PS5 Vulkan candidate static/package tests PASS; hardware NOT TESTED) | `game.json` defines world ambient/directional lighting and a smooth day/night cycle; rooms can override those values and define bounded static point/spot lights. Object/tileset JSON binds linear normal maps, emissive masks and power-circuit-driven emission; the Cargo Hold console uses the emergency circuit, and its player-attached spotlight follows aim. Persistent/room light-enable overrides use framework state and save integration; room lights can smoothly fade when enabled state or power circuits change. Stable prop IDs now expose bounded runtime transforms used by prop draws, panel interactions and prop-attached lights; transforms reset on new game and are not saved in `GameCheckpoint`. Point attenuation and spotlight cones use projected world-space distances/directions, including isometric projection; GPU readbacks verify projected light geometry, side/top-down/isometric transforms, camera invariance, blackout, UI isolation, directional normals and emissive masks. The Cargo Hold GPU integration scenario round-trips the game checkpoint, main/emergency circuits and persistent light override through versioned SaveCodec bytes, then verifies overhead dimming and the emergency emissive display by pixel readback. A Landing Bay GPU scenario verifies the circuit-controlled lamp outage, independent emissive backup indicator, and projectile-light movement and expiry. A bounded GPU shadow path uses the 32 nearest visible solid-tile, prop, player, and living-enemy edges; Windows readback verifies light blocking and UI isolation. Generic entity-component attachment, static-light accumulation caching, projectile/particle occlusion and HDR bloom remain incomplete; no PS5 hardware PASS is claimed. See [world lighting notes](framework/WORLD.md#lighting-data). |
+| 56 | Versioned JSON attribute and equipment definitions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (PS5 hardware) | `game.json` now provides five bounded attributes and the equipment module's versioned definitions; the generic Attributes module owns validated JSON definitions, and the duplicate attribute table was removed from `game.cpp`. The content validator rejects invalid attribute bounds. Controller and Vulkan package negative tests pass; both packages keep `PPSA91007`. This is a partial content migration, not a fully data-driven engine. |
+| 57 | Versioned JSON ability definitions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package tests); NOT TESTED (PS5 hardware) | The Echo Step ability ID is now declared in `game.json`; the bounded Abilities module validates the version, ID shape, uniqueness, and capacity, then owns its data. Runtime startup and the host validator load the same definitions; malformed content is covered by focused tests. Both variants retain `PPSA91007`. |
+| 58 | Versioned JSON item-use effects and descriptions | PASS (Windows 22/22; PS5 SDL controller and Vulkan static/package rejection tests); NOT TESTED (this revision on PS5 hardware) | The version-2 item catalog supplies bounded descriptions and parameters for healing, shielding, speed/jump boosts and area damage. Compiled effect handlers remain allowlisted; catalog data cannot load code. Autosave format 8 persists boost magnitudes and migrates formats 1-7 with legacy values. Package tests reject unknown effect IDs. |
 
 ## Echo Framework verification
 
-Latest statically validated controller package: `dist/ps5-controller/PPSA91007`, `eboot.bin` **1,837,537 bytes**, SHA256 `0455d773845eba3093ff590268f210ca31fe37c0f98dc36a23ea3e895977b642`. On 2026-11-22 the operator reported both current SDL and Vulkan packages fully functional on PS5; installed digests and setup were not supplied. The external `assets/framework/game.json` is 3,869 bytes, SHA256 `8b56067883396bc5d085299261bd8f3e6c832d9b038602da788ee6268d62cb37`; dialogue revision 6 is 5,099 bytes, SHA256 `c57781db213fe4d0c07657b8d178c99a9d6bb659e850e8fa67c76d03fb4a848d`; `items.json` is 1,378 bytes, SHA256 `8f92b428957d32a0657c3b7d60b234582309e99571441442c85255e8eaebe80d`. Transfer the complete title directory to include the framework assets and `assets/world` (30 JSON files). The package contains 63 validated assets; the seven system runtime imports and bundled clean-room libc hash are unchanged, and keyboard/IME imports remain absent. yyjson 0.13.0 is linked statically, with its MIT notice packaged.
+Latest statically validated controller package: `dist/ps5-controller/PPSA91007`,
+`eboot.bin` **1,936,305 bytes**, SHA256
+`a4e7a0d21beebfb85e3e64ccde41799feb3ad0f44fa817dfbe9f9f77af5421fb`; static
+report: PASS, hardware NOT TESTED. The matching Vulkan candidate is
+`dist/ps5-vulkan/PPSA91007`, `eboot.bin` **28,210,829 bytes**, SHA256
+`496b6cd75b90b1a733d060146dea014487a1e841f156422f344d20e168e5309e`; static
+report: PASS, hardware NOT TESTED. Both retain title ID `PPSA91007`; controller
+imports remain free of keyboard/IME modules. Packaged `assets/framework/game.json`
+is 7,201 bytes, SHA256
+`111a4d98fd94dfb6f392ffa3c823ec63a095b829776f761c3358a3a1b1457929`;
+`items.json` is 2,376 bytes, SHA256
+`ed42cdffc9be8a052df882386848364906ef29ae36e51c5761576927caa4d4a7`. The
+controller package contains 71 assets and the Vulkan package 73. The seven
+controller system imports, Vulkan system imports, and bundled clean-room libc
+hash are recorded in the corresponding
+`build/ps5/logs/package-tests/*/PPSA91007-validation.json` reports. yyjson
+0.13.0 is linked statically, with its MIT notice packaged.
 
 Evidence: `build/windows/.build-logs/` (latest Debug build/test and tool build), exported manifests under `build/windows/`, `build/ps5/logs/controller-release/commands.log`, `game-build.stdout.log`, `game-readelf.stdout.log`, and `PPSA91007-validation.json`; compiler commands and retained response files are under `build/ps5/game-controller/`. `tests/ps5_package_tests.ps1 -Controller` exercises the controller package, including negative quest-route validation and the absence of keyboard/IME imports.
 

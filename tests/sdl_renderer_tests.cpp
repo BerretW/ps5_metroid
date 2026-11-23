@@ -143,7 +143,7 @@ void testDamageFlash() {
     check(flash.opacity() == 0, "reset clears the damage flash");
 }
 
-void testGameplayVfx() {
+void testGameplayVfx(echo::platform::FrameworkIntegration& integration) {
     using echo::platform::GameplayVfx;
     auto effects = std::make_unique<GameplayVfx>();
     auto duplicate = std::make_unique<GameplayVfx>();
@@ -245,6 +245,8 @@ void testGameplayVfx() {
           "fog covers the player's distant sector of an expanded room");
 
     echo::Game hunter;
+    check(static_cast<bool>(integration.configureGame(hunter)),
+          "isometric impact fixture binds framework content");
     auto hunt = hunter.checkpoint();
     hunt.room = echo::RoomId::CargoHold;
     hunt.playerPosition = {470.0F, 118.0F};
@@ -275,6 +277,8 @@ void testGameplayVfx() {
           "real isometric combat produces a roamer impact through captured game states");
 
     echo::Game fighter;
+    check(static_cast<bool>(integration.configureGame(fighter)),
+          "side-view impact fixture binds framework content");
     for (int tick = 0; tick < 1800 && fighter.roomId() != echo::RoomId::MaintenanceTunnel; ++tick) {
         updatesOk = static_cast<bool>(fighter.update(
             {.moveX = 1, .jumpPressed = true, .jumpHeld = true, .shootHeld = true})) && updatesOk;
@@ -543,8 +547,9 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     auto invalidLoot = saved;
     check(invalidLoot.set({StateScope::Global, {}, "loot.0.item"},
                           StateValue::fromInteger(static_cast<int>(echo::ItemId::HealthCell))) &&
-              !echo::platform::decodeGameCheckpoint(invalidLoot, restored),
-          "checkpoint decoder rejects tampered enemy loot types");
+              echo::platform::decodeGameCheckpoint(invalidLoot, restored) &&
+              !game.restore(restored),
+          "catalog-backed restore rejects tampered enemy loot types");
 
     GameState invalid = saved;
     check(static_cast<bool>(invalid.set(
@@ -578,10 +583,14 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     check(badGear->set({StateScope::Global, {}, "equipment.head"},
                       StateValue::fromInteger(static_cast<int>(echo::ItemId::HealthCell))) &&
               badGear->set({StateScope::Global, {}, "equipment.head.quantity"},
-                          StateValue::fromInteger(1)) &&
-              !echo::platform::decodeGameCheckpoint(*badGear, unchanged) &&
-              unchanged.playerHealth == 3,
-          "decoder rejects incompatible gear without partial output");
+                          StateValue::fromInteger(1)),
+          "incompatible gear fixture is stored");
+    echo::Game gearValidationGame;
+    check(static_cast<bool>(integration.configureGame(gearValidationGame)) &&
+              static_cast<bool>(
+                  echo::platform::decodeGameCheckpoint(*badGear, unchanged)) &&
+              !gearValidationGame.restore(unchanged),
+          "catalog-backed restore rejects gear in an incompatible slot");
     check(badGear->replaceValues(saved) &&
               badGear->erase({StateScope::Global, {}, "inventory.layout"}) &&
               !echo::platform::decodeGameCheckpoint(*badGear, unchanged),
@@ -597,7 +606,7 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     auto oldState = std::make_unique<GameState>();
     auto decodedState = std::make_unique<GameState>();
     auto buffer = std::make_unique<std::array<char, echo::framework::kMaxSaveBytes>>();
-    for (const std::uint32_t version : {1U, 2U, 3U, 4U, 5U}) {
+    for (const std::uint32_t version : {1U, 2U, 3U, 4U, 5U, 6U, 7U}) {
         const GameState& versionState = version >= 3 ? saved : legacyInventory;
         check(static_cast<bool>(oldState->replaceValues(versionState)),
               "legacy save fixture copies its state");
@@ -621,6 +630,11 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
                 check(oldState->erase({StateScope::Global, {}, key}),
                       "old save excludes new effects");
             }
+        }
+        if (version < 8) {
+            check(oldState->erase({StateScope::Global, {}, "effect.speed.amount"}) &&
+                      oldState->erase({StateScope::Global, {}, "effect.jump.amount"}),
+                  "pre-version-eight saves exclude boost magnitudes");
         }
         if (version == 1) {
             check(oldState->erase({StateScope::Global, {}, "inventory.count"}),
@@ -661,9 +675,9 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
                   "echo.project_echo", version, saveModules, *oldState,
                   buffer->data(), buffer->size(), written) &&
                   echo::framework::SaveCodec::decode(
-                  buffer->data(), written, "echo.project_echo", 6, saveModules,
+                  buffer->data(), written, "echo.project_echo", 8, saveModules,
                   *decodedState, header, &echo::platform::migrateGameCheckpointSave) &&
-                  header.formatVersion == 6 &&
+                  header.formatVersion == 8 &&
                   echo::platform::decodeGameCheckpoint(*decodedState, restored) &&
                   game.restore(restored) && game.hasItem(echo::ItemId::MaintenanceKey) &&
                   game.questProgress().completed == 1 &&
@@ -672,9 +686,8 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
                    (version == 2 &&
                     game.inventorySlot(echo::Game::kActiveItemSlot).quantity == 2) ||
                    (version == 3 && !game.lootDrops()[0].active) ||
-                   (version == 4 && game.lootDrops()[0].active) ||
-                   (version == 5 && game.lootDrops()[0].active)),
-              "version-one through five saves migrate route fields and preserve prior progress");
+                   (version >= 4 && game.lootDrops()[0].active)),
+              "version-one through seven saves migrate route fields and preserve prior progress");
     }
 
     GameState migrated{};
@@ -690,7 +703,8 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     check(echo::platform::migrateGameCheckpointSave(3, migrated, nullptr) &&
               echo::platform::migrateGameCheckpointSave(5, migrated, nullptr) &&
              echo::platform::migrateGameCheckpointSave(6, migrated, nullptr) &&
-             !echo::platform::migrateGameCheckpointSave(7, migrated, nullptr),
+             echo::platform::migrateGameCheckpointSave(7, migrated, nullptr) &&
+             !echo::platform::migrateGameCheckpointSave(8, migrated, nullptr),
           "unknown future save versions are not migrated");
     GameState versionFour = saved;
     echo::GameCheckpoint oldDrop{};
@@ -710,8 +724,9 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
         echo::RoomId::MaintenanceTunnel, {400.0F, 304.0F},
         {echo::ItemId::JumpVisor, 1}, true};
     newDrop.speedBoostSeconds = 4.0F;
+    newDrop.speedBoostAmount = 25;
     check(game.restore(newDrop) && echo::platform::encodeGameCheckpoint(game, saved) &&
-              echo::platform::decodeGameCheckpoint(saved, restored) &&
+    echo::platform::decodeGameCheckpoint(saved, restored, &game) &&
               restored.lootDrops[2].active &&
               restored.lootDrops[2].stack.item == echo::ItemId::JumpVisor &&
               restored.speedBoostSeconds == 4.0F && game.restore(restored),
@@ -719,7 +734,7 @@ void testGameCheckpointPersistence(echo::platform::FrameworkIntegration& integra
     auto invalidNewLoot = saved;
     check(invalidNewLoot.set({StateScope::Global, {}, "enemy.2.health"},
                              StateValue::fromInteger(3)) &&
-              !echo::platform::decodeGameCheckpoint(invalidNewLoot, restored),
+              !echo::platform::decodeGameCheckpoint(invalidNewLoot, restored, &game),
           "new loot is rejected when its enemy is still alive");
     newDrop = game.checkpoint();
     newDrop.room = echo::RoomId::MaintenanceTunnel;
@@ -1034,7 +1049,7 @@ int main() {
         testWorldPresentation();
         testFixedStepParticles();
         testDamageFlash();
-        testGameplayVfx();
+        testGameplayVfx(integration);
         testBitmapFontUtf8();
         testGameCheckpointPersistence(integration);
         if (!keyboard.create()) {
@@ -1047,6 +1062,8 @@ int main() {
         SDL_Window* padWindow = createdWindow(keyboardWindow);
         testVulkanWindowMapping();
         echo::Game game;
+        check(static_cast<bool>(integration.configureGame(game)),
+              "door prompt fixture binds loaded framework content");
 
         keyboard.drawGame(game, false, false, "SPACE", "J", "E");
         const auto keyboardHint = capture(keyboardWindow, {12, 340, 616, 16});

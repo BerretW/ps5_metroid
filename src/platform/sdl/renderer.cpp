@@ -1875,7 +1875,7 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                   game.equipmentEquipped("echo:equipment/kinetic_coil") ? "ON" : "OFF");
     text(218, 18, inventoryText.data(), 1, kMuted);
     const ItemStack activeItem = game.inventorySlot(Game::kActiveItemSlot);
-    const std::string_view activeName = Game::itemName(activeItem.item);
+    const std::string_view activeName = game.itemName(activeItem.item);
     std::snprintf(inventoryText.data(), inventoryText.size(), "ACTIVE %.*s X%u SCRAP %u",
                   static_cast<int>(activeName.size()), activeName.data(),
                   static_cast<unsigned>(activeItem.quantity),
@@ -1967,7 +1967,7 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
     }
     if (!paused && !game.dialogueActive() &&
         (game.nearbyPowerPanel(player.position) != nullptr ||
-         game.cargoTerminalNearby())) {
+         game.nearbyDialogueProp() != nullptr)) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey,
              2, kCyan);
     }

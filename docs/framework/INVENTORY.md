@@ -8,12 +8,12 @@ code or choose a runtime factory.
 
 ## Item catalog
 
-The version-one document is limited by the caller (PROJECT ECHO currently uses
+The catalog document is limited by the caller (PROJECT ECHO currently uses
 the same 16 KiB limit as its other framework assets):
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "items": [
     {
       "id": "echo:item/maintenance_key",
@@ -25,13 +25,23 @@ the same 16 KiB limit as its other framework assets):
       "id": "echo:item/health_cell",
       "key": 2,
       "displayName": "Health Cell",
-      "maxStack": 3
+      "maxStack": 3,
+      "description": "ACTIVE: HEAL UP TO 2",
+      "use": {
+        "effect": "heal",
+        "amount": 2,
+        "attribute": "echo:attribute/health_cell.heal"
+      }
     },
     {
       "id": "echo:item/kinetic_coil",
       "key": 3,
       "displayName": "Kinetic Coil",
-      "maxStack": 1
+      "maxStack": 1,
+      "equipment": {
+        "id": "echo:equipment/kinetic_coil",
+        "slot": "echo:slot/suit"
+      }
     },
     {
       "id": "echo:item/scrap",
@@ -43,12 +53,23 @@ the same 16 KiB limit as its other framework assets):
 }
 ```
 
+Schema version 2 adds optional descriptions and use-effect descriptors; version
+3 adds an optional equipment binding with stable equipment and slot IDs. Versions
+1 and 2 remain supported. Equipment bindings must match an initialized,
+compiled equipment definition; JSON cannot define modifiers or load behavior.
 The catalog accepts at most 32 entries. IDs must be valid stable content IDs;
 numeric keys must be unique, nonzero, and stable across save versions.
 `displayName` is copied into fixed storage (at most 63 bytes) and `maxStack`
 must fit a nonzero 16-bit value. Unknown or repeated fields, duplicate IDs or
 keys, unsupported schema versions, and capacity violations return explicit
 errors. A failed reload leaves the last valid catalog unchanged.
+
+An item may also provide a bounded `description` and a `use` descriptor.
+Compiled effect handlers support healing, shield duration, speed/jump boosts,
+and bounded area damage; the catalog owns all effect parameters and strings.
+Effects accept at most 1,000 units, durations are at most 480 fixed steps, and
+effect IDs cannot load code. The optional description is used by the inventory
+UI rather than an item-ID switch in presentation code.
 
 ## Inventory behavior
 
@@ -100,8 +121,17 @@ and are collected by touching them. Scrap stacks to 99; if the backpack has no
 room, the drop remains in the world until space is freed. The HUD shows the
 carried Scrap total, and the normal pickup sound plays when it is collected.
 
-Autosave format 6 retains inventory layout 2: all 20 slot pairs (including
-holes), four equipment pairs and the active stack. Formats 1–5 migrate explicitly:
+## Enemy loot data
+
+PROJECT ECHO's `game.json` declares the bounded version-1 `loot` table. Each
+entry references a stable item resource and defines its stable `saveSlot`,
+`enemySlot`, and quantity. The table must cover all 12 save slots exactly once;
+the loader checks each item against the catalog and its stack limit. Enemy room
+and position come from the loaded world spawn. Save-slot indices remain stable
+because existing autosaves persist loot records by index.
+
+Autosave format 8 retains inventory layout 2: all 20 slot pairs (including
+holes), four equipment pairs and the active stack. Formats 1–7 migrate explicitly:
 legacy keys remain in their bag positions, the Coil moves to Body, and the first
 Health Cell stack moves to Active. Format 1 still receives the Maintenance Key
 for its previously unlocked route. Formats 1–3 initialize loot records empty so
@@ -110,7 +140,9 @@ default to one; new-layout fields are mandatory. Format 6 also persists the
 selected quest route and reward claim. See [save system](SAVE_SYSTEM.md).
 
 Format 5 adds three enemy health values, ten individual drops and the remaining
-durations of the speed, jump and shield effects. Format 4's existing Scrap
+durations of the speed, jump and shield effects. Format 8 also persists the
+configured speed/jump magnitudes for an active or recently expired boost;
+formats 1–7 migrate with the legacy magnitudes. Format 4's existing Scrap
 drops are preserved; formats 1–3 still initialize those older drops empty.
 New enemies are alive when an old save is migrated. See [controls](../CONTROLS.md)
 for the enemies, item effects, and equipment slots.

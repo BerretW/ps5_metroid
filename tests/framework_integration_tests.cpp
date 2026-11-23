@@ -24,6 +24,9 @@ void check(bool condition, std::string_view message) {
 }
 
 void check(echo::framework::Status status, std::string_view message) {
+    if (!status) {
+        std::cerr << "DETAIL: " << status.subject << ": " << status.detail << '\n';
+    }
     check(static_cast<bool>(status), message);
 }
 
@@ -31,11 +34,31 @@ void check(echo::framework::Status status, std::string_view message) {
 
 int main() {
     constexpr const char* fixturePath = "echo-framework-invalid-config-test.json";
+    constexpr const char* malformedDialoguePath =
+        "echo-framework-invalid-dialogue-test.json";
+    constexpr const char* dialogueFixtureAssetPath =
+        ECHO_SOURCE_ASSETS "framework/echo_framework_test_dialogue.json";
     constexpr const char* configPath = ECHO_SOURCE_ASSETS "framework/game.json";
     constexpr const char* dialoguePath = ECHO_SOURCE_ASSETS "framework/engineer.json";
     constexpr const char* itemCatalogPath = ECHO_SOURCE_ASSETS "framework/items.json";
     const auto writeFixture = [&](std::string_view content) {
         std::ofstream fixture(fixturePath, std::ios::binary);
+        fixture.write(content.data(), static_cast<std::streamsize>(content.size()));
+        fixture.close();
+        return static_cast<bool>(fixture);
+    };
+    const auto writeConfigWithDialogueSource = [&](std::string_view source) {
+        std::ifstream input(configPath, std::ios::binary);
+        std::string config{std::istreambuf_iterator<char>(input),
+                           std::istreambuf_iterator<char>()};
+        constexpr std::string_view original = "framework/engineer.json";
+        const std::size_t position = config.find(original);
+        if (position == std::string::npos) return false;
+        config.replace(position, original.size(), source);
+        return writeFixture(config);
+    };
+    const auto writeDialogueFixture = [&](std::string_view content) {
+        std::ofstream fixture(dialogueFixtureAssetPath, std::ios::binary);
         fixture.write(content.data(), static_cast<std::streamsize>(content.size()));
         fixture.close();
         return static_cast<bool>(fixture);
@@ -55,16 +78,28 @@ int main() {
     }
     check(std::remove(fixturePath) == 0, "configuration fixture is removed");
     {
-        std::ofstream fixture(fixturePath, std::ios::binary);
+        constexpr std::string_view legacyConfig = R"({
+            "game": "echo.project_echo",
+            "modules": ["echo.state", "echo.narrative.dialogue", "echo.project_echo"],
+            "technician": {},
+            "resources": [
+                {"id": "echo:dialogue/engineer", "type": "dialogue"},
+                {"id": "echo:item/maintenance_key", "type": "item"}
+            ]
+        })";
+        check(writeFixture(legacyConfig), "single-dialogue legacy config is written");
+        std::ofstream fixture(malformedDialoguePath, std::ios::binary);
         fixture << "{ invalid dialogue json";
         fixture.close();
         check(static_cast<bool>(fixture), "invalid dialogue fixture is written");
         auto malformedDialogue = std::make_unique<echo::platform::FrameworkIntegration>();
-        check(malformedDialogue->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS).code ==
+        check(malformedDialogue->initialize(fixturePath, malformedDialoguePath).code ==
                   echo::framework::ErrorCode::ParseError,
               "malformed dialogue content fails startup explicitly");
     }
-    check(std::remove(fixturePath) == 0, "dialogue fixture is removed");
+    check(std::remove(malformedDialoguePath) == 0 &&
+              std::remove(fixturePath) == 0,
+          "dialogue fixtures are removed");
     {
         std::ifstream input(configPath, std::ios::binary);
         const std::string source{std::istreambuf_iterator<char>(input),
@@ -199,16 +234,20 @@ int main() {
                 }]
             }]
         })";
-        check(writeFixture(unsupportedAction), "unsupported dialogue action fixture is written");
+        check(writeDialogueFixture(unsupportedAction) &&
+                  writeConfigWithDialogueSource(
+                      "framework/echo_framework_test_dialogue.json"),
+              "unsupported dialogue action fixture is written and selected by content data");
         auto invalidAction = std::make_unique<echo::platform::FrameworkIntegration>();
         echo::Game invalidGame;
-        check(invalidAction->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS) &&
+        check(invalidAction->initialize(fixturePath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS) &&
                   invalidAction->configureGame(invalidGame).code ==
                       echo::framework::ErrorCode::InvalidValue &&
                   !invalidGame.inventory().contains(echo::ItemId::MaintenanceKey),
               "unsupported compiled actions are rejected before gameplay changes");
     }
-    check(std::remove(fixturePath) == 0, "unsupported action fixture is removed");
+    check(std::remove(fixturePath) == 0,
+          "unsupported action config fixture is removed");
     {
         const auto displayStatus = [&](std::string_view speaker, std::string_view line,
                                        std::string_view label) {
@@ -220,11 +259,14 @@ int main() {
             json += R"(","choices":[{"id":"choice","label":")";
             json.append(label);
             json += R"(","targetNode":""}]}]})";
-            if (!writeFixture(json)) {
+            if (!writeDialogueFixture(json) ||
+                !writeConfigWithDialogueSource(
+                    "framework/echo_framework_test_dialogue.json")) {
                 return echo::framework::ErrorCode::StorageFailure;
             }
             auto candidate = std::make_unique<echo::platform::FrameworkIntegration>();
-            return candidate->initialize(configPath, fixturePath, itemCatalogPath, ECHO_SOURCE_ASSETS).code;
+            return candidate->initialize(fixturePath, dialoguePath, itemCatalogPath,
+                                         ECHO_SOURCE_ASSETS).code;
         };
         check(displayStatus(std::string(39, 'A'), std::string(80, 'A'),
                             std::string(72, 'A')) == echo::framework::ErrorCode::None,
@@ -243,7 +285,9 @@ int main() {
                   echo::framework::ErrorCode::InvalidValue,
               "unsupported ASCII glyphs also fail explicitly");
     }
-    check(std::remove(fixturePath) == 0, "dialogue display fixture is removed");
+    check(std::remove(fixturePath) == 0 &&
+              std::remove(dialogueFixtureAssetPath) == 0,
+          "dialogue display fixtures are removed");
     auto missingItemCatalog = std::make_unique<echo::platform::FrameworkIntegration>();
     check(missingItemCatalog->initialize(configPath, dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::InvalidArgument,
@@ -252,9 +296,14 @@ int main() {
     check(integration->initialize("missing-framework-config.json", dialoguePath, nullptr, ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::NotFound,
           "missing game configuration is reported");
-    check(integration->initialize(configPath, "missing-engineer-dialogue.json", itemCatalogPath, ECHO_SOURCE_ASSETS).code ==
+    check(writeConfigWithDialogueSource(
+              "framework/missing_engineer_dialogue_test.json") &&
+              integration->initialize(fixturePath, dialoguePath, itemCatalogPath,
+                                      ECHO_SOURCE_ASSETS).code ==
               echo::framework::ErrorCode::NotFound,
-          "missing dialogue content is reported");
+          "missing manifest-declared dialogue source is reported");
+    check(std::remove(fixturePath) == 0,
+          "missing dialogue source config fixture is removed");
     check(integration->initialize(configPath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS),
           "PROJECT ECHO module configuration initializes");
     check(integration->beginGame(), "framework state resets at a new game");
@@ -333,8 +382,13 @@ int main() {
             check(emergencyPanel != nullptr &&
                       emergencyPanel->interaction == "toggle_power" &&
                       emergencyPanel->circuit == "echo:power/cargo_emergency" &&
-                      cargoTerminal != nullptr && cargoTerminal->interaction.empty(),
-                  "the Cargo Hold repair task has separate terminal and emergency-panel props");
+                      cargoTerminal != nullptr &&
+                      cargoTerminal->dialogue == "echo:dialogue/cargo_operator" &&
+                      cargoTerminal->dialoguePowerCircuit ==
+                          "echo:power/cargo_emergency" &&
+                      cargoTerminal->dialoguePowerState ==
+                          "quest.cargo_emergency_powered",
+                  "world data binds the terminal dialogue and its power-state input");
             check(echo::nearbyPowerPanel(*loaded, echo::RoomId::LandingBay,
                                          {384.0F, 224.0F}) == nullptr &&
                       echo::nearbyPowerPanel(*loaded, echo::RoomId::CargoHold,
@@ -434,7 +488,9 @@ int main() {
                 check(cargoGame.restore(checkpoint),
                       "a checkpoint from the original Cargo Hold remains restorable");
                 echo::framework::QuestProgress cargoProgress{};
-                check(cargoGame.cargoTerminalNearby() &&
+                check(cargoGame.nearbyDialogueProp() != nullptr &&
+                          cargoGame.nearbyDialogueProp()->dialogue ==
+                              "echo:dialogue/cargo_operator" &&
                           cargoGame.cargoQuestProgress(cargoProgress) &&
                           cargoProgress.total == 1 && cargoProgress.completed == 0 &&
                           cargoProgress.objective == "RESTORE CARGO EMERGENCY POWER",

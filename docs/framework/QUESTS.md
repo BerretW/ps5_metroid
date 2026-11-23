@@ -28,8 +28,8 @@ pending; making room and continuing play claims it without duplication. The
 HUD displays objectives and route choices. The project validates route facts,
 reward resources, and the bitmap font's text bounds.
 
-The route choice and reward-claimed flag are stored in autosave format 6.
-Formats 1–5 migrate explicitly; the version-one migration still grants the
+The route choice and reward-claimed flag are stored in autosave format 8.
+Formats 1–7 migrate explicitly; the version-one migration still grants the
 Maintenance Key to preserve its previous unlocked-route behavior. Reward
 insertion is bounded by the compiled item catalog and inventory stack limits.
 

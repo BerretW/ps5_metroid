@@ -1,5 +1,11 @@
 # Architecture
 
+The accepted long-term engine direction is documented in
+[master decisions](MASTER_DECISIONS.md#md-001-reusable-data-driven-vulkan-engine).
+The capabilities listed below describe the current architecture and do not
+imply that general-purpose data-driven authoring or complete Vulkan 2D/3D
+support has already been achieved.
+
 ## Graphics ownership
 
 - **Vulkan is the default backend.** Windows builds expose `project_echo_vulkan.exe`;

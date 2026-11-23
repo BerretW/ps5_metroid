@@ -375,8 +375,30 @@ void testJsonAndContent() {
     check(registry.find("echo:sprite/player", resource) &&
               resource.type == ResourceType::Sprite,
           "content lookup returns stable ID and resource type");
+    check(registry.at(0, resource) && resource.id == "echo:ability/echo_step",
+          "resource manifests preserve deterministic registration order");
     check(registry.find("echo:item/missing", resource).code == ErrorCode::NotFound,
           "missing content references are explicit");
+
+    constexpr char sourcedDialogue[] =
+        R"({"resources":[{"id":"echo:dialogue/example","type":"dialogue",)"
+        R"("source":"framework/example.json"}]})";
+    JsonDocument sourcedDocument{};
+    check(JsonDocument::parse(sourcedDialogue, sizeof(sourcedDialogue) - 1,
+                              sourcedDocument, error) &&
+              loadResourceManifest(sourcedDocument.root(), registry) &&
+              registry.find("echo:dialogue/example", resource) &&
+              resource.source == "framework/example.json",
+          "resource manifests retain a bounded relative source path");
+    constexpr char escapingSource[] =
+        R"({"resources":[{"id":"echo:dialogue/example","type":"dialogue",)"
+        R"("source":"framework/../outside.json"}]})";
+    JsonDocument escapingDocument{};
+    check(JsonDocument::parse(escapingSource, sizeof(escapingSource) - 1,
+                              escapingDocument, error) &&
+              loadResourceManifest(escapingDocument.root(), registry).code ==
+                  ErrorCode::InvalidValue,
+          "resource source paths cannot escape the content root");
 
     constexpr char missingDependency[] =
         R"({"resources":[{"id":"echo:sprite/player","type":"sprite",)"

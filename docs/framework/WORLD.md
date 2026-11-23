@@ -186,7 +186,13 @@ and rejects layouts the simulation cannot represent:
   Saved (side-view) enemies cannot be placed in isometric rooms.
 - Doors and triggers use `target`, `arrive` and optional `requiresItem`.
 - Props may use placement properties `interaction: "toggle_power"` and
-  `circuit` for the bounded in-game power-panel action.
+  `circuit` for the bounded in-game power-panel action. A prop may also declare
+  `dialogue` with a stable dialogue resource ID. Optional
+  `dialoguePowerCircuit` and `dialoguePowerState` properties project that
+  circuit's current state to the named global dialogue condition key before
+  starting the conversation. These bindings are validated against the loaded
+  dialogue resources and power module; the simulation does not branch on a
+  prop's placement ID.
 - Exactly one pickup; `player`, `player_iso`, `engineer`, `projectile_player`,
   `projectile_enemy` and `loot_crate` objects must exist.
 - The engineer's `spawn.position`, `spawn.facing` and `bounds` in

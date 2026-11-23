@@ -128,6 +128,104 @@
       "horizontalReach": 52
     }
   },
+  "abilities": {
+    "schemaVersion": 1,
+    "definitions": [
+      {"id": "echo:ability/echo_step"}
+    ]
+  },
+  "attributes": {
+    "schemaVersion": 1,
+    "definitions": [
+      {
+        "id": "echo:attribute/player.max_health",
+        "baseValue": 5,
+        "minimum": 1,
+        "maximum": 8
+      },
+      {
+        "id": "echo:attribute/player.move_speed",
+        "baseValue": 190,
+        "minimum": 100,
+        "maximum": 250
+      },
+      {
+        "id": "echo:attribute/player.jump_impulse",
+        "baseValue": 420,
+        "minimum": 300,
+        "maximum": 520
+      },
+      {
+        "id": "echo:attribute/health_cell.heal",
+        "baseValue": 2,
+        "minimum": 1,
+        "maximum": 4
+      },
+      {
+        "id": "echo:attribute/player.projectile_damage",
+        "baseValue": 1,
+        "minimum": 1,
+        "maximum": 3
+      }
+    ]
+  },
+  "equipment": {
+    "schemaVersion": 1,
+    "definitions": [
+      {
+        "id": "echo:equipment/kinetic_coil",
+        "slot": "echo:slot/suit",
+        "modifiers": [
+          {"attribute": "echo:attribute/player.move_speed", "amount": 30}
+        ]
+      },
+      {
+        "id": "echo:equipment/jump_visor",
+        "slot": "echo:slot/head",
+        "modifiers": [
+          {"attribute": "echo:attribute/player.jump_impulse", "amount": 40}
+        ]
+      },
+      {
+        "id": "echo:equipment/vital_vest",
+        "slot": "echo:slot/suit",
+        "modifiers": [
+          {"attribute": "echo:attribute/player.max_health", "amount": 1}
+        ]
+      },
+      {
+        "id": "echo:equipment/power_barrel",
+        "slot": "echo:slot/weapon",
+        "modifiers": [
+          {"attribute": "echo:attribute/player.projectile_damage", "amount": 1}
+        ]
+      },
+      {
+        "id": "echo:equipment/sprint_module",
+        "slot": "echo:slot/accessory",
+        "modifiers": [
+          {"attribute": "echo:attribute/player.move_speed", "amount": 15}
+        ]
+      }
+    ]
+  },
+  "loot": {
+    "schemaVersion": 1,
+    "drops": [
+      {"saveSlot": 0, "enemySlot": 0, "item": "echo:item/scrap", "quantity": 2},
+      {"saveSlot": 1, "enemySlot": 1, "item": "echo:item/scrap", "quantity": 3},
+      {"saveSlot": 2, "enemySlot": 2, "item": "echo:item/jump_visor", "quantity": 1},
+      {"saveSlot": 3, "enemySlot": 2, "item": "echo:item/med_patch", "quantity": 1},
+      {"saveSlot": 4, "enemySlot": 2, "item": "echo:item/speed_charge", "quantity": 1},
+      {"saveSlot": 5, "enemySlot": 3, "item": "echo:item/vital_vest", "quantity": 1},
+      {"saveSlot": 6, "enemySlot": 3, "item": "echo:item/power_barrel", "quantity": 1},
+      {"saveSlot": 7, "enemySlot": 3, "item": "echo:item/med_kit", "quantity": 1},
+      {"saveSlot": 8, "enemySlot": 4, "item": "echo:item/sprint_module", "quantity": 1},
+      {"saveSlot": 9, "enemySlot": 4, "item": "echo:item/shield_cell", "quantity": 1},
+      {"saveSlot": 10, "enemySlot": 4, "item": "echo:item/jump_charge", "quantity": 1},
+      {"saveSlot": 11, "enemySlot": 4, "item": "echo:item/blast_charge", "quantity": 1}
+    ]
+  },
   "resources": [
     {
       "id": "echo:ability/echo_step",
@@ -162,6 +260,7 @@
     {
       "id": "echo:dialogue/engineer",
       "type": "dialogue",
+      "source": "framework/engineer.json",
       "dependsOn": [
         "echo:ability/echo_step",
         "echo:item/maintenance_key",
@@ -171,7 +270,8 @@
     },
     {
       "id": "echo:dialogue/cargo_operator",
-      "type": "dialogue"
+      "type": "dialogue",
+      "source": "framework/cargo_operator.json"
     },
     {
       "id": "echo:cutscene/central_signal",

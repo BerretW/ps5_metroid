@@ -36,9 +36,11 @@ Format 5 adds three enemy health values, ten bounded new loot records and
 remaining speed, jump and shield effect durations. Migration from format 4
 preserves its two Scrap drops; formats 1–3 retain their existing migration.
 All older formats start the new enemies alive. New loot records derive their
-item, room and floor height from the compiled drop table and store their active
-state and horizontal position. Enemy movement phases and projectiles are not
-saved and restart on Continue.
+item and enemy save-slot association from the versioned `game.json` loot table,
+and their room from the loaded world spawn. The active state and horizontal
+position are persisted; on Continue, the configured table reconstructs item
+stacks for the extra records and `Game::restore` validates the complete set.
+Enemy movement phases and projectiles are not saved and restart on Continue.
 
 The app also stores volume and keyboard bindings in a separate `settings` slot, leaving `autosave` untouched. Settings load at startup, save after changes and again on orderly shutdown, and are range/type checked before applying. Both slots use the same platform storage directory and versioned `SaveCodec`, but distinct game/schema IDs. The operator confirms settings persistence works on the PS5 build; keyboard rebinding itself remains unavailable to test there because PS5 keyboard input is disabled.
 

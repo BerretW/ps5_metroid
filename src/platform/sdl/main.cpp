@@ -155,7 +155,7 @@ using Bindings = echo::platform::Bindings;
 
 constexpr std::string_view kGameId = "echo.project_echo";
 constexpr std::string_view kAutosaveSlot = "autosave";
-constexpr std::uint32_t kSaveFormatVersion = 7;
+constexpr std::uint32_t kSaveFormatVersion = 8;
 constexpr std::string_view kSettingsGameId = "echo.project_echo.settings";
 constexpr std::string_view kSettingsSlot = "settings";
 constexpr std::uint32_t kSettingsFormatVersion = 1;
@@ -1497,7 +1497,7 @@ int main(int argc, char** argv) {
             return false;
         }
         echo::GameCheckpoint checkpoint{};
-        status = echo::platform::decodeGameCheckpoint(loadedState, checkpoint);
+        status = echo::platform::decodeGameCheckpoint(loadedState, checkpoint, &game);
         if (!status) {
             logMessage("Gameplay autosave validation failed");
             logMessage(status.detail);

@@ -113,12 +113,14 @@ struct ResourceSpec {
     ResourceType type{ResourceType::Generic};
     bool optional{};
     std::span<const ContentDependency> dependencies;
+    std::string_view source{};
 };
 
 struct ResourceInfo {
     std::string_view id;
     ResourceType type{ResourceType::Generic};
     bool optional{};
+    std::string_view source{};
 };
 
 class ContentRegistry {
@@ -128,6 +130,7 @@ public:
 
     [[nodiscard]] Status add(const ResourceSpec& resource) noexcept;
     [[nodiscard]] Status find(std::string_view id, ResourceInfo& resource) const noexcept;
+    [[nodiscard]] bool at(std::size_t index, ResourceInfo& resource) const noexcept;
     [[nodiscard]] Status validate() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept { return count_; }
 
@@ -139,6 +142,7 @@ private:
 
     struct Resource {
         std::array<char, 128> id{};
+        std::array<char, 128> source{};
         ResourceType type{ResourceType::Generic};
         std::array<Dependency, kMaxDependencies> dependencies{};
         std::size_t dependencyCount{};

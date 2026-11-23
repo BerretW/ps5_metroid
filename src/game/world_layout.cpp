@@ -423,6 +423,15 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         }
         const std::string_view id(prop.id.data(),
                                   static_cast<std::size_t>(idEnd - prop.id.begin()));
+        if ((!prop.dialogue.empty() &&
+             !framework::isValidContentId(prop.dialogue)) ||
+            (prop.dialoguePowerCircuit.empty() != prop.dialoguePowerState.empty()) ||
+            (!prop.dialoguePowerCircuit.empty() &&
+             (prop.dialogue.empty() ||
+              !framework::isValidContentId(prop.dialoguePowerCircuit) ||
+              !framework::validNamespaceKey(prop.dialoguePowerState)))) {
+            return invalid(id, "Prop dialogue bindings need valid resources and paired state inputs.");
+        }
         for (std::size_t other = index + 1; other < layout.propCount; ++other) {
             const PropLayout& candidate = layout.props[other];
             const auto candidateEnd =
@@ -541,14 +550,29 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
                 }
                 std::string_view interaction;
                 std::string_view circuit;
+                std::string_view dialogue;
+                std::string_view dialoguePowerCircuit;
+                std::string_view dialoguePowerState;
                 if (!readOptionalText(findProperty(placement, *object, "interaction"),
                                       interaction) ||
                     !readOptionalText(findProperty(placement, *object, "circuit"), circuit) ||
+                    !readOptionalText(findProperty(placement, *object, "dialogue"),
+                                      dialogue) ||
+                    !readOptionalText(findProperty(placement, *object, "dialoguePowerCircuit"),
+                                      dialoguePowerCircuit) ||
+                    !readOptionalText(findProperty(placement, *object, "dialoguePowerState"),
+                                      dialoguePowerState) ||
                     (!interaction.empty() &&
                      (interaction != "toggle_power" || circuit.empty())) ||
-                    (interaction.empty() && !circuit.empty())) {
+                    (interaction.empty() && !circuit.empty()) ||
+                    (!dialogue.empty() && !framework::isValidContentId(dialogue)) ||
+                    (dialoguePowerCircuit.empty() != dialoguePowerState.empty()) ||
+                    (!dialoguePowerCircuit.empty() &&
+                     (dialogue.empty() ||
+                      !framework::isValidContentId(dialoguePowerCircuit) ||
+                      !framework::validNamespaceKey(dialoguePowerState)))) {
                     return invalid(placement.object.data(),
-                                   "Power-panel props need interaction toggle_power and a circuit.");
+                                   "Prop interaction, dialogue or power-state binding is invalid.");
                 }
                 const framework::Facing facing =
                     placement.hasFacing ? placement.facing : object->facing();
@@ -562,6 +586,9 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
                 prop.archetype = object;
                 prop.interaction = interaction;
                 prop.circuit = circuit;
+                prop.dialogue = dialogue;
+                prop.dialoguePowerCircuit = dialoguePowerCircuit;
+                prop.dialoguePowerState = dialoguePowerState;
                 break;
             }
             default:

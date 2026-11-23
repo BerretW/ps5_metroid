@@ -210,6 +210,9 @@ struct PropLayout {
     const framework::ObjectDefinition* archetype{};
     std::string_view interaction{};
     std::string_view circuit{};
+    std::string_view dialogue{};
+    std::string_view dialoguePowerCircuit{};
+    std::string_view dialoguePowerState{};
 };
 
 struct WorldArchetypes {
@@ -268,6 +271,28 @@ struct ItemStack {
     friend constexpr bool operator==(const ItemStack&, const ItemStack&) noexcept = default;
 };
 
+struct EnemyLootDefinition {
+    std::uint8_t enemySlot{};
+    ItemStack stack{};
+    friend constexpr bool operator==(const EnemyLootDefinition&,
+                                     const EnemyLootDefinition&) noexcept = default;
+};
+
+class EnemyLootTable {
+public:
+    [[nodiscard]] framework::Status load(
+        framework::JsonValue document,
+        const framework::ItemCatalog& catalog) noexcept;
+    [[nodiscard]] bool loaded() const noexcept { return loaded_; }
+    [[nodiscard]] const EnemyLootDefinition* at(std::size_t saveSlot) const noexcept {
+        return saveSlot < definitions_.size() ? &definitions_[saveSlot] : nullptr;
+    }
+
+private:
+    std::array<EnemyLootDefinition, kLootDropCount> definitions_{};
+    bool loaded_{};
+};
+
 struct LootDrop {
     RoomId room{};
     Vec2 position{};
@@ -306,6 +331,8 @@ struct GameCheckpoint {
     float speedBoostSeconds{};
     float jumpBoostSeconds{};
     float shieldSeconds{};
+    std::int32_t speedBoostAmount{};
+    std::int32_t jumpBoostAmount{};
     Inventory inventory{};
     std::array<ItemStack, kEquipmentSlotCount> equipment{};
     ItemStack activeItem{};
@@ -336,6 +363,10 @@ public:
     [[nodiscard]] float roomWidth() const noexcept { return currentRoom().width(); }
     [[nodiscard]] float roomHeight() const noexcept { return currentRoom().height(); }
     [[nodiscard]] bool isometric() const noexcept { return currentRoom().isometric; }
+    [[nodiscard]] framework::Status configureInventory(
+        framework::InventoryModule& module) noexcept;
+    [[nodiscard]] framework::Status configureLoot(
+        const EnemyLootTable& table) noexcept;
     [[nodiscard]] framework::Status configureDialogue(
         const framework::DialogueModule& module, framework::GameState& state,
         float interactionReach = kDefaultInteractionReach,
@@ -406,7 +437,7 @@ public:
     [[nodiscard]] Rect abilityPickup() const noexcept { return abilityPickup_; }
     [[nodiscard]] Rect technicianBounds() const noexcept;
     [[nodiscard]] bool technicianNearby() const noexcept;
-    [[nodiscard]] bool cargoTerminalNearby() const noexcept;
+    [[nodiscard]] const PropLayout* nearbyDialogueProp() const noexcept;
     [[nodiscard]] bool dialogueActive() const noexcept { return dialogueSession_.active(); }
     [[nodiscard]] bool cutsceneActive() const noexcept { return cutscenePlayer_.active(); }
     [[nodiscard]] std::string_view cutsceneSpeaker() const noexcept;
@@ -433,14 +464,17 @@ public:
                                                      std::size_t destination) noexcept;
     [[nodiscard]] bool hasItem(ItemId item) const noexcept { return itemQuantity(item) != 0; }
     [[nodiscard]] std::uint32_t itemQuantity(ItemId item) const noexcept;
-    [[nodiscard]] static std::string_view itemName(ItemId item) noexcept;
-    [[nodiscard]] static std::string_view itemResource(ItemId item) noexcept;
-    [[nodiscard]] static std::uint16_t itemStackLimit(ItemId item) noexcept;
-    [[nodiscard]] static ItemStack expectedLoot(std::size_t index) noexcept;
-    [[nodiscard]] static RoomId expectedLootRoom(std::size_t index) noexcept;
-    [[nodiscard]] static std::size_t lootEnemy(std::size_t index) noexcept;
+    [[nodiscard]] std::string_view itemName(ItemId item) const noexcept;
+    [[nodiscard]] std::string_view itemDescription(ItemId item) const noexcept;
+    [[nodiscard]] std::string_view itemResource(ItemId item) const noexcept;
+    [[nodiscard]] std::uint16_t itemStackLimit(ItemId item) const noexcept;
+    [[nodiscard]] ItemStack expectedLoot(std::size_t index) const noexcept;
+    [[nodiscard]] RoomId expectedLootRoom(std::size_t index) const noexcept;
+    [[nodiscard]] std::size_t lootEnemy(std::size_t index) const noexcept;
     [[nodiscard]] static std::string_view inventorySlotName(std::size_t slot) noexcept;
-    [[nodiscard]] static bool acceptsItem(std::size_t slot, ItemStack stack) noexcept;
+    [[nodiscard]] static bool validItemStackShape(
+        std::size_t slot, ItemStack stack) noexcept;
+    [[nodiscard]] bool acceptsItem(std::size_t slot, ItemStack stack) const noexcept;
 
 private:
     void updatePlayer(const Input& input, float deltaSeconds) noexcept;
@@ -453,13 +487,20 @@ private:
     void resolveRoomEdges() noexcept;
     [[nodiscard]] framework::Status interact(int moveDirection) noexcept;
     [[nodiscard]] framework::Status syncDialogueState() noexcept;
-    [[nodiscard]] framework::Status syncCargoDialogueState() noexcept;
+    [[nodiscard]] framework::Status syncDialoguePropState(
+        const PropLayout& prop) noexcept;
     [[nodiscard]] framework::Status refreshDialogue() noexcept;
     [[nodiscard]] framework::Status updateDialogue(const Input& input) noexcept;
     [[nodiscard]] framework::Status claimQuestRewardIfReady() noexcept;
     [[nodiscard]] bool hasAbility(std::string_view id) const noexcept;
     [[nodiscard]] static framework::ActionResult grantDialogueItem(
         void* context, const framework::ActionRequest& request) noexcept;
+    [[nodiscard]] const framework::ItemDefinition* itemDefinition(
+        ItemId item) const noexcept;
+    [[nodiscard]] const framework::ItemDefinition* itemDefinition(
+        std::string_view resource) const noexcept;
+    [[nodiscard]] static std::size_t equipmentSlotIndex(
+        std::string_view slot) noexcept;
     [[nodiscard]] framework::Status useActiveItem() noexcept;
     [[nodiscard]] framework::Status rebuildEquipment() noexcept;
     void setInventorySlot(std::size_t slot, ItemStack stack) noexcept;
@@ -476,6 +517,7 @@ private:
     std::array<Enemy, kEnemyCount> enemies_{};
     std::array<Enemy, kMaxRoamers> roamers_{};
     std::size_t roamerCount_{};
+    EnemyLootTable lootTable_{};
     std::array<LootDrop, kLootDropCount> lootDrops_{};
     std::array<Projectile, 12> projectiles_{};
     std::array<Projectile, 6> enemyProjectiles_{};
@@ -492,6 +534,8 @@ private:
     float speedBoostSeconds_{};
     float jumpBoostSeconds_{};
     float shieldSeconds_{};
+    std::int32_t speedBoostAmount_{};
+    std::int32_t jumpBoostAmount_{};
     std::uint8_t cameraShakeTicks_{};
     bool doubleJumpUsed_{};
     bool abilityCollected_{};

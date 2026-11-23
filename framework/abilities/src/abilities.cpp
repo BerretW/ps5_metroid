@@ -47,10 +47,11 @@ const ModuleInfo& AbilityModule::info() const noexcept {
 
 bool AbilityModule::initialize(ModuleContext&) noexcept {
     initialized_ = false;
-    if (definitions_.empty() || definitions_.size() > kMaxAbilityDefinitions) {
+    if (!loaded_ || definitionCount_ == 0 ||
+        definitionCount_ > kMaxAbilityDefinitions) {
         return false;
     }
-    for (std::size_t index = 0; index < definitions_.size(); ++index) {
+    for (std::size_t index = 0; index < definitionCount_; ++index) {
         if (!validAbilityId(definitions_[index].id)) return false;
         for (std::size_t previous = 0; previous < index; ++previous) {
             if (definitions_[previous].id == definitions_[index].id) return false;
@@ -60,12 +61,54 @@ bool AbilityModule::initialize(ModuleContext&) noexcept {
     return true;
 }
 
+Status AbilityModule::load(JsonValue document) noexcept {
+    if (initialized_) {
+        return {ErrorCode::InvalidState, "echo.rpg.abilities",
+                "Ability content cannot change after module initialization."};
+    }
+    std::int64_t schemaVersion{};
+    const JsonValue jsonDefinitions = document.find("definitions");
+    if (!document.isObject() ||
+        !document.find("schemaVersion").integer(schemaVersion) || schemaVersion != 1 ||
+        !jsonDefinitions.isArray() || jsonDefinitions.size() == 0 ||
+        jsonDefinitions.size() > kMaxAbilityDefinitions) {
+        return {ErrorCode::InvalidValue, "abilities",
+                "Ability content requires schema version 1 and a bounded non-empty definitions array."};
+    }
+
+    std::array<std::array<char, kAbilityIdStorage>, kMaxAbilityDefinitions> ids{};
+    for (std::size_t index = 0; index < jsonDefinitions.size(); ++index) {
+        std::string_view id;
+        if (!jsonDefinitions.at(index).find("id").string(id) ||
+            !validAbilityId(id)) {
+            return {ErrorCode::InvalidValue, "abilities.definitions",
+                    "Ability definitions require valid stable ability IDs."};
+        }
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            if (std::string_view(ids[previous].data()) == id) {
+                return {ErrorCode::DuplicateId, id,
+                        "Ability definition IDs must be unique."};
+            }
+        }
+        std::copy(id.begin(), id.end(), ids[index].begin());
+    }
+
+    ids_ = ids;
+    definitionCount_ = jsonDefinitions.size();
+    for (std::size_t index = 0; index < definitionCount_; ++index) {
+        definitions_[index] = {ids_[index].data()};
+    }
+    loaded_ = true;
+    return Status::success();
+}
+
 void AbilityModule::shutdown() noexcept {
     initialized_ = false;
 }
 
 const AbilityDefinition* AbilityModule::find(std::string_view id) const noexcept {
-    for (const AbilityDefinition& definition : definitions_) {
+    for (std::size_t index = 0; index < definitionCount_; ++index) {
+        const AbilityDefinition& definition = definitions_[index];
         if (definition.id == id) return &definition;
     }
     return nullptr;

@@ -19,11 +19,26 @@ void check(bool condition, std::string_view message) {
 } // namespace
 
 int main() {
-    constexpr std::array<echo::framework::AbilityDefinition, 2> definitions{{
-        {"echo:ability/echo_step"},
-        {"echo:ability/thermal_shield"},
-    }};
-    echo::framework::AbilityModule module{definitions};
+    using namespace echo::framework;
+    constexpr char validAbilities[] = R"({
+        "schemaVersion": 1,
+        "definitions": [
+            {"id": "echo:ability/echo_step"},
+            {"id": "echo:ability/thermal_shield"}
+        ]
+    })";
+    JsonDocument document{};
+    JsonError jsonError{};
+    check(static_cast<bool>(JsonDocument::parse(
+              validAbilities, sizeof(validAbilities) - 1, document, jsonError)),
+          "ability definitions parse from bounded JSON");
+    AbilityModule module{};
+    check(static_cast<bool>(module.load(document.root())) &&
+              module.definitions().size() == 2,
+          "ability module loads versioned definitions from JSON");
+    document.reset();
+    check(module.find("echo:ability/echo_step") != nullptr,
+          "loaded ability IDs remain owned after releasing the JSON document");
     echo::framework::AbilitySet<1> abilities{};
     check(module.info().id == "echo.rpg.abilities" &&
               module.info().version == 1 &&
@@ -34,7 +49,7 @@ int main() {
               echo::framework::ErrorCode::InvalidState,
           "ability set requires an initialized module");
 
-    echo::framework::ModuleContext context{};
+    ModuleContext context{};
     check(module.initialize(context), "valid ability definitions initialize");
     check(abilities.unlock(module, "echo:ability/unknown").code ==
               echo::framework::ErrorCode::NotFound,
@@ -51,23 +66,25 @@ int main() {
     abilities.reset();
     check(!abilities.contains("echo:ability/echo_step"),
           "reset clears the unlocked ability set");
+    check(module.load({}).code == ErrorCode::InvalidState,
+          "initialized ability definitions cannot be replaced");
     module.shutdown();
     check(!module.initialized(), "module shutdown clears initialized state");
 
-    constexpr std::array<echo::framework::AbilityDefinition, 2> duplicates{{
-        {"echo:ability/echo_step"},
-        {"echo:ability/echo_step"},
-    }};
-    echo::framework::AbilityModule duplicateModule{duplicates};
-    check(!duplicateModule.initialize(context),
-          "duplicate compiled ability definitions fail initialization");
-
-    constexpr std::array<echo::framework::AbilityDefinition, 1> malformed{{
-        {"echo:item/not_an_ability"},
-    }};
-    echo::framework::AbilityModule malformedModule{malformed};
-    check(!malformedModule.initialize(context),
-          "malformed stable ability IDs fail initialization");
+    for (const std::string_view invalid : {
+             R"({"schemaVersion":2,"definitions":[{"id":"echo:ability/echo_step"}]})",
+             R"({"schemaVersion":1,"definitions":[{"id":"echo:ability/echo_step"},{"id":"echo:ability/echo_step"}]})",
+             R"({"schemaVersion":1,"definitions":[{"id":"echo:item/not_an_ability"}]})",
+         }) {
+        JsonDocument invalidDocument{};
+        check(static_cast<bool>(JsonDocument::parse(
+                  invalid.data(), invalid.size(), invalidDocument, jsonError)),
+              "invalid ability fixture parses");
+        AbilityModule invalidModule{};
+        check(invalidModule.load(invalidDocument.root()).code != ErrorCode::None &&
+                  !invalidModule.initialize(context),
+              "unsupported, duplicate and malformed ability data is rejected");
+    }
 
     if (failures != 0) {
         std::cerr << failures << " framework abilities test(s) failed\n";

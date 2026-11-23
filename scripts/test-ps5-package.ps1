@@ -117,6 +117,7 @@ if (Test-Path -LiteralPath $assetDir) {
                 @($gameConfig.modules) -notcontains "echo.power" -or
                 -not ($gameConfig.resources -is [array]) -or
                 $null -eq $gameConfig.technician -or
+                $null -eq $gameConfig.loot -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:ability/echo_step" -and $_.type -eq "ability"
                 }).Count -ne 1 -or
@@ -142,6 +143,59 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq "echo:item/scrap" -and $_.type -eq "item"
                 }).Count -ne 1) {
                 throw "Invalid framework game configuration: required game modules or resources are missing."
+            }
+            if ($gameConfig.loot.schemaVersion -ne 1 -or
+                @($gameConfig.loot.drops).Count -ne 12) {
+                throw "Invalid framework enemy loot table."
+            }
+            $itemCatalogPath = Join-Path $assetDir "framework\items.json"
+            if (-not (Test-Path -LiteralPath $itemCatalogPath -PathType Leaf)) {
+                throw "Packaged item catalog is missing."
+            }
+            try {
+                $itemCatalog = Get-Content -LiteralPath $itemCatalogPath -Raw |
+                    ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid item catalog: $($_.Exception.Message)"
+            }
+            $lootSaveSlots = @{}
+            foreach ($drop in @($gameConfig.loot.drops)) {
+                $fields = @($drop.PSObject.Properties.Name)
+                if ($fields.Count -ne 4 -or $fields -notcontains "saveSlot" -or
+                    $fields -notcontains "enemySlot" -or $fields -notcontains "item" -or
+                    $fields -notcontains "quantity" -or
+                    ($drop.saveSlot -isnot [int] -and $drop.saveSlot -isnot [long]) -or
+                    ($drop.enemySlot -isnot [int] -and $drop.enemySlot -isnot [long]) -or
+                    ($drop.quantity -isnot [int] -and $drop.quantity -isnot [long]) -or
+                    $drop.saveSlot -lt 0 -or $drop.saveSlot -ge 12 -or
+                    $drop.enemySlot -lt 0 -or $drop.enemySlot -ge 5 -or
+                    $drop.quantity -le 0 -or $drop.quantity -gt 65535 -or
+                    $drop.item -isnot [string] -or
+                    $lootSaveSlots.ContainsKey([string]$drop.saveSlot)) {
+                    throw "Invalid framework enemy loot table."
+                }
+                $catalogItem = @($itemCatalog.items | Where-Object { $_.id -eq $drop.item })
+                $itemResource = @($gameConfig.resources | Where-Object {
+                    $_.id -eq $drop.item -and $_.type -eq "item"
+                })
+                if ($catalogItem.Count -ne 1 -or
+                    $drop.quantity -gt $catalogItem[0].maxStack -or
+                    $itemResource.Count -ne 1) {
+                    throw "Invalid framework enemy loot table."
+                }
+                $lootSaveSlots[[string]$drop.saveSlot] = $true
+            }
+            foreach ($dialogueResource in @($gameConfig.resources | Where-Object {
+                $_.type -eq "dialogue" -and -not $_.optional
+            })) {
+                $source = $dialogueResource.source
+                $segments = if ($source -is [string]) { $source -split "/" } else { @() }
+                if (-not ($source -is [string]) -or $source.Length -eq 0 -or
+                    $source.Length -gt 127 -or $source.StartsWith("/") -or
+                    $source.Contains("\") -or $source -notmatch '^[A-Za-z0-9._/-]+$' -or
+                    @($segments | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }).Count -gt 0) {
+                    throw "Invalid framework resource source path."
+                }
             }
             if (@($gameConfig.technician.PSObject.Properties.Name) -contains "transform") {
                 throw "Invalid framework game configuration: the engineer position belongs to echo:object/engineer."
@@ -316,7 +370,7 @@ if (Test-Path -LiteralPath $assetDir) {
             } catch {
                 throw "Invalid item catalog: $($_.Exception.Message)"
             }
-            if ($itemCatalog.schemaVersion -ne 1 -or
+            if ($itemCatalog.schemaVersion -ne 3 -or
                 -not ($itemCatalog.items -is [array]) -or
                 $itemCatalog.items.Count -lt 1 -or $itemCatalog.items.Count -gt 32 -or
                 @($itemCatalog.items | Where-Object {
@@ -341,6 +395,14 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1) {
                 throw "Invalid item catalog: schema or required project item definition is missing."
             }
+            $healthCell = @($itemCatalog.items | Where-Object {
+                $_.id -eq "echo:item/health_cell"
+            })[0]
+            if ($healthCell.description -ne "ACTIVE: HEAL UP TO 2" -or
+                $healthCell.use.effect -ne "heal" -or $healthCell.use.amount -ne 2 -or
+                $healthCell.use.attribute -ne "echo:attribute/health_cell.heal") {
+                throw "Invalid item catalog: Health Cell effect is missing or mismatched."
+            }
             $newItems = @("jump_visor", "vital_vest", "power_barrel", "sprint_module",
                           "med_patch", "med_kit", "shield_cell", "speed_charge",
                           "jump_charge", "blast_charge")
@@ -352,6 +414,47 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq "echo:item/$id" -and $_.key -eq $key -and $_.maxStack -eq $stack
                 }).Count -ne 1) {
                     throw "Invalid item catalog: missing or mismatched item $id."
+                }
+            }
+            $expectedEffects = @(
+                @{ id = "echo:item/med_patch"; effect = "heal"; amount = 1 },
+                @{ id = "echo:item/med_kit"; effect = "heal"; amount = 4 },
+                @{ id = "echo:item/shield_cell"; effect = "shield"; durationSteps = 240 },
+                @{ id = "echo:item/speed_charge"; effect = "speed_boost"; amount = 25; durationSteps = 480 },
+                @{ id = "echo:item/jump_charge"; effect = "jump_boost"; amount = 60; durationSteps = 480 },
+                @{ id = "echo:item/blast_charge"; effect = "area_damage"; amount = 2; radius = 140 }
+            )
+            foreach ($expected in $expectedEffects) {
+                $definition = @($itemCatalog.items | Where-Object {
+                    $_.id -eq $expected.id
+                })[0]
+                if ($null -eq $definition -or
+                    $definition.description -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($definition.description) -or
+                    $definition.use.effect -ne $expected.effect) {
+                    throw "Invalid item catalog: effect descriptor is missing for $($expected.id)."
+                }
+                foreach ($field in @("amount", "durationSteps", "radius")) {
+                    if ($expected.ContainsKey($field) -and $definition.use.$field -ne $expected[$field]) {
+                        throw "Invalid item catalog: mismatched $field for $($expected.id)."
+                    }
+                }
+                $expectedEquipment = @(
+                    @{ id = "echo:item/kinetic_coil"; equipment = "echo:equipment/kinetic_coil"; slot = "echo:slot/suit" },
+                    @{ id = "echo:item/jump_visor"; equipment = "echo:equipment/jump_visor"; slot = "echo:slot/head" },
+                    @{ id = "echo:item/vital_vest"; equipment = "echo:equipment/vital_vest"; slot = "echo:slot/suit" },
+                    @{ id = "echo:item/power_barrel"; equipment = "echo:equipment/power_barrel"; slot = "echo:slot/weapon" },
+                    @{ id = "echo:item/sprint_module"; equipment = "echo:equipment/sprint_module"; slot = "echo:slot/accessory" }
+                )
+                foreach ($expected in $expectedEquipment) {
+                    $definition = @($itemCatalog.items | Where-Object {
+                        $_.id -eq $expected.id
+                    })[0]
+                    if ($null -eq $definition -or
+                        $definition.equipment.id -ne $expected.equipment -or
+                        $definition.equipment.slot -ne $expected.slot) {
+                        throw "Invalid item catalog: equipment binding is missing or mismatched for $($expected.id)."
+                    }
                 }
             }
         } elseif ($asset.Extension -eq ".json" -and
@@ -442,6 +545,16 @@ if (Test-Path -LiteralPath $assetDir) {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\cargo_operator.json") -PathType Leaf)) {
         throw "Packaged Cargo Control dialogue is missing."
+    }
+    $gameConfig = Get-Content -LiteralPath (Join-Path $assetDir "framework\game.json") -Raw |
+        ConvertFrom-Json
+    foreach ($dialogueResource in @($gameConfig.resources | Where-Object {
+        $_.type -eq "dialogue" -and -not $_.optional
+    })) {
+        $sourcePath = Join-Path $assetDir ($dialogueResource.source -replace '/', '\')
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            throw "Required dialogue resource source is missing: $($dialogueResource.source)"
+        }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\items.json") -PathType Leaf)) {
         throw "Packaged item catalog is missing."

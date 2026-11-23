@@ -19,6 +19,25 @@ void check(bool condition, std::string_view message) {
 
 int main() {
     using namespace echo::framework;
+    constexpr char equipmentJson[] = R"({
+        "schemaVersion": 1,
+        "definitions": [{
+            "id": "echo:equipment/kinetic_coil",
+            "slot": "echo:slot/suit",
+            "modifiers": [
+                {"attribute": "echo:attribute/player.move_speed", "amount": 30}
+            ]
+        }]
+    })";
+    JsonDocument equipmentDocument{};
+    JsonError equipmentError{};
+    check(static_cast<bool>(JsonDocument::parse(
+              equipmentJson, sizeof(equipmentJson) - 1, equipmentDocument,
+              equipmentError)),
+          "equipment content parses from bounded JSON");
+    EquipmentModule module{};
+    check(static_cast<bool>(module.load(equipmentDocument.root())),
+          "equipment module copies data definitions from JSON");
     constexpr std::array<AttributeDefinition, 1> definitions{{
         {"echo:attribute/player.move_speed", 190, 100, 250},
     }};
@@ -26,7 +45,6 @@ int main() {
     check(static_cast<bool>(attributes.configure(definitions)),
           "equipment test configures its player attribute");
 
-    EquipmentModule module{};
     EquipmentLoadout<1> loadout{};
     ModuleContext context{};
     check(module.info().id == "echo.rpg.equipment" &&
@@ -38,7 +56,7 @@ int main() {
               module, "echo:equipment/kinetic_coil", attributes)) &&
               loadout.contains("echo:equipment/kinetic_coil") &&
               loadout.occupies("echo:slot/suit"),
-          "a compiled suit item equips and claims its slot");
+          "a data-defined suit item equips and claims its slot");
     std::int32_t speed{};
     check(static_cast<bool>(attributes.value("echo:attribute/player.move_speed", speed)) &&
               speed == 220,
@@ -67,6 +85,25 @@ int main() {
 
     module.shutdown();
     check(!module.initialized(), "equipment module shuts down explicitly");
+
+    constexpr char invalidModifier[] = R"({
+        "schemaVersion": 1,
+        "definitions": [{
+            "id": "echo:equipment/invalid",
+            "slot": "echo:slot/suit",
+            "modifiers": [
+                {"attribute": "echo:attribute/player.move_speed", "amount": 0}
+            ]
+        }]
+    })";
+    JsonDocument invalidDocument{};
+    check(static_cast<bool>(JsonDocument::parse(
+              invalidModifier, sizeof(invalidModifier) - 1, invalidDocument,
+              equipmentError)),
+          "invalid equipment fixture parses");
+    EquipmentModule invalidModule{};
+    check(invalidModule.load(invalidDocument.root()).code == ErrorCode::InvalidValue,
+          "zero equipment modifiers are rejected before module initialization");
 
     if (failures != 0) {
         std::cerr << failures << " equipment test(s) failed\n";

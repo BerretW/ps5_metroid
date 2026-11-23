@@ -143,11 +143,16 @@ inline framework::Status encodeGameCheckpoint(const Game& game,
     if (const Status next = setNumber("effect.speed", checkpoint.speedBoostSeconds); !next) return next;
     if (const Status next = setNumber("effect.jump", checkpoint.jumpBoostSeconds); !next) return next;
     if (const Status next = setNumber("effect.shield", checkpoint.shieldSeconds); !next) return next;
+    if (const Status next = setInteger("effect.speed.amount",
+                                       checkpoint.speedBoostAmount); !next) return next;
+    if (const Status next = setInteger("effect.jump.amount",
+                                       checkpoint.jumpBoostAmount); !next) return next;
     return output.replaceValues(candidate);
 }
 
-inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
-                                              GameCheckpoint& output) noexcept {
+inline framework::Status decodeGameCheckpoint(
+    const framework::GameState& state, GameCheckpoint& output,
+    const Game* lootContext = nullptr) noexcept {
     using namespace framework;
     const auto get = [&state](std::string_view key, StateValue& value) {
         return state.get({StateScope::Global, {}, key}, value);
@@ -182,6 +187,8 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
     std::int64_t deaths{};
     std::int64_t inventoryCount{};
     std::int64_t questBranch{};
+    std::int64_t speedBoostAmount{};
+    std::int64_t jumpBoostAmount{};
     StateValue layoutValue{};
     const bool hasLayout = static_cast<bool>(get("inventory.layout", layoutValue));
     if (hasLayout &&
@@ -251,9 +258,7 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
             return {ErrorCode::CorruptData, "loot", "Autosave loot drop fields are invalid."};
         }
         const ItemStack stack{static_cast<ItemId>(item), static_cast<std::uint16_t>(quantity)};
-        const ItemStack expected{ItemId::Scrap,
-                                 static_cast<std::uint16_t>(index == 0 ? 2 : 3)};
-        if ((active && (candidate.enemyHealth[index] != 0 || stack != expected)) ||
+        if ((active && (stack.item == ItemId::None || stack.quantity == 0)) ||
             (!active && stack != ItemStack{}) ||
             x < 0.0F || x > kMaxLootX ||
             y < 0.0F || y > static_cast<float>(kRoomHeight) - 16.0F) {
@@ -268,22 +273,40 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         if (!getBoolean(game_persistence_detail::kExtraLootActiveKeys[index - 2], active) ||
             !getNumber(game_persistence_detail::kExtraLootXKeys[index - 2], x) ||
             x < 0.0F || x > kMaxLootX ||
-            (active && candidate.enemyHealth[Game::lootEnemy(index)] != 0)) {
+            (active && lootContext == nullptr)) {
             return {ErrorCode::CorruptData, "loot", "Autosave loot drop is inconsistent."};
         }
         if (active) {
+            const std::size_t enemySlot = lootContext->lootEnemy(index);
+            const ItemStack expected = lootContext->expectedLoot(index);
+            const RoomId expectedRoom = lootContext->expectedLootRoom(index);
+            if (enemySlot >= candidate.enemyHealth.size() ||
+                candidate.enemyHealth[enemySlot] != 0 ||
+                expected.item == ItemId::None || expected.quantity == 0 ||
+                expectedRoom >= RoomId::Count) {
+                return {ErrorCode::CorruptData, "loot",
+                        "Autosave loot drop is inconsistent with enemy progress."};
+            }
             candidate.lootDrops[index] = {
-                Game::expectedLootRoom(index), {x, 304.0F}, Game::expectedLoot(index), true};
+                expectedRoom, {x, 304.0F}, expected, true};
         }
     }
     if (!getNumber("effect.speed", candidate.speedBoostSeconds) ||
         !getNumber("effect.jump", candidate.jumpBoostSeconds) ||
         !getNumber("effect.shield", candidate.shieldSeconds) ||
+        !getInteger("effect.speed.amount", speedBoostAmount) ||
+        !getInteger("effect.jump.amount", jumpBoostAmount) ||
         candidate.speedBoostSeconds < 0 || candidate.speedBoostSeconds > 8 ||
         candidate.jumpBoostSeconds < 0 || candidate.jumpBoostSeconds > 8 ||
-        candidate.shieldSeconds < 0 || candidate.shieldSeconds > 4) {
+        candidate.shieldSeconds < 0 || candidate.shieldSeconds > 4 ||
+        speedBoostAmount < 0 || speedBoostAmount > 1000 ||
+        jumpBoostAmount < 0 || jumpBoostAmount > 1000 ||
+        (candidate.speedBoostSeconds > 0 && speedBoostAmount == 0) ||
+        (candidate.jumpBoostSeconds > 0 && jumpBoostAmount == 0)) {
         return {ErrorCode::CorruptData, "effect", "Autosave effect duration is invalid."};
     }
+    candidate.speedBoostAmount = static_cast<std::int32_t>(speedBoostAmount);
+    candidate.jumpBoostAmount = static_cast<std::int32_t>(jumpBoostAmount);
     candidate.inventoryLayoutVersion = hasLayout ? 2 : 1;
     if (!hasLayout) {
         for (std::size_t slot = 8; slot < Inventory::kCapacity; ++slot) {
@@ -323,7 +346,7 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
         }
         candidate.inventory.items[index] = static_cast<ItemId>(value);
         candidate.inventory.quantities[index] = quantity;
-        if (!Game::acceptsItem(index, {static_cast<ItemId>(value), quantity})) {
+        if (!Game::validItemStackShape(index, {static_cast<ItemId>(value), quantity})) {
             return {ErrorCode::CorruptData, key, "Inventory stack is invalid."};
         }
         if (value != 0) ++candidate.inventory.count;
@@ -346,9 +369,9 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
                 !getInteger(game_persistence_detail::kEquipmentQuantityKeys[index], quantity) ||
                 item < 0 || item >= static_cast<std::int64_t>(ItemId::Count) ||
                 quantity < 0 || quantity > 3 ||
-                !Game::acceptsItem(Game::kFirstEquipmentSlot + index,
-                                  {static_cast<ItemId>(item),
-                                   static_cast<std::uint16_t>(quantity)})) {
+                !Game::validItemStackShape(Game::kFirstEquipmentSlot + index,
+                                           {static_cast<ItemId>(item),
+                                            static_cast<std::uint16_t>(quantity)})) {
                 return {ErrorCode::CorruptData, "equipment", "Equipment slot is invalid."};
             }
             candidate.equipment[index] =
@@ -369,9 +392,9 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
             !getInteger("inventory.active.quantity", quantity) ||
             item < 0 || item >= static_cast<std::int64_t>(ItemId::Count) ||
             quantity < 0 || quantity > 3 ||
-            !Game::acceptsItem(Game::kActiveItemSlot,
-                              {static_cast<ItemId>(item),
-                               static_cast<std::uint16_t>(quantity)})) {
+            !Game::validItemStackShape(Game::kActiveItemSlot,
+                                       {static_cast<ItemId>(item),
+                                        static_cast<std::uint16_t>(quantity)})) {
             return {ErrorCode::CorruptData, "inventory.active", "Active item slot is invalid."};
         }
         candidate.activeItem =
@@ -382,18 +405,6 @@ inline framework::Status decodeGameCheckpoint(const framework::GameState& state,
             get("inventory.active.quantity", unexpected)) {
             return {ErrorCode::CorruptData, "inventory.layout",
                     "An active slot requires an inventory layout version."};
-        }
-    }
-    for (unsigned id = 1; id < static_cast<unsigned>(ItemId::Count); ++id) {
-        const ItemId unique = static_cast<ItemId>(id);
-        if (Game::itemStackLimit(unique) != 1) continue;
-        std::uint32_t total = candidate.inventory.quantity(unique);
-        for (const ItemStack stack : candidate.equipment) {
-            if (stack.item == unique) total += stack.quantity;
-        }
-        if (candidate.activeItem.item == unique) total += candidate.activeItem.quantity;
-        if (total > 1) {
-            return {ErrorCode::CorruptData, "inventory", "A unique item is duplicated."};
         }
     }
     if (candidate.hasDoubleJump != candidate.abilityCollected ||
@@ -408,7 +419,7 @@ inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
                                       framework::GameState& candidate,
                                       void* context) noexcept {
     using namespace framework;
-    if (fromVersion < 1 || fromVersion > 6) return false;
+    if (fromVersion < 1 || fromVersion > 7) return false;
     if (fromVersion == 1) {
         const Status countStatus = candidate.set(
             {StateScope::Global, {}, "inventory.count"}, StateValue::fromInteger(1));
@@ -455,6 +466,16 @@ inline bool migrateGameCheckpointSave(std::uint32_t fromVersion,
         }
         for (std::string_view key : {"effect.speed", "effect.jump", "effect.shield"}) {
             if (!candidate.set({StateScope::Global, {}, key}, StateValue::fromNumber(0))) return false;
+        }
+    }
+    if (fromVersion < 8) {
+        if (!candidate.set(
+                {StateScope::Global, {}, "effect.speed.amount"},
+                StateValue::fromInteger(25)) ||
+            !candidate.set(
+                {StateScope::Global, {}, "effect.jump.amount"},
+                StateValue::fromInteger(60))) {
+            return false;
         }
     }
     if (!candidate.set({StateScope::Global, {}, "quest.branch"},

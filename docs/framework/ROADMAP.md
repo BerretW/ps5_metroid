@@ -1,5 +1,13 @@
 # Roadmap
 
+The project owner's accepted long-term direction is recorded in
+[master decisions](../MASTER_DECISIONS.md#md-001-reusable-data-driven-vulkan-engine).
+The framework is not yet a fully data-driven, general-purpose engine.
+The decision applies to all existing and future game-specific content, not
+only the Cargo example. Use its delivery sequence to prioritize a whole-codebase
+content audit and migration; do not imply that planned Lua, 3D, animation, or
+PBR capabilities are already implemented.
+
 ## 0.2 implemented foundation
 
 Module lifecycle, bounded entities/components, typed events, explicit actions, generic state/conditions, JSON wrapper, content validation, versioned state serialization, storage contract, headless demonstration, a small Echo Step integration, and the fixed-capacity component metadata/configuration registry are implemented and covered by focused tests. Deterministic schema export, a resource-manifest validator, and a registry-driven host CLI editor proof are available behind `ECHO_FRAMEWORK_BUILD_TOOLS`.
@@ -19,6 +27,14 @@ The generic host editor has a manifest discovery/selection mode with manifest-ba
 
 ## Remaining before broader game migration
 
+- Audit and move all remaining authored PROJECT ECHO tables from C++ into
+  validated content, including player tuning, item-to-enum/equipment mappings,
+  loot definitions, and project-specific quest constraints. Attributes,
+  equipment, abilities, and consumable effect descriptors now load from bounded
+  versioned JSON, but the wider migration remains incomplete.
+- Remove game-specific world-interaction dispatch from `src/game/`; the Cargo
+  terminal demonstrates the generic binding mechanism but is not the scope or
+  endpoint of the data-driven work.
 - Extract a reusable application lifecycle coordinator when a second application needs it; today PROJECT ECHO's SDL adapter coordinates startup and shutdown while the existing SDL loop remains in control.
 - Split state/actions/conditions into independently selectable compiled targets if a consumer requires finer granularity; currently these share the static core target.
 - Design schema-specific migration tests for real content evolution.
@@ -26,7 +42,7 @@ The generic host editor has a manifest discovery/selection mode with manifest-ba
 - Build independent optional genre modules only when a game requires them; do not add placeholders.
 - Migrate one feature at a time, keeping `src/game/` authoritative until an adapter has gameplay regression coverage.
 
-The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. The bounded attributes module drives max health, movement speed, jump impulse, and Health Cell healing. The equipment module adds bounded slot loadouts and is integrated as Mira's persistent Kinetic Coil Body upgrade; equipped checkpoint slots are the source of truth for its modifiers. The abilities module validates compiled definitions and tracks Echo Step ownership, which the shared simulation uses for double jump and central-gate access. Branched quests evaluate authoritative facts, persist the route, and grant bounded rewards once inventory space is available. The cutscene module presents localized data-driven cards, pausing simulation until the player advances them; PROJECT ECHO uses it for the Central Chamber signal. The world module loads data-driven objects, sprite animations and multi-tileset rooms with `parent` inheritance; PROJECT ECHO builds all five rooms, enemies, props and visuals from `assets/world`. Quest acceptance, independent journals, cutscene timelines, reusable combat/AI, room-count/topology changes beyond the fixed route, and genre examples remain future work. Host-tool and headless results do not imply PS5 hardware verification.
+The A2 capability manifest, A3 manifest-backed editor, and A4 project-content validator are complete and tested on Windows. The reusable inventory/item-catalog module is integrated into Mira's key and Health Cell grants, conditional dialogue, consumable healing, checkpoint restore, HUD, and the reference game's selected module list. Versioned item JSON now supplies consumable effect IDs, bounded effect parameters, and inventory descriptions; compiled handlers remain the effect algorithms. The bounded attributes module loads five stable-ID defaults and bounds from versioned JSON and drives max health, movement speed, jump impulse, Health Cell healing, and projectile damage. The equipment module loads bounded definitions from versioned JSON, provides slot loadouts, and is integrated as Mira's persistent Kinetic Coil Body upgrade; equipped checkpoint slots are the source of truth for its modifiers. The abilities module loads its versioned JSON definitions and tracks Echo Step ownership, which the shared simulation uses for double jump and central-gate access. Branched quests evaluate authoritative facts, persist the route, and grant bounded rewards once inventory space is available. The cutscene module presents localized data-driven cards, pausing simulation until the player advances them; PROJECT ECHO uses it for the Central Chamber signal. The world module loads data-driven objects, sprite animations and multi-tileset rooms with `parent` inheritance; PROJECT ECHO builds all five rooms, enemies, props and visuals from `assets/world`. Quest acceptance, independent journals, cutscene timelines, reusable combat/AI, room-count/topology changes beyond the fixed route, and genre examples remain future work. Host-tool and headless results do not imply PS5 hardware verification.
 
 The slot-inventory refinement adds 20 stable backpack slots, separate
 Head/Body/Weapon/Accessory slots and one physical active consumable stack.

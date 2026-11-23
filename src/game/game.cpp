@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace echo {
 namespace {
@@ -26,22 +27,12 @@ constexpr std::array<Vec2, kCameraShakeDurationSteps> kCameraShakeOffsets{{
 constexpr std::string_view kMaxHealthAttribute = "echo:attribute/player.max_health";
 constexpr std::string_view kMoveSpeedAttribute = "echo:attribute/player.move_speed";
 constexpr std::string_view kJumpImpulseAttribute = "echo:attribute/player.jump_impulse";
-constexpr std::string_view kHealthCellHealAttribute = "echo:attribute/health_cell.heal";
 constexpr std::string_view kProjectileDamageAttribute = "echo:attribute/player.projectile_damage";
-constexpr std::array<framework::AttributeDefinition, 5> kPlayerAttributeDefinitions{{
-    {kMaxHealthAttribute, 5, 1, 8},
-    {kMoveSpeedAttribute, 190, 100, 250},
-    {kJumpImpulseAttribute, 420, 300, 520},
-    {kHealthCellHealAttribute, 2, 1, 4},
-    {kProjectileDamageAttribute, 1, 1, 3},
-}};
 constexpr std::string_view kEngineerDialogue = "echo:dialogue/engineer";
-constexpr std::string_view kCargoOperatorDialogue = "echo:dialogue/cargo_operator";
-constexpr std::string_view kCargoTerminalId = "cargo_terminal";
 constexpr std::string_view kCargoEmergencyCircuit = "echo:power/cargo_emergency";
 constexpr std::string_view kGrantItemAction = "echo.inventory.grant";
-constexpr std::string_view kMaintenanceKeyResource = "echo:item/maintenance_key";
-constexpr std::string_view kHealthCellResource = "echo:item/health_cell";
+constexpr std::array<std::string_view, kEquipmentSlotCount> kEquipmentSlotIds{
+    "echo:slot/head", "echo:slot/suit", "echo:slot/weapon", "echo:slot/accessory"};
 constexpr framework::StateAddress kHasMaintenanceKey{
     framework::StateScope::Global, {}, "inventory.maintenance_key"};
 constexpr framework::StateAddress kHasHealthCell{
@@ -50,52 +41,31 @@ constexpr framework::StateAddress kHasKineticCoil{
     framework::StateScope::Global, {}, "equipment.kinetic_coil"};
 constexpr framework::StateAddress kNeedsHealing{
     framework::StateScope::Global, {}, "player.needs_healing"};
-constexpr framework::StateAddress kCargoEmergencyPowered{
-    framework::StateScope::Global, {}, "quest.cargo_emergency_powered"};
+constexpr std::array<std::string_view, 2> kEnemyLootDocumentFields{
+    "schemaVersion", "drops"};
+constexpr std::array<std::string_view, 4> kEnemyLootDropFields{
+    "saveSlot", "enemySlot", "item", "quantity"};
 
-struct ProjectItemMapping {
-    std::string_view resource;
-    ItemId id;
-    std::uint32_t key;
-    std::uint16_t maxStack;
-    std::string_view equipmentId{};
-    std::string_view name{};
-    EquipmentSlot slot{EquipmentSlot::Count};
-};
-
-constexpr std::array<ProjectItemMapping, 14> kProjectItems{{
-    {kMaintenanceKeyResource, ItemId::MaintenanceKey, 1, 1, {}, "MAINTENANCE KEY"},
-    {kHealthCellResource, ItemId::HealthCell, 2, 3, {}, "HEALTH CELL"},
-    {"echo:item/kinetic_coil", ItemId::KineticCoil, 3, 1,
-     "echo:equipment/kinetic_coil", "KINETIC COIL", EquipmentSlot::Body},
-    {"echo:item/scrap", ItemId::Scrap, 4, 99, {}, "SCRAP"},
-    {"echo:item/jump_visor", ItemId::JumpVisor, 5, 1,
-     "echo:equipment/jump_visor", "JUMP VISOR", EquipmentSlot::Head},
-    {"echo:item/vital_vest", ItemId::VitalVest, 6, 1,
-     "echo:equipment/vital_vest", "VITAL VEST", EquipmentSlot::Body},
-    {"echo:item/power_barrel", ItemId::PowerBarrel, 7, 1,
-     "echo:equipment/power_barrel", "POWER BARREL", EquipmentSlot::Weapon},
-    {"echo:item/sprint_module", ItemId::SprintModule, 8, 1,
-     "echo:equipment/sprint_module", "SPRINT MODULE", EquipmentSlot::Accessory},
-    {"echo:item/med_patch", ItemId::MedPatch, 9, 3, {}, "MED PATCH"},
-    {"echo:item/med_kit", ItemId::MedKit, 10, 3, {}, "MED KIT"},
-    {"echo:item/shield_cell", ItemId::ShieldCell, 11, 3, {}, "SHIELD CELL"},
-    {"echo:item/speed_charge", ItemId::SpeedCharge, 12, 3, {}, "SPEED CHARGE"},
-    {"echo:item/jump_charge", ItemId::JumpCharge, 13, 3, {}, "JUMP CHARGE"},
-    {"echo:item/blast_charge", ItemId::BlastCharge, 14, 3, {}, "BLAST CHARGE"},
-}};
-
-[[nodiscard]] const ProjectItemMapping* findProjectItem(ItemId id) noexcept {
-    const auto found = std::find_if(kProjectItems.begin(), kProjectItems.end(),
-        [id](const ProjectItemMapping& item) { return item.id == id; });
-    return found == kProjectItems.end() ? nullptr : &*found;
-}
-
-[[nodiscard]] const ProjectItemMapping* findProjectItem(
-    std::string_view resource) noexcept {
-    const auto found = std::find_if(kProjectItems.begin(), kProjectItems.end(),
-        [resource](const ProjectItemMapping& item) { return item.resource == resource; });
-    return found == kProjectItems.end() ? nullptr : &*found;
+[[nodiscard]] bool hasOnlyJsonFields(
+    framework::JsonValue object, std::span<const std::string_view> allowed,
+    std::size_t requiredCount) noexcept {
+    if (!object.isObject() || object.size() < requiredCount ||
+        object.size() > allowed.size()) return false;
+    for (std::size_t index = 0; index < object.size(); ++index) {
+        std::string_view name;
+        framework::JsonValue value{};
+        if (!object.memberAt(index, name, value) ||
+            std::find(allowed.begin(), allowed.end(), name) == allowed.end()) {
+            return false;
+        }
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            std::string_view previousName;
+            framework::JsonValue previousValue{};
+            if (!object.memberAt(previous, previousName, previousValue) ||
+                previousName == name) return false;
+        }
+    }
+    return true;
 }
 
 [[nodiscard]] std::size_t roomIndex(RoomId room) noexcept {
@@ -103,6 +73,68 @@ constexpr std::array<ProjectItemMapping, 14> kProjectItems{{
 }
 
 } // namespace
+
+framework::Status EnemyLootTable::load(
+    framework::JsonValue document,
+    const framework::ItemCatalog& catalog) noexcept {
+    using namespace framework;
+    if (!hasOnlyJsonFields(document, kEnemyLootDocumentFields,
+                           kEnemyLootDocumentFields.size())) {
+        return {ErrorCode::InvalidValue, "enemy_loot",
+                "Enemy loot requires exactly schemaVersion and drops fields."};
+    }
+    std::int64_t version{};
+    const JsonValue entries = document.find("drops");
+    if (!document.find("schemaVersion").integer(version) || version != 1 ||
+        !entries.isArray() || entries.size() != kLootDropCount) {
+        return {ErrorCode::UnsupportedVersion, "enemy_loot",
+                "Enemy loot schema version or save-slot coverage is invalid."};
+    }
+
+    EnemyLootTable candidate{};
+    std::array<bool, kLootDropCount> configured{};
+    for (std::size_t index = 0; index < entries.size(); ++index) {
+        const JsonValue entry = entries.at(index);
+        std::int64_t saveSlot{};
+        std::int64_t enemySlot{};
+        std::int64_t quantity{};
+        std::string_view itemId;
+        if (!hasOnlyJsonFields(entry, kEnemyLootDropFields,
+                               kEnemyLootDropFields.size()) ||
+            !entry.find("saveSlot").integer(saveSlot) || saveSlot < 0 ||
+            saveSlot >= static_cast<std::int64_t>(kLootDropCount) ||
+            !entry.find("enemySlot").integer(enemySlot) || enemySlot < 0 ||
+            enemySlot >= static_cast<std::int64_t>(kEnemyCount) ||
+            !entry.find("item").string(itemId) || !isValidContentId(itemId) ||
+            !entry.find("quantity").integer(quantity) || quantity <= 0 ||
+            quantity > std::numeric_limits<std::uint16_t>::max()) {
+            return {ErrorCode::InvalidValue, "enemy_loot.drops",
+                    "Each drop requires bounded save/enemy slots, an item ID, and quantity."};
+        }
+        const ItemDefinition* item = catalog.find(itemId);
+        if (item == nullptr || item->key >= static_cast<std::uint32_t>(ItemId::Count) ||
+            quantity > item->maxStack) {
+            return {ErrorCode::MissingDependency, itemId,
+                    "Enemy loot must reference a catalog item and fit its stack limit."};
+        }
+        const std::size_t slot = static_cast<std::size_t>(saveSlot);
+        if (configured[slot]) {
+            return {ErrorCode::DuplicateId, "enemy_loot.saveSlot",
+                    "Enemy loot save slots must be unique."};
+        }
+        candidate.definitions_[slot] = {
+            static_cast<std::uint8_t>(enemySlot),
+            {static_cast<ItemId>(item->key), static_cast<std::uint16_t>(quantity)}};
+        configured[slot] = true;
+    }
+    if (std::find(configured.begin(), configured.end(), false) != configured.end()) {
+        return {ErrorCode::MissingDependency, "enemy_loot.saveSlot",
+                "Enemy loot must define every stable save slot."};
+    }
+    candidate.loaded_ = true;
+    *this = candidate;
+    return Status::success();
+}
 
 Game::Game() noexcept {
     start();
@@ -130,7 +162,7 @@ framework::Status Game::configureAttributes(
         return {framework::ErrorCode::InvalidState, "echo.rpg.attributes",
                 "Gameplay attributes are already configured."};
     }
-    const framework::Status status = attributes_.configure(kPlayerAttributeDefinitions);
+    const framework::Status status = attributes_.configure(module.definitions());
     if (status) {
         baseAttributes_ = attributes_;
         attributesConfigured_ = true;
@@ -171,9 +203,24 @@ framework::Status Game::configureEquipment(
         return {framework::ErrorCode::InvalidState, "echo.rpg.equipment",
                 "The equipment and attributes modules must be initialized before configuration."};
     }
+    if (inventoryModule_ == nullptr || !inventoryModule_->initialized()) {
+        return {framework::ErrorCode::MissingDependency, "echo.rpg.inventory",
+                "Equipment bindings require the initialized item catalog."};
+    }
     if (equipmentModule_ != nullptr) {
         return {framework::ErrorCode::InvalidState, "echo.rpg.equipment",
                 "Gameplay equipment is already configured."};
+    }
+    for (std::size_t index = 0; index < inventoryModule_->catalog().size(); ++index) {
+        const framework::ItemDefinition* item = inventoryModule_->catalog().at(index);
+        if (item->equipmentId[0] == '\0') continue;
+        const framework::EquipmentDefinition* equipment =
+            module.find(item->equipmentId.data());
+        if (equipment == nullptr ||
+            equipment->slot != std::string_view(item->equipmentSlot.data())) {
+            return {framework::ErrorCode::MissingDependency, item->equipmentId.data(),
+                    "An item equipment binding does not match the selected equipment module."};
+        }
     }
     equipmentModule_ = &module;
     const framework::Status status = rebuildEquipment();
@@ -189,23 +236,21 @@ framework::Status Game::configureQuests(const framework::QuestModule& module) no
         return {framework::ErrorCode::InvalidState, "echo.rpg.quests",
                 "The quest module must be initialized and gameplay configured only once."};
     }
+    if (inventoryModule_ == nullptr || !inventoryModule_->initialized()) {
+        return {framework::ErrorCode::MissingDependency, "echo.rpg.inventory",
+                "Project quest rewards require the initialized item catalog."};
+    }
     const framework::Status status = validateProjectQuest(module);
     if (!status) return status;
     for (const framework::QuestBranch& branch :
          module.find(kMainQuestId)->branches()) {
-        const ProjectItemMapping* reward = findProjectItem(branch.rewardItem.data());
-        if (reward == nullptr || reward->maxStack < branch.rewardQuantity) {
+        const framework::ItemDefinition* reward =
+            inventoryModule_->catalog().find(branch.rewardItem.data());
+        if (reward == nullptr || reward->key == 0 ||
+            reward->key >= static_cast<std::uint32_t>(ItemId::Count) ||
+            reward->maxStack < branch.rewardQuantity) {
             return {framework::ErrorCode::MissingDependency, branch.rewardItem.data(),
                     "Quest rewards must match a supported project inventory item."};
-        }
-        if (inventoryModule_ != nullptr) {
-            const framework::ItemDefinition* catalogItem =
-                inventoryModule_->catalog().find(branch.rewardItem.data());
-            if (catalogItem == nullptr || catalogItem->key != reward->key ||
-                catalogItem->maxStack != reward->maxStack) {
-                return {framework::ErrorCode::MissingDependency, branch.rewardItem.data(),
-                        "Quest rewards must match the compiled inventory catalog."};
-            }
         }
     }
     mainQuest_ = module.find(kMainQuestId);
@@ -275,21 +320,14 @@ framework::Status Game::claimQuestRewardIfReady() noexcept {
         return {framework::ErrorCode::InvalidState, "quest.branch",
                 "The saved quest route is not present in the configured quest."};
     }
-    const ProjectItemMapping* reward = findProjectItem(branch->rewardItem.data());
-    if (reward == nullptr) {
+    const framework::ItemDefinition* reward =
+        itemDefinition(branch->rewardItem.data());
+    if (reward == nullptr || reward->maxStack < branch->rewardQuantity) {
         return {framework::ErrorCode::MissingDependency, branch->rewardItem.data(),
                 "The quest reward is not a supported project inventory item."};
     }
-    if (inventoryModule_ != nullptr) {
-        const framework::ItemDefinition* catalogItem =
-            inventoryModule_->catalog().find(branch->rewardItem.data());
-        if (catalogItem == nullptr || catalogItem->key != reward->key ||
-            catalogItem->maxStack != reward->maxStack) {
-            return {framework::ErrorCode::MissingDependency, branch->rewardItem.data(),
-                    "The quest reward no longer matches the inventory catalog."};
-        }
-    }
-    if (inventory_.add(reward->id, reward->maxStack, branch->rewardQuantity)) {
+    if (inventory_.add(static_cast<ItemId>(reward->key), reward->maxStack,
+                       branch->rewardQuantity)) {
         questRewardClaimed_ = true;
     }
     return framework::Status::success();
@@ -357,6 +395,57 @@ framework::Status Game::removeAttributeModifier(
     return status;
 }
 
+framework::Status Game::configureInventory(
+    framework::InventoryModule& module) noexcept {
+    if (!module.initialized()) {
+        return {framework::ErrorCode::InvalidState, "echo.rpg.inventory",
+                "The inventory module must be initialized before configuring the game."};
+    }
+    if (inventoryModule_ != nullptr && inventoryModule_ != &module) {
+        return {framework::ErrorCode::InvalidState, "echo.rpg.inventory",
+                "The game's item catalog cannot be replaced after configuration."};
+    }
+    inventoryModule_ = &module;
+    return framework::Status::success();
+}
+
+framework::Status Game::configureLoot(const EnemyLootTable& table) noexcept {
+    if (!table.loaded()) {
+        return {framework::ErrorCode::InvalidState, "enemy_loot",
+                "Enemy loot content must load before configuring the game."};
+    }
+    if (inventoryModule_ == nullptr || !inventoryModule_->initialized()) {
+        return {framework::ErrorCode::MissingDependency, "echo.rpg.inventory",
+                "Enemy loot requires the initialized item catalog."};
+    }
+    if (lootTable_.loaded()) {
+        bool sameTable = true;
+        for (std::size_t index = 0; index < kLootDropCount; ++index) {
+            sameTable = sameTable && *lootTable_.at(index) == *table.at(index);
+        }
+        if (sameTable) return framework::Status::success();
+        return {framework::ErrorCode::InvalidState, "enemy_loot",
+                "The game's enemy loot table cannot be replaced after configuration."};
+    }
+    for (std::size_t index = 0; index < kLootDropCount; ++index) {
+        const EnemyLootDefinition* definition = table.at(index);
+        if (definition == nullptr || definition->enemySlot >= kEnemyCount ||
+            definition->stack.item == ItemId::None ||
+            definition->stack.item >= ItemId::Count ||
+            definition->stack.quantity == 0) {
+            return {framework::ErrorCode::InvalidValue, "enemy_loot.drops",
+                    "Enemy loot definitions must use valid slots and item stacks."};
+        }
+        const framework::ItemDefinition* item = itemDefinition(definition->stack.item);
+        if (item == nullptr || definition->stack.quantity > item->maxStack) {
+            return {framework::ErrorCode::InvalidValue, "enemy_loot.drops",
+                    "Enemy loot stacks must match the configured item catalog."};
+        }
+    }
+    lootTable_ = table;
+    return framework::Status::success();
+}
+
 framework::Status Game::configureDialogue(
     const framework::DialogueModule& module, framework::GameState& state,
     float interactionReach,
@@ -374,6 +463,11 @@ framework::Status Game::configureDialogue(
         return {ErrorCode::InvalidState, "echo.rpg.inventory",
                 "The inventory module must be initialized before configuring the game."};
     }
+    if (inventoryModule != nullptr && inventoryModule_ != nullptr &&
+        inventoryModule_ != inventoryModule) {
+        return {ErrorCode::InvalidState, "echo.rpg.inventory",
+                "The game's item catalog cannot be replaced after configuration."};
+    }
     if (!std::isfinite(interactionReach) || interactionReach < 0.0F ||
         interactionReach > kMaxInteractionReach) {
         return {ErrorCode::InvalidValue, "technician.interaction",
@@ -384,18 +478,11 @@ framework::Status Game::configureDialogue(
     if (!found) {
         return found;
     }
-    bool cargoTerminalConfigured = false;
     for (const PropLayout& prop : world_->propList()) {
-        if (prop.room == RoomId::CargoHold &&
-            std::string_view(prop.id.data()) == kCargoTerminalId) {
-            cargoTerminalConfigured = true;
-            break;
-        }
-    }
-    if (cargoTerminalConfigured) {
-        const DialogueDefinition* cargoDefinition = nullptr;
-        const Status cargoFound = module.find(kCargoOperatorDialogue, cargoDefinition);
-        if (!cargoFound) return cargoFound;
+        if (prop.dialogue.empty()) continue;
+        const DialogueDefinition* propDialogue = nullptr;
+        const Status propFound = module.find(prop.dialogue, propDialogue);
+        if (!propFound) return propFound;
     }
     for (const DialogueNode& node : definition->nodes) {
         for (const DialogueChoice& choice : node.choices) {
@@ -411,19 +498,13 @@ framework::Status Game::configureDialogue(
             }
             const std::string_view resource =
                 action.parameters[0].value.stringValue();
-            const ProjectItemMapping* item = findProjectItem(resource);
-            if (item == nullptr) {
+            const ItemDefinition* item = inventoryModule == nullptr
+                ? nullptr : inventoryModule->catalog().find(resource);
+            if (inventoryModule != nullptr &&
+                (item == nullptr || item->key == 0 ||
+                 item->key >= static_cast<std::uint32_t>(ItemId::Count))) {
                 return {ErrorCode::InvalidValue, "dialogue.action",
                         "The engineer dialogue contains an unsupported item."};
-            }
-            if (inventoryModule != nullptr) {
-                const ItemDefinition* catalogItem =
-                    inventoryModule->catalog().find(resource);
-                if (catalogItem == nullptr || catalogItem->key != item->key ||
-                    catalogItem->maxStack != item->maxStack) {
-                    return {ErrorCode::MissingDependency, resource,
-                            "The dialogue item does not match its compiled inventory contract."};
-                }
             }
         }
     }
@@ -460,6 +541,8 @@ void Game::start() noexcept {
     shieldSeconds_ = 0.0F;
     cameraShakeTicks_ = 0;
     doubleJumpUsed_ = false;
+    speedBoostAmount_ = 0;
+    jumpBoostAmount_ = 0;
     abilityCollected_ = false;
     abilities_.reset();
     gateBlocked_ = false;
@@ -575,6 +658,8 @@ GameCheckpoint Game::checkpoint() const noexcept {
     result.speedBoostSeconds = speedBoostSeconds_;
     result.jumpBoostSeconds = jumpBoostSeconds_;
     result.shieldSeconds = shieldSeconds_;
+    result.speedBoostAmount = speedBoostAmount_;
+    result.jumpBoostAmount = jumpBoostAmount_;
     return result;
 }
 
@@ -617,14 +702,11 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         const ItemId item = checkpointValue.inventory.items[itemIndex];
         if (item == ItemId::None) continue;
         if (item >= ItemId::Count) return false;
-        std::uint16_t maxStack = itemStackLimit(item);
-        if (inventoryModule_ != nullptr) {
-            const framework::ItemDefinition* definition =
-                inventoryModule_->catalog().find(static_cast<std::uint32_t>(item));
-            if (definition == nullptr) return false;
-            maxStack = definition->maxStack;
+        const framework::ItemDefinition* definition = itemDefinition(item);
+        if (definition == nullptr ||
+            checkpointValue.inventory.quantities[itemIndex] > definition->maxStack) {
+            return false;
         }
-        if (checkpointValue.inventory.quantities[itemIndex] > maxStack) return false;
     }
 
     Game restored = *this;
@@ -636,8 +718,19 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     for (std::size_t slot = kFirstEquipmentSlot; slot < kInventorySlotCount; ++slot) {
         if (!acceptsItem(slot, restored.inventorySlot(slot))) return false;
     }
-    for (const ProjectItemMapping& item : kProjectItems) {
-        if (item.maxStack == 1 && restored.itemQuantity(item.id) > 1) return false;
+    if (inventoryModule_ != nullptr) {
+        for (std::size_t itemDefinitionIndex = 0;
+             itemDefinitionIndex < inventoryModule_->catalog().size();
+             ++itemDefinitionIndex) {
+            const framework::ItemDefinition* item =
+                inventoryModule_->catalog().at(itemDefinitionIndex);
+            if (item->key > 0 &&
+                item->key < static_cast<std::uint32_t>(ItemId::Count) &&
+                item->maxStack == 1 &&
+                restored.itemQuantity(static_cast<ItemId>(item->key)) > 1) {
+                return false;
+            }
+        }
     }
     if (checkpointValue.inventoryLayoutVersion == 1) {
         for (const ItemStack stack : checkpointValue.equipment) {
@@ -645,8 +738,14 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         }
         if (checkpointValue.activeItem != ItemStack{}) return false;
         if (restored.inventory_.contains(ItemId::KineticCoil)) {
+            const framework::ItemDefinition* coil =
+                restored.itemDefinition(ItemId::KineticCoil);
+            if (coil == nullptr || coil->equipmentId[0] == '\0') return false;
+            const std::size_t equipmentIndex =
+                equipmentSlotIndex(coil->equipmentSlot.data());
+            if (equipmentIndex >= kEquipmentSlotCount) return false;
             if (!restored.inventory_.remove(ItemId::KineticCoil)) return false;
-            restored.equipmentItems_[static_cast<std::size_t>(EquipmentSlot::Body)] =
+            restored.equipmentItems_[equipmentIndex] =
                 {ItemId::KineticCoil, 1};
         }
         for (std::size_t slot = 0; slot < Inventory::kCapacity; ++slot) {
@@ -669,15 +768,22 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         !std::isfinite(checkpointValue.shieldSeconds) ||
         checkpointValue.speedBoostSeconds < 0 || checkpointValue.speedBoostSeconds > 8 ||
         checkpointValue.jumpBoostSeconds < 0 || checkpointValue.jumpBoostSeconds > 8 ||
-        checkpointValue.shieldSeconds < 0 || checkpointValue.shieldSeconds > 4) return false;
+        checkpointValue.shieldSeconds < 0 || checkpointValue.shieldSeconds > 4 ||
+        checkpointValue.speedBoostAmount < 0 || checkpointValue.speedBoostAmount > 1000 ||
+        checkpointValue.jumpBoostAmount < 0 || checkpointValue.jumpBoostAmount > 1000 ||
+        (checkpointValue.speedBoostSeconds > 0 && checkpointValue.speedBoostAmount == 0) ||
+        (checkpointValue.jumpBoostSeconds > 0 && checkpointValue.jumpBoostAmount == 0)) return false;
     restored.speedBoostSeconds_ = checkpointValue.speedBoostSeconds;
     restored.jumpBoostSeconds_ = checkpointValue.jumpBoostSeconds;
     restored.shieldSeconds_ = checkpointValue.shieldSeconds;
+    restored.speedBoostAmount_ = checkpointValue.speedBoostAmount;
+    restored.jumpBoostAmount_ = checkpointValue.jumpBoostAmount;
     const float maximumPlayerSpeed = static_cast<float>(
         restored.attributeValue(kMoveSpeedAttribute, static_cast<int>(kPlayerSpeed))) +
-        (restored.speedBoostSeconds_ > 0 ? 25.0F : 0.0F);
+        static_cast<float>(restored.speedBoostAmount_);
     const float playerJumpImpulse = static_cast<float>(
-        restored.attributeValue(kJumpImpulseAttribute, static_cast<int>(kJumpImpulse))) + 60.0F;
+        restored.attributeValue(kJumpImpulseAttribute, static_cast<int>(kJumpImpulse))) +
+        static_cast<float>(restored.jumpBoostAmount_);
     if (std::abs(checkpointValue.playerVelocity.x) > maximumPlayerSpeed ||
         checkpointValue.playerVelocity.y < -playerJumpImpulse ||
         checkpointValue.playerVelocity.y > kMaximumFallSpeed ||
@@ -701,7 +807,10 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
             drop.position.y < 0.0F ||
             drop.position.y > world_->rooms[dropRoom].height() - 16.0F) return false;
         if (drop.active) {
-            if (checkpointValue.enemyHealth[lootEnemy(lootIndex)] != 0 ||
+            const std::size_t enemySlot = lootEnemy(lootIndex);
+            if (!lootTable_.loaded() ||
+                enemySlot >= checkpointValue.enemyHealth.size() ||
+                checkpointValue.enemyHealth[enemySlot] != 0 ||
                 drop.stack != expectedLoot(lootIndex) ||
                 drop.room != expectedLootRoom(lootIndex)) {
                 return false;
@@ -788,17 +897,17 @@ bool Game::technicianNearby() const noexcept {
     return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
 }
 
-bool Game::cargoTerminalNearby() const noexcept {
-    if (room_ != RoomId::CargoHold) return false;
+const PropLayout* Game::nearbyDialogueProp() const noexcept {
     constexpr float kInteractionRadius = 48.0F;
     constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
     const float playerCenterX = player_.position.x + kPlayerWidth * 0.5F;
     const float playerCenterY = player_.position.y + kPlayerHeight * 0.5F;
     const std::span<const PropLayout> props = world_->propList();
+    const PropLayout* closest = nullptr;
+    float closestDistanceSquared = kInteractionRadiusSquared;
     for (std::size_t index = 0; index < props.size(); ++index) {
         const PropLayout& prop = props[index];
-        if (prop.room != room_ || std::string_view(prop.id.data()) != kCargoTerminalId ||
-            prop.archetype == nullptr) {
+        if (prop.room != room_ || prop.dialogue.empty() || prop.archetype == nullptr) {
             continue;
         }
         const Vec2 position = runtimePropTransforms_[index].overridden
@@ -808,9 +917,13 @@ bool Game::cargoTerminalNearby() const noexcept {
             playerCenterX - (position.x + prop.archetype->width() * 0.5F);
         const float deltaY =
             playerCenterY - (position.y + prop.archetype->height() * 0.5F);
-        return deltaX * deltaX + deltaY * deltaY <= kInteractionRadiusSquared;
+        const float distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared <= closestDistanceSquared) {
+            closest = &prop;
+            closestDistanceSquared = distanceSquared;
+        }
     }
-    return false;
+    return closest;
 }
 
 bool Game::overlaps(const Rect& first, const Rect& second) noexcept {
@@ -928,24 +1041,18 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
                       {drop.position.x, drop.position.y, 16.0F, 16.0F})) {
             continue;
         }
-        const ProjectItemMapping* mapping = findProjectItem(drop.stack.item);
-        if (mapping == nullptr) {
+        const framework::ItemDefinition* definition = itemDefinition(drop.stack.item);
+        if (definition == nullptr) {
             return {framework::ErrorCode::InvalidState, "loot.item", "Unknown loot item."};
         }
-        const std::uint16_t maxStack = mapping->maxStack;
-        if (inventoryModule_ != nullptr) {
-            const framework::ItemDefinition* definition =
-                inventoryModule_->catalog().find(mapping->resource);
-            if (definition == nullptr || definition->key != mapping->key ||
-                definition->maxStack != maxStack) {
-                return {framework::ErrorCode::MissingDependency, mapping->resource,
-                        "Enemy loot requires its matching catalog definition."};
-            }
-        }
+        const std::uint16_t maxStack = definition->maxStack;
+        const std::size_t equipmentIndex =
+            equipmentSlotIndex(definition->equipmentSlot.data());
         bool collected = false;
-        if (mapping->slot != EquipmentSlot::Count && equipmentModule_ != nullptr &&
-            attributesConfigured_ && !hasItem(mapping->id)) {
-            const std::size_t slot = kFirstEquipmentSlot + static_cast<std::size_t>(mapping->slot);
+        if (definition->equipmentId[0] != '\0' &&
+            equipmentIndex < kEquipmentSlotCount && equipmentModule_ != nullptr &&
+            attributesConfigured_ && !hasItem(drop.stack.item)) {
+            const std::size_t slot = kFirstEquipmentSlot + equipmentIndex;
             if (inventorySlot(slot).item == ItemId::None) {
                 Game candidate = *this;
                 candidate.setInventorySlot(slot, drop.stack);
@@ -955,8 +1062,8 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
                 collected = true;
             }
         }
-        if (!collected && (maxStack != 1 || !hasItem(mapping->id))) {
-            collected = inventory_.add(mapping->id, maxStack, drop.stack.quantity);
+        if (!collected && (maxStack != 1 || !hasItem(drop.stack.item))) {
+            collected = inventory_.add(drop.stack.item, maxStack, drop.stack.quantity);
         }
         if (collected) {
             drop.active = false;
@@ -1008,10 +1115,10 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
 void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
     const float playerSpeed =
         static_cast<float>(attributeValue(kMoveSpeedAttribute, static_cast<int>(kPlayerSpeed))) +
-        (speedBoostSeconds_ > 0 ? 25.0F : 0.0F);
+        (speedBoostSeconds_ > 0 ? static_cast<float>(speedBoostAmount_) : 0.0F);
     const float jumpImpulse =
         static_cast<float>(attributeValue(kJumpImpulseAttribute, static_cast<int>(kJumpImpulse))) +
-        (jumpBoostSeconds_ > 0 ? 60.0F : 0.0F);
+        (jumpBoostSeconds_ > 0 ? static_cast<float>(jumpBoostAmount_) : 0.0F);
     const int direction = std::clamp(input.moveX, -1, 1);
     if (direction != 0) {
         player_.facing = direction;
@@ -1109,7 +1216,7 @@ void Game::updatePlayer(const Input& input, float deltaSeconds) noexcept {
 void Game::updateIsometricPlayer(const Input& input, float deltaSeconds) noexcept {
     const float playerSpeed =
         static_cast<float>(attributeValue(kMoveSpeedAttribute, static_cast<int>(kPlayerSpeed))) +
-        (speedBoostSeconds_ > 0 ? 25.0F : 0.0F);
+        (speedBoostSeconds_ > 0 ? static_cast<float>(speedBoostAmount_) : 0.0F);
     const int screenX = std::clamp(input.moveX, -1, 1);
     const int screenY = std::clamp(input.moveY, -1, 1);
     Vec2 direction{static_cast<float>(screenX + screenY), static_cast<float>(screenY - screenX)};
@@ -1248,11 +1355,11 @@ void Game::damageEnemy(std::size_t index, int amount) noexcept {
     enemy.health = std::max(0, enemy.health - amount);
     if (enemy.health != 0) return;
     enemy.alive = false;
+    std::size_t dropOrdinal = 0;
     for (std::size_t loot = 0; loot < lootDrops_.size(); ++loot) {
+        if (!lootTable_.loaded()) break;
         if (lootEnemy(loot) != index) continue;
-        const float offset = index < 2 ? 0.0F :
-            static_cast<float>(static_cast<int>(loot) -
-                (index == 2 ? 3 : index == 3 ? 6 : 9)) * 18.0F;
+        const float offset = static_cast<float>(dropOrdinal++) * 18.0F;
         lootDrops_[loot] = {
             enemy.room,
             {std::clamp(enemy.bounds.x + (enemy.bounds.width - 16.0F) * 0.5F + offset,
@@ -1368,17 +1475,19 @@ framework::Status Game::syncDialogueState() noexcept {
         framework::StateValue::fromBoolean(player_.health < maximumHealth()));
 }
 
-framework::Status Game::syncCargoDialogueState() noexcept {
+framework::Status Game::syncDialoguePropState(const PropLayout& prop) noexcept {
+    if (prop.dialoguePowerCircuit.empty()) return framework::Status::success();
     if (dialogueState_ == nullptr || powerModule_ == nullptr) {
-        return {framework::ErrorCode::InvalidState, kCargoOperatorDialogue,
-                "Cargo Control dialogue requires configured state and power services."};
+        return {framework::ErrorCode::InvalidState, prop.dialogue,
+                "Dialogue power-state inputs require configured state and power services."};
     }
     bool powered = false;
     const framework::Status status =
-        powerModule_->isPowered(kCargoEmergencyCircuit, powered);
+        powerModule_->isPowered(prop.dialoguePowerCircuit, powered);
     if (!status) return status;
     return dialogueState_->set(
-        kCargoEmergencyPowered, framework::StateValue::fromBoolean(powered));
+        {framework::StateScope::Global, {}, prop.dialoguePowerState},
+        framework::StateValue::fromBoolean(powered));
 }
 
 framework::Status Game::setDialogueLanguage(framework::DialogueLanguage language) noexcept {
@@ -1450,20 +1559,26 @@ void Game::setInventorySlot(std::size_t slot, ItemStack stack) noexcept {
     }
 }
 
-bool Game::acceptsItem(std::size_t slot, ItemStack stack) noexcept {
+bool Game::validItemStackShape(std::size_t slot, ItemStack stack) noexcept {
     if (slot >= kInventorySlotCount) return false;
     if (stack.item == ItemId::None) return stack.quantity == 0;
-    if (stack.item >= ItemId::Count || stack.quantity == 0) return false;
-    const std::uint16_t limit = itemStackLimit(stack.item);
-    if (stack.quantity > limit) return false;
+    return stack.item < ItemId::Count && stack.quantity != 0;
+}
+
+bool Game::acceptsItem(std::size_t slot, ItemStack stack) const noexcept {
+    if (!validItemStackShape(slot, stack)) return false;
+    if (stack.item == ItemId::None) return true;
+    const framework::ItemDefinition* definition = itemDefinition(stack.item);
+    if (definition == nullptr || stack.quantity > definition->maxStack) return false;
     if (slot < Inventory::kCapacity) return true;
     if (slot == kActiveItemSlot) {
-        return stack.item == ItemId::HealthCell ||
-               (stack.item >= ItemId::MedPatch && stack.item <= ItemId::BlastCharge);
+        return definition->useEffect != framework::ItemUseEffect::None;
     }
-    const ProjectItemMapping* item = findProjectItem(stack.item);
-    return item != nullptr && item->slot != EquipmentSlot::Count &&
-           slot == kFirstEquipmentSlot + static_cast<std::size_t>(item->slot);
+    const std::size_t equipmentIndex =
+        equipmentSlotIndex(definition->equipmentSlot.data());
+    return definition->equipmentId[0] != '\0' &&
+           equipmentIndex < kEquipmentSlotCount &&
+           slot == kFirstEquipmentSlot + equipmentIndex;
 }
 
 std::uint32_t Game::itemQuantity(ItemId item) const noexcept {
@@ -1476,43 +1591,66 @@ std::uint32_t Game::itemQuantity(ItemId item) const noexcept {
     return total;
 }
 
-std::string_view Game::itemName(ItemId item) noexcept {
-    const ProjectItemMapping* mapping = findProjectItem(item);
-    return mapping == nullptr ? "EMPTY" : mapping->name;
+const framework::ItemDefinition* Game::itemDefinition(ItemId item) const noexcept {
+    if (inventoryModule_ == nullptr || item == ItemId::None || item >= ItemId::Count) {
+        return nullptr;
+    }
+    const framework::ItemDefinition* definition =
+        inventoryModule_->catalog().find(static_cast<std::uint32_t>(item));
+    return definition != nullptr && definition->key == static_cast<std::uint32_t>(item)
+        ? definition : nullptr;
 }
 
-std::string_view Game::itemResource(ItemId item) noexcept {
-    const ProjectItemMapping* mapping = findProjectItem(item);
-    return mapping == nullptr ? std::string_view{} : mapping->resource;
+const framework::ItemDefinition* Game::itemDefinition(
+    std::string_view resource) const noexcept {
+    if (inventoryModule_ == nullptr) return nullptr;
+    const framework::ItemDefinition* definition =
+        inventoryModule_->catalog().find(resource);
+    return definition != nullptr && definition->key > 0 &&
+           definition->key < static_cast<std::uint32_t>(ItemId::Count)
+        ? definition : nullptr;
 }
 
-std::uint16_t Game::itemStackLimit(ItemId item) noexcept {
-    const ProjectItemMapping* mapping = findProjectItem(item);
-    return mapping == nullptr ? 0 : mapping->maxStack;
+std::size_t Game::equipmentSlotIndex(std::string_view slot) noexcept {
+    const auto found = std::find(kEquipmentSlotIds.begin(), kEquipmentSlotIds.end(), slot);
+    return found == kEquipmentSlotIds.end()
+        ? kEquipmentSlotCount
+        : static_cast<std::size_t>(found - kEquipmentSlotIds.begin());
 }
 
-ItemStack Game::expectedLoot(std::size_t index) noexcept {
-    constexpr std::array<ItemStack, kLootDropCount> loot{{
-        {ItemId::Scrap, 2}, {ItemId::Scrap, 3},
-        {ItemId::JumpVisor, 1}, {ItemId::MedPatch, 1}, {ItemId::SpeedCharge, 1},
-        {ItemId::VitalVest, 1}, {ItemId::PowerBarrel, 1}, {ItemId::MedKit, 1},
-        {ItemId::SprintModule, 1}, {ItemId::ShieldCell, 1},
-        {ItemId::JumpCharge, 1}, {ItemId::BlastCharge, 1},
-    }};
-    return index < loot.size() ? loot[index] : ItemStack{};
+std::string_view Game::itemName(ItemId item) const noexcept {
+    if (item == ItemId::None) return "EMPTY";
+    const framework::ItemDefinition* definition = itemDefinition(item);
+    return definition == nullptr ? std::string_view{} :
+                                  std::string_view(definition->displayName.data());
 }
 
-std::size_t Game::lootEnemy(std::size_t index) noexcept {
-    if (index < 2) return index;
-    if (index < 5) return 2;
-    if (index < 8) return 3;
-    return index < kLootDropCount ? 4 : kEnemyCount;
+std::string_view Game::itemResource(ItemId item) const noexcept {
+    const framework::ItemDefinition* definition = itemDefinition(item);
+    return definition == nullptr ? std::string_view{} :
+                                  std::string_view(definition->id.data());
 }
 
-RoomId Game::expectedLootRoom(std::size_t index) noexcept {
+std::uint16_t Game::itemStackLimit(ItemId item) const noexcept {
+    const framework::ItemDefinition* definition = itemDefinition(item);
+    return definition == nullptr ? 0 : definition->maxStack;
+}
+
+ItemStack Game::expectedLoot(std::size_t index) const noexcept {
+    const EnemyLootDefinition* definition = lootTable_.at(index);
+    return lootTable_.loaded() && definition != nullptr
+        ? definition->stack : ItemStack{};
+}
+
+std::size_t Game::lootEnemy(std::size_t index) const noexcept {
+    const EnemyLootDefinition* definition = lootTable_.at(index);
+    return lootTable_.loaded() && definition != nullptr
+        ? definition->enemySlot : kEnemyCount;
+}
+
+RoomId Game::expectedLootRoom(std::size_t index) const noexcept {
     const std::size_t enemy = lootEnemy(index);
-    return enemy == 0 || enemy == 2 ? RoomId::MaintenanceTunnel :
-           enemy == 1 || enemy == 3 ? RoomId::PowerStation : RoomId::ResearchLab;
+    return enemy < world_->enemies.size() ? world_->enemies[enemy].room : RoomId::Count;
 }
 
 std::string_view Game::inventorySlotName(std::size_t slot) noexcept {
@@ -1533,9 +1671,7 @@ framework::Status Game::rebuildEquipment() noexcept {
                                 "Equipped gear requires the equipment and attributes modules."}
             : framework::Status::success();
     }
-    constexpr std::array<std::string_view, kEquipmentSlotCount> slots{
-        "echo:slot/head", "echo:slot/suit", "echo:slot/weapon", "echo:slot/accessory"};
-    for (const std::string_view slot : slots) {
+    for (const std::string_view slot : kEquipmentSlotIds) {
         if (equipment_.occupies(slot)) {
             const framework::Status status = equipment_.unequip(*equipmentModule_, slot, attributes_);
             if (!status) return status;
@@ -1543,11 +1679,13 @@ framework::Status Game::rebuildEquipment() noexcept {
     }
     for (const ItemStack stack : equipmentItems_) {
         if (stack.item == ItemId::None) continue;
-        const ProjectItemMapping* mapping = findProjectItem(stack.item);
-        if (mapping == nullptr || mapping->equipmentId.empty()) {
+        const framework::ItemDefinition* item = itemDefinition(stack.item);
+        if (item == nullptr || item->equipmentId[0] == '\0' ||
+            equipmentSlotIndex(item->equipmentSlot.data()) >= kEquipmentSlotCount) {
             return {framework::ErrorCode::InvalidValue, "equipment", "Unknown equipped item."};
         }
-        const framework::Status status = equipment_.equip(*equipmentModule_, mapping->equipmentId, attributes_);
+        const framework::Status status = equipment_.equip(
+            *equipmentModule_, item->equipmentId.data(), attributes_);
         if (!status) return status;
     }
     const float speed = static_cast<float>(
@@ -1606,44 +1744,39 @@ framework::ActionResult Game::grantDialogueItem(
         return {{ErrorCode::InvalidValue, kGrantItemAction,
                  "The inventory action requires one supported project item."}, {}, false};
     }
-    const ProjectItemMapping* item =
-        findProjectItem(request.parameters[0].value.stringValue());
+    const framework::ItemDefinition* item =
+        game->itemDefinition(request.parameters[0].value.stringValue());
     if (item == nullptr) {
         return {{ErrorCode::InvalidValue, kGrantItemAction,
                  "The inventory action references an unsupported project item."}, {}, false};
     }
-    std::uint16_t maxStack = item->maxStack;
-    if (game->inventoryModule_ != nullptr) {
-        const framework::ItemDefinition* definition =
-            game->inventoryModule_->catalog().find(item->resource);
-        if (definition == nullptr || definition->key != item->key ||
-            definition->maxStack != item->maxStack) {
-            return {{ErrorCode::MissingDependency, item->resource,
-                     "The item has no matching compiled inventory definition."},
-                    {}, false};
-        }
-        maxStack = definition->maxStack;
-    }
-    if (!item->equipmentId.empty() &&
+    const ItemId itemId = static_cast<ItemId>(item->key);
+    const bool equippable = item->equipmentId[0] != '\0';
+    const std::size_t equipmentIndex =
+        game->equipmentSlotIndex(item->equipmentSlot.data());
+    if (equippable &&
         (game->equipmentModule_ == nullptr || !game->attributesConfigured_)) {
-        return {{ErrorCode::MissingDependency, item->resource,
+        return {{ErrorCode::MissingDependency, item->id.data(),
                  "Equipping this item requires the selected equipment and attributes modules."},
                 {}, false};
     }
-    if (item->maxStack == 1 && game->hasItem(item->id)) {
-        return {{ErrorCode::DuplicateId, item->resource,
+    if (equippable && equipmentIndex >= kEquipmentSlotCount) {
+        return {{ErrorCode::InvalidValue, item->id.data(),
+                 "The item references an unsupported equipment slot."}, {}, false};
+    }
+    if (item->maxStack == 1 && game->hasItem(itemId)) {
+        return {{ErrorCode::DuplicateId, item->id.data(),
                  "This unique item is already owned."}, {}, false};
     }
     Game candidate = *game;
-    const std::size_t equipmentSlot = kFirstEquipmentSlot +
-        static_cast<std::size_t>(item->slot);
-    if (!item->equipmentId.empty() &&
+    const std::size_t equipmentSlot = kFirstEquipmentSlot + equipmentIndex;
+    if (equippable &&
         candidate.inventorySlot(equipmentSlot).item == ItemId::None) {
-        candidate.setInventorySlot(equipmentSlot, {item->id, 1});
+        candidate.setInventorySlot(equipmentSlot, {itemId, 1});
         const Status equipped = candidate.rebuildEquipment();
         if (!equipped) return {equipped, {}, false};
-    } else if (!candidate.inventory_.add(item->id, maxStack, 1)) {
-        return {{ErrorCode::CapacityExceeded, item->resource,
+    } else if (!candidate.inventory_.add(itemId, item->maxStack, 1)) {
+        return {{ErrorCode::CapacityExceeded, item->id.data(),
                  "The item could not be added to the inventory."}, {}, false};
     }
     *game = candidate;
@@ -1653,30 +1786,40 @@ framework::ActionResult Game::grantDialogueItem(
 framework::Status Game::useActiveItem() noexcept {
     const ItemId item = activeItem_.item;
     if (item == ItemId::None) return framework::Status::success();
-    if (item == ItemId::HealthCell || item == ItemId::MedPatch || item == ItemId::MedKit) {
+    const framework::ItemDefinition* definition = itemDefinition(item);
+    if (definition == nullptr) {
+        return {framework::ErrorCode::MissingDependency, "inventory.active",
+                "Using an item requires its initialized catalog definition."};
+    }
+    if (definition->useEffect == framework::ItemUseEffect::Heal) {
         if (player_.health >= maximumHealth()) return framework::Status::success();
-        const int healing = item == ItemId::HealthCell ? attributeValue(kHealthCellHealAttribute, 2) :
-                            item == ItemId::MedPatch ? 1 : 4;
+        const int healing = definition->useAttribute[0] != '\0'
+            ? attributeValue(definition->useAttribute.data(), definition->useAmount)
+            : definition->useAmount;
         player_.health = std::min(maximumHealth(), player_.health + healing);
-    } else if (item == ItemId::ShieldCell) {
-        shieldSeconds_ = 4.0F;
-    } else if (item == ItemId::SpeedCharge) {
-        speedBoostSeconds_ = 8.0F;
-    } else if (item == ItemId::JumpCharge) {
-        jumpBoostSeconds_ = 8.0F;
-    } else if (item == ItemId::BlastCharge) {
+    } else if (definition->useEffect == framework::ItemUseEffect::Shield) {
+        shieldSeconds_ = static_cast<float>(definition->useDurationSteps) * kFixedStep;
+    } else if (definition->useEffect == framework::ItemUseEffect::SpeedBoost) {
+        speedBoostSeconds_ = static_cast<float>(definition->useDurationSteps) * kFixedStep;
+        speedBoostAmount_ = definition->useAmount;
+    } else if (definition->useEffect == framework::ItemUseEffect::JumpBoost) {
+        jumpBoostSeconds_ = static_cast<float>(definition->useDurationSteps) * kFixedStep;
+        jumpBoostAmount_ = definition->useAmount;
+    } else if (definition->useEffect == framework::ItemUseEffect::AreaDamage) {
+        const float radius = static_cast<float>(definition->useRadius);
+        const float squaredRadius = radius * radius;
         for (std::size_t index = 0; index < enemies_.size(); ++index) {
             if (enemies_[index].alive && enemies_[index].room == room_ &&
-                std::abs(enemies_[index].bounds.x - player_.position.x) < 140.0F) {
-                damageEnemy(index, 2);
+                std::abs(enemies_[index].bounds.x - player_.position.x) < radius) {
+                damageEnemy(index, definition->useAmount);
             }
         }
         for (std::size_t index = 0; index < roamerCount_; ++index) {
             Enemy& roamer = roamers_[index];
             const float dx = roamer.bounds.x - player_.position.x;
             const float dy = roamer.bounds.y - player_.position.y;
-            if (roamer.alive && dx * dx + dy * dy < 140.0F * 140.0F) {
-                roamer.health = std::max(0, roamer.health - 2);
+            if (roamer.alive && dx * dx + dy * dy < squaredRadius) {
+                roamer.health = std::max(0, roamer.health - definition->useAmount);
                 roamer.alive = roamer.health > 0;
             }
         }
@@ -1685,6 +1828,12 @@ framework::Status Game::useActiveItem() noexcept {
     }
     if (--activeItem_.quantity == 0) activeItem_ = {};
     return framework::Status::success();
+}
+
+std::string_view Game::itemDescription(ItemId item) const noexcept {
+    const framework::ItemDefinition* definition = itemDefinition(item);
+    return definition == nullptr ? std::string_view{} :
+                                  std::string_view(definition->description.data());
 }
 
 int Game::maximumHealth() const noexcept {
@@ -1749,11 +1898,12 @@ framework::Status Game::updateDialogue(const Input& input) noexcept {
 framework::Status Game::interact(int moveDirection) noexcept {
     const Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
     const bool engineerNearby = technicianNearby();
-    const bool terminalNearby = !engineerNearby && cargoTerminalNearby();
-    if (engineerNearby || terminalNearby) {
+    const PropLayout* dialogueProp =
+        engineerNearby ? nullptr : nearbyDialogueProp();
+    if (engineerNearby || dialogueProp != nullptr) {
         if (dialogueModule_ == nullptr || dialogueState_ == nullptr) {
             return {framework::ErrorCode::InvalidState,
-                    terminalNearby ? kCargoOperatorDialogue : kEngineerDialogue,
+                    dialogueProp != nullptr ? dialogueProp->dialogue : kEngineerDialogue,
                     "Dialogue services have not been configured."};
         }
         framework::Status status = syncDialogueState();
@@ -1761,9 +1911,9 @@ framework::Status Game::interact(int moveDirection) noexcept {
             return status;
         }
         const std::string_view dialogueId =
-            terminalNearby ? kCargoOperatorDialogue : kEngineerDialogue;
-        if (terminalNearby) {
-            status = syncCargoDialogueState();
+            dialogueProp != nullptr ? dialogueProp->dialogue : kEngineerDialogue;
+        if (dialogueProp != nullptr) {
+            status = syncDialoguePropState(*dialogueProp);
             if (!status) return status;
         }
         status = dialogueModule_->start(dialogueId, dialogueSession_);

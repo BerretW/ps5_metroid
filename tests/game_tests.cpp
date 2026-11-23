@@ -70,20 +70,48 @@ public:
         if (!status_) return;
         status_ = module_.add(*document_->definition());
         if (!status_) return;
+        std::ifstream configInput(ECHO_SOURCE_ASSETS "framework/game.json",
+                                  std::ios::binary);
+        const std::string configSource{std::istreambuf_iterator<char>(configInput),
+                                       std::istreambuf_iterator<char>()};
+        echo::framework::JsonDocument configDocument{};
+        echo::framework::JsonError configError{};
+        status_ = echo::framework::JsonDocument::parse(
+            configSource.data(), configSource.size(), configDocument, configError);
+        if (!status_) return;
+        status_ = attributesModule_.load(configDocument.root().find("attributes"));
+        if (!status_) return;
+        status_ = equipmentModule_.load(configDocument.root().find("equipment"));
+        if (!status_) return;
+        std::ifstream itemsInput(ECHO_SOURCE_ASSETS "framework/items.json",
+                                 std::ios::binary);
+        const std::string itemsSource{std::istreambuf_iterator<char>(itemsInput),
+                                      std::istreambuf_iterator<char>()};
+        echo::framework::JsonDocument itemsDocument{};
+        status_ = echo::framework::JsonDocument::parse(
+            itemsSource.data(), itemsSource.size(), itemsDocument, configError);
+        if (!status_) return;
+        status_ = inventoryModule_.load(itemsDocument.root());
+        if (!status_) return;
         echo::framework::ModuleContext context{};
         if (!module_.initialize(context)) {
             status_ = {echo::framework::ErrorCode::InitializationFailed, "dialogue",
                        "Dialogue test module could not initialize."};
             return;
         }
-        if (!attributesModule_.initialize(context) ||
+        if (!inventoryModule_.initialize(context) ||
+            !attributesModule_.initialize(context) ||
             !equipmentModule_.initialize(context)) {
             status_ = {echo::framework::ErrorCode::InitializationFailed, "equipment",
                        "Equipment test modules could not initialize."};
+            return;
         }
+        status_ = lootTable_.load(
+            configDocument.root().find("loot"), inventoryModule_.catalog());
     }
 
     ~DialogueFixture() {
+        inventoryModule_.shutdown();
         equipmentModule_.shutdown();
         attributesModule_.shutdown();
         module_.shutdown();
@@ -94,10 +122,23 @@ public:
         bool withEquipment = false) noexcept {
         if (!status_) return status_;
         echo::framework::Status status =
-            game.configureDialogue(module_, state_, reach);
+            game.configureDialogue(module_, state_, reach, &inventoryModule_);
+        if (!status) return status;
+        status = game.configureLoot(lootTable_);
         if (!status || !withEquipment) return status;
         status = game.configureAttributes(attributesModule_);
         return status ? game.configureEquipment(equipmentModule_) : status;
+    }
+
+    [[nodiscard]] echo::framework::Status bindInventory(echo::Game& game) noexcept {
+        if (!status_) return status_;
+        echo::framework::Status status = game.configureInventory(inventoryModule_);
+        return status ? game.configureLoot(lootTable_) : status;
+    }
+
+    [[nodiscard]] echo::framework::Status loadLoot(
+        echo::framework::JsonValue document, echo::EnemyLootTable& table) const noexcept {
+        return status_ ? table.load(document, inventoryModule_.catalog()) : status_;
     }
 
     [[nodiscard]] echo::framework::Status setEchoStepUnlocked(bool unlocked) noexcept {
@@ -111,6 +152,8 @@ private:
     echo::framework::DialogueModule module_{};
     echo::framework::AttributesModule attributesModule_{};
     echo::framework::EquipmentModule equipmentModule_{};
+    echo::framework::InventoryModule inventoryModule_{};
+    echo::EnemyLootTable lootTable_{};
     echo::framework::GameState state_{};
     echo::framework::Status status_{};
 };
@@ -176,6 +219,19 @@ void testMovementJumpAndFloorCollision() {
 
 void testAttributeModifiersAffectGameplay() {
     echo::framework::AttributesModule module;
+    constexpr char attributesJson[] = R"({
+        "schemaVersion": 1,
+        "definitions": [
+            {"id": "echo:attribute/player.max_health", "baseValue": 5, "minimum": 1, "maximum": 8},
+            {"id": "echo:attribute/player.move_speed", "baseValue": 190, "minimum": 100, "maximum": 250}
+        ]
+    })";
+    echo::framework::JsonDocument document{};
+    echo::framework::JsonError jsonError{};
+    check(static_cast<bool>(echo::framework::JsonDocument::parse(
+              attributesJson, sizeof(attributesJson) - 1, document, jsonError)) &&
+              static_cast<bool>(module.load(document.root())),
+          "gameplay attribute fixture is loaded from JSON");
     echo::framework::ModuleContext context{};
     check(module.initialize(context), "attributes module initializes for gameplay");
     echo::Game game;
@@ -216,9 +272,14 @@ void testAttributeModifiersAffectGameplay() {
 }
 
 void testCheckpointRoundTrip() {
+    DialogueFixture fixture;
     echo::Game source;
+    check(static_cast<bool>(fixture.bindInventory(source)),
+          "checkpoint source binds the item catalog");
     step(source, {.moveX = 1}, 24);
     echo::Game restored;
+    check(static_cast<bool>(fixture.bindInventory(restored)),
+          "checkpoint restore game binds the item catalog");
     const echo::GameCheckpoint checkpoint = source.checkpoint();
     check(restored.restore(checkpoint), "valid gameplay checkpoint restores");
     check(restored.roomId() == source.roomId() &&
@@ -266,7 +327,10 @@ void testCheckpointRoundTrip() {
 }
 
 void testEnemyLootDrops() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "enemy loot game binds the item catalog");
     echo::GameCheckpoint checkpoint = game.checkpoint();
     checkpoint.room = echo::RoomId::MaintenanceTunnel;
     checkpoint.playerPosition = {650.0F, 292.0F};
@@ -305,6 +369,8 @@ void testEnemyLootDrops() {
           "touching the drop collects scrap into a newly freed stable backpack slot");
     const echo::GameCheckpoint collected = game.checkpoint();
     echo::Game restored;
+    check(static_cast<bool>(fixture.bindInventory(restored)),
+          "collected loot restore game binds the item catalog");
     check(restored.restore(collected) &&
               !restored.lootDrops()[0].active &&
               restored.itemQuantity(echo::ItemId::Scrap) == 2,
@@ -327,13 +393,29 @@ void testEnemyLootDrops() {
           "the Power Station enemy checkpoint carries its three-scrap drop");
 }
 
+void testInvalidEnemyLootTable() {
+    DialogueFixture fixture;
+    constexpr char source[] = R"({"schemaVersion":2,"drops":[]})";
+    echo::framework::JsonDocument document{};
+    echo::framework::JsonError error{};
+    echo::EnemyLootTable table{};
+    check(echo::framework::JsonDocument::parse(
+              source, sizeof(source) - 1, document, error) &&
+              !fixture.loadLoot(document.root(), table) && !table.loaded(),
+          "enemy loot rejects unsupported schema versions without partial output");
+}
+
 void testRoomTransition() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "room transition game binds the item catalog");
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "landing bay connects to maintenance tunnel");
     check(game.roomName() == "Maintenance Tunnel", "room transition loads the destination name");
 }
 
 void testDataDrivenWorldLayout() {
+    DialogueFixture fixture;
     static echo::WorldLayout wide = echo::defaultWorldLayout();
     echo::RoomLayout& landing = wide.rooms[static_cast<std::size_t>(echo::RoomId::LandingBay)];
     landing.columns = 48;
@@ -341,6 +423,8 @@ void testDataDrivenWorldLayout() {
         landing.tiles[static_cast<std::size_t>(10 * echo::kMaxLayoutColumns + column)] = echo::Tile::Solid;
     }
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "data-driven layout game binds the item catalog");
     check(static_cast<bool>(game.configureWorld(wide)) && game.roomColumns() == 48,
           "a data-driven layout can widen a room beyond the built-in 40 columns");
     check(moveUntilX(game, 1300.0F, 1) && game.roomId() == echo::RoomId::LandingBay,
@@ -489,7 +573,10 @@ void testTechnicianDialogueAndInventory() {
 }
 
 void testLabDoorRequiresKey() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "locked-door game binds the item catalog");
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1),
           "locked-door test reaches the maintenance tunnel");
     check(moveUntilX(game, 955.0F, 1), "locked-door test reaches the lab door");
@@ -535,6 +622,8 @@ void testHealthCellDialogueAndUse() {
           "using the item action without a remaining cell is a safe no-op");
 
     echo::Game fullHealth;
+    check(static_cast<bool>(fixture.bind(fullHealth)),
+          "full-health item fixture binds the item catalog");
     echo::GameCheckpoint fullCheckpoint = fullHealth.checkpoint();
     check(fullCheckpoint.inventory.add(echo::ItemId::HealthCell, 3, 1) &&
               fullHealth.restore(fullCheckpoint) &&
@@ -680,13 +769,18 @@ void testSlotInventoryTransfersAndMigration() {
 }
 
 void testProjectileCombatAndDamage() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "projectile combat game binds the item catalog");
     check(moveUntilRoom(game, echo::RoomId::MaintenanceTunnel, 1), "combat test reaches maintenance tunnel");
     step(game, {.moveX = 1}, 140);
     step(game, {.shootHeld = true}, 120);
     check(game.livingEnemies(echo::RoomId::MaintenanceTunnel) == 0, "projectiles defeat a destructible enemy");
 
     echo::Game damageGame;
+    check(static_cast<bool>(fixture.bindInventory(damageGame)),
+          "damage game binds the item catalog");
     check(moveUntilRoom(damageGame, echo::RoomId::MaintenanceTunnel, 1),
           "damage test reaches the maintenance tunnel");
     auto damageState = damageGame.checkpoint();
@@ -703,6 +797,8 @@ void testProjectileCombatAndDamage() {
 
     echo::GameCheckpoint damagedCheckpoint = damageGame.checkpoint();
     echo::Game restoredDamage = damageGame;
+    check(static_cast<bool>(fixture.bindInventory(restoredDamage)),
+          "damage checkpoint game binds the item catalog");
     check(restoredDamage.restore(damagedCheckpoint) &&
               restoredDamage.cameraShakeOffset().x == 0.0F &&
               restoredDamage.cameraShakeOffset().y == 0.0F,
@@ -719,6 +815,8 @@ void testProjectileCombatAndDamage() {
           "camera shake ends after its fixed-step duration");
 
     echo::Game retriggerGame;
+    check(static_cast<bool>(fixture.bindInventory(retriggerGame)),
+          "damage retrigger game binds the item catalog");
     check(moveUntilRoom(retriggerGame, echo::RoomId::MaintenanceTunnel, 1),
           "retrigger test reaches the maintenance tunnel");
     int observedHealth = retriggerGame.player().health;
@@ -748,7 +846,10 @@ void testHazardDeathAndRespawn() {
 }
 
 void testIsometricCargoHold() {
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bindInventory(game)),
+          "isometric room game binds the item catalog");
     check(moveUntilRoom(game, echo::RoomId::CargoHold, -1),
           "Landing Bay west exit leads into the isometric Cargo Hold");
     check(game.isometric() && !echo::Game{}.isometric(),
@@ -762,7 +863,9 @@ void testIsometricCargoHold() {
     echo::WorldLayout calm = baseline.world();
     calm.roamerCount = 0;
     echo::Game walker;
-    check(static_cast<bool>(walker.configureWorld(calm)), "stalker-free isometric layout loads");
+    check(static_cast<bool>(walker.configureWorld(calm)) &&
+              static_cast<bool>(fixture.bindInventory(walker)),
+          "stalker-free isometric layout and item catalog load");
     echo::GameCheckpoint entry = game.checkpoint();
     check(walker.restore(entry) && walker.roomId() == echo::RoomId::CargoHold,
           "checkpoints restore into the isometric room");
@@ -854,7 +957,10 @@ void testIsometricCargoHold() {
 
 void testNewEnemyBehaviorsAndItems() {
     using echo::ItemId;
+    DialogueFixture fixture;
     echo::Game game;
+    check(static_cast<bool>(fixture.bind(game)),
+          "combat item fixture binds the item catalog");
     auto checkpoint = game.checkpoint();
     checkpoint.room = echo::RoomId::MaintenanceTunnel;
     checkpoint.playerPosition = {340.0F, 292.0F};
@@ -900,7 +1006,6 @@ void testNewEnemyBehaviorsAndItems() {
     step(game, {}, 5);
     check(game.player().health < healthBeforeShot, "sentry projectiles damage the player");
 
-    DialogueFixture fixture;
     echo::Game equipped;
     check(static_cast<bool>(fixture.bind(equipped, echo::kDefaultInteractionReach, true)),
           "equipment fixture binds modules");
@@ -931,6 +1036,8 @@ void testNewEnemyBehaviorsAndItems() {
     for (const auto item : {ItemId::MedPatch, ItemId::MedKit, ItemId::ShieldCell,
                             ItemId::SpeedCharge, ItemId::JumpCharge, ItemId::BlastCharge}) {
         echo::Game consumer;
+        check(static_cast<bool>(fixture.bind(consumer)),
+              "consumable fixture binds the item catalog");
         auto state = consumer.checkpoint();
         state.playerHealth = 1;
         state.activeItem = {item, 1};
@@ -942,16 +1049,22 @@ void testNewEnemyBehaviorsAndItems() {
         if (item == ItemId::MedKit) check(consumer.player().health == 5, "med kit heals four");
         if (item == ItemId::ShieldCell) check(after.shieldSeconds > 3.9F, "shield grants protection");
         if (item == ItemId::SpeedCharge) {
+            check(after.speedBoostAmount == 25,
+                  "speed boost magnitude comes from its item definition");
             step(consumer, {.moveX = 1}, 15);
             check(consumer.player().velocity.x > 190.0F, "speed charge increases speed");
         }
         if (item == ItemId::JumpCharge) {
+            check(after.jumpBoostAmount == 60,
+                  "jump boost magnitude comes from its item definition");
             step(consumer, {.jumpPressed = true, .jumpHeld = true});
             check(consumer.player().velocity.y < -420.0F, "jump charge increases jump");
         }
     }
 
     echo::Game blast;
+    check(static_cast<bool>(fixture.bind(blast)),
+          "blast fixture binds the item catalog");
     auto blastState = blast.checkpoint();
     blastState.room = echo::RoomId::MaintenanceTunnel;
     blastState.playerPosition = {700.0F, 292.0F};
@@ -962,6 +1075,8 @@ void testNewEnemyBehaviorsAndItems() {
     check(!blast.enemies()[0].alive && blast.lootDrops()[0].active,
           "blast charge damages nearby enemies and produces normal loot");
     echo::Game shielded;
+    check(static_cast<bool>(fixture.bind(shielded)),
+          "shield fixture binds the item catalog");
     auto shieldState = shielded.checkpoint();
     shieldState.room = echo::RoomId::MaintenanceTunnel;
     shieldState.playerPosition = {760.0F, 292.0F};
@@ -975,7 +1090,7 @@ void testNewEnemyBehaviorsAndItems() {
           "shield prevents enemy damage and its camera shake");
     std::array<bool, static_cast<std::size_t>(ItemId::Count)> drops{};
     for (std::size_t index = 2; index < echo::kLootDropCount; ++index) {
-        const auto id = static_cast<std::size_t>(echo::Game::expectedLoot(index).item);
+        const auto id = static_cast<std::size_t>(game.expectedLoot(index).item);
         check(id >= static_cast<std::size_t>(ItemId::JumpVisor) &&
                   id < drops.size() && !drops[id], "each new loot item is unique");
         if (id < drops.size()) drops[id] = true;
@@ -983,8 +1098,10 @@ void testNewEnemyBehaviorsAndItems() {
 
     for (std::size_t enemy = 2; enemy < echo::kEnemyCount; ++enemy) {
         echo::Game lootGame;
+        check(static_cast<bool>(fixture.bind(lootGame)),
+              "new enemy loot fixture binds the item catalog");
         auto state = lootGame.checkpoint();
-        state.room = echo::Game::expectedLootRoom(enemy == 2 ? 2 : enemy == 3 ? 5 : 8);
+        state.room = lootGame.expectedLootRoom(enemy == 2 ? 2 : enemy == 3 ? 5 : 8);
         state.playerPosition = {enemy == 2 ? 280.0F : enemy == 3 ? 420.0F : 930.0F, 292.0F};
         state.enemyHealth[0] = 0;
         state.enemyHealth[1] = 0;
@@ -994,14 +1111,16 @@ void testNewEnemyBehaviorsAndItems() {
               "new enemy loot fixture restores");
         step(lootGame, {.useItemPressed = true});
         for (std::size_t index = 2; index < echo::kLootDropCount; ++index) {
-            if (echo::Game::lootEnemy(index) != enemy) continue;
+            if (lootGame.lootEnemy(index) != enemy) continue;
             check(lootGame.lootDrops()[index].active &&
-                      lootGame.lootDrops()[index].stack == echo::Game::expectedLoot(index),
+                      lootGame.lootDrops()[index].stack == lootGame.expectedLoot(index),
                   "new enemy defeat creates its corresponding drop");
         }
     }
 
     echo::Game fullBag;
+    check(static_cast<bool>(fixture.bindInventory(fullBag)),
+          "full-backpack loot game binds the item catalog");
     auto full = fullBag.checkpoint();
     full.room = echo::RoomId::MaintenanceTunnel;
     full.playerPosition = {400.0F, 292.0F};
@@ -1022,9 +1141,8 @@ void testNewEnemyBehaviorsAndItems() {
 
 void testAbilityGateAndBacktracking() {
     DialogueFixture fixture;
-    echo::framework::AbilityModule abilities{echo::kProjectAbilityDefinitions};
+    echo::framework::AbilityModule abilities{};
     echo::framework::ModuleContext moduleContext{};
-    check(abilities.initialize(moduleContext), "game ability definitions initialize");
     std::ifstream configInput(ECHO_SOURCE_ASSETS "framework/game.json", std::ios::binary);
     const std::string config{std::istreambuf_iterator<char>(configInput),
                              std::istreambuf_iterator<char>()};
@@ -1033,10 +1151,12 @@ void testAbilityGateAndBacktracking() {
     echo::framework::QuestModule quests{};
     echo::framework::CutsceneModule cutscenes{};
     check(echo::framework::JsonDocument::parse(config.data(), config.size(), document, error) &&
+              abilities.load(document.root().find("abilities")) &&
+              abilities.initialize(moduleContext) &&
               quests.load(document.root().find("quests")) && quests.initialize(moduleContext) &&
               cutscenes.load(document.root().find("cutscenes")) &&
               cutscenes.initialize(moduleContext),
-          "project quest and cutscene content loads and initializes");
+          "project ability, quest and cutscene content loads and initializes");
     echo::Game game;
     check(static_cast<bool>(fixture.bind(game)) && game.configureAbilities(abilities) &&
               game.configureQuests(quests) && game.configureCutscenes(cutscenes),
@@ -1079,7 +1199,8 @@ void testAbilityGateAndBacktracking() {
           "unlocking Echo Step advances the quest");
     const echo::GameCheckpoint abilityCheckpoint = game.checkpoint();
     echo::Game restored;
-    check(restored.configureAbilities(abilities) && restored.configureQuests(quests) &&
+    check(static_cast<bool>(fixture.bindInventory(restored)) &&
+              restored.configureAbilities(abilities) && restored.configureQuests(quests) &&
               restored.restore(abilityCheckpoint) &&
               restored.abilityCollected() && restored.player().hasDoubleJump &&
               restored.questProgress().completed == 3 &&
@@ -1153,7 +1274,8 @@ void testAbilityGateAndBacktracking() {
     check(restored.questProgress().completed == 0, "starting over resets derived quest progress");
 
     echo::Game coilRoute;
-    check(coilRoute.configureAbilities(abilities) && coilRoute.configureQuests(quests),
+    check(static_cast<bool>(fixture.bindInventory(coilRoute)) &&
+              coilRoute.configureAbilities(abilities) && coilRoute.configureQuests(quests),
           "alternate route fixture configures gameplay modules");
     auto coilCheckpoint = coilRoute.checkpoint();
     check(coilCheckpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
@@ -1175,6 +1297,7 @@ int main() {
     testAttributeModifiersAffectGameplay();
     testCheckpointRoundTrip();
     testEnemyLootDrops();
+    testInvalidEnemyLootTable();
     testRoomTransition();
     testDataDrivenWorldLayout();
     testTechnicianDialogueAndInventory();

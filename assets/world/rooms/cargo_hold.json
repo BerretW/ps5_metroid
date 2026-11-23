@@ -429,7 +429,12 @@
       "position": [
         2500,
         1200
-      ]
+      ],
+      "properties": {
+        "dialogue": "echo:dialogue/cargo_operator",
+        "dialoguePowerCircuit": "echo:power/cargo_emergency",
+        "dialoguePowerState": "quest.cargo_emergency_powered"
+      }
     },
     {
       "id": "power_panel",

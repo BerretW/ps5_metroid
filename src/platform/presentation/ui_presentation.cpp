@@ -146,7 +146,7 @@ bool drawInventoryMenu(rendering::ICanvas2D& canvas, ControlScheme controls,
     paint.panel({16, 16, 608, 328}, kPanel);
     paint.panel({16, 16, 608, 3}, kCyan);
     paint.text(28, 28, "INVENTORY", 2, kText);
-    paint.text(230, 30, Game::itemName(game.inventorySlot(selected).item), 1, kCyan);
+    paint.text(230, 30, game.itemName(game.inventorySlot(selected).item), 1, kCyan);
     paint.text(28, 54, "BACKPACK 20 SLOTS", 1, kMuted);
     for (std::size_t slot = 0; slot < Game::kInventorySlotCount; ++slot) {
         const int column = static_cast<int>(slot % 5);
@@ -158,7 +158,7 @@ bool drawInventoryMenu(rendering::ICanvas2D& canvas, ControlScheme controls,
         paint.panel({x, y, 108, 36}, border);
         paint.panel({x + 2, y + 2, 104, 32}, kBackground);
         const ItemStack stack = game.inventorySlot(slot);
-        paint.text(x + 5, y + 6, Game::itemName(stack.item), 1,
+        paint.text(x + 5, y + 6, game.itemName(stack.item), 1,
                    stack.item == ItemId::None ? kMuted : kText);
         std::array<char, 32> quantity{};
         std::snprintf(quantity.data(), quantity.size(), "%02u QTY %u",
@@ -166,21 +166,7 @@ bool drawInventoryMenu(rendering::ICanvas2D& canvas, ControlScheme controls,
         paint.text(x + 5, y + 22, quantity.data(), 1, slot == source ? kOrange : kMuted);
     }
     paint.text(28, 311, {message.data(), std::min<std::size_t>(message.size(), 94)}, 1, kOrange);
-    std::string_view effect{};
-    switch (game.inventorySlot(selected).item) {
-    case ItemId::JumpVisor: effect = "HEAD: JUMP +40"; break;
-    case ItemId::VitalVest: effect = "BODY: MAX HEALTH +1"; break;
-    case ItemId::PowerBarrel: effect = "WEAPON: SHOT DAMAGE +1"; break;
-    case ItemId::SprintModule: effect = "ACCESSORY: SPEED +15"; break;
-    case ItemId::MedPatch: effect = "ACTIVE: HEAL 1"; break;
-    case ItemId::MedKit: effect = "ACTIVE: HEAL 4"; break;
-    case ItemId::ShieldCell: effect = "ACTIVE: SHIELD 4 SECONDS"; break;
-    case ItemId::SpeedCharge: effect = "ACTIVE: SPEED +25 FOR 8 SECONDS"; break;
-    case ItemId::JumpCharge: effect = "ACTIVE: JUMP +60 FOR 8 SECONDS"; break;
-    case ItemId::BlastCharge: effect = "ACTIVE: NEARBY ENEMIES TAKE 2 DAMAGE"; break;
-    default: break;
-    }
-    paint.text(28, 321, effect, 1, kCyan);
+    paint.text(28, 321, game.itemDescription(game.inventorySlot(selected).item), 1, kCyan);
     paint.text(28, 333, controls == ControlScheme::PlayStation
                            ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/CLOSE"
                            : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/CLOSE", 1, kMuted);

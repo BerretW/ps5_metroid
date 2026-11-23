@@ -1,39 +1,52 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "items": [
     {
       "id": "echo:item/maintenance_key",
       "key": 1,
       "displayName": "Maintenance Key",
-      "maxStack": 1
+      "maxStack": 1,
+      "description": "OPENS THE RESEARCH LAB"
     },
     {
       "id": "echo:item/health_cell",
       "key": 2,
       "displayName": "Health Cell",
-      "maxStack": 3
+      "maxStack": 3,
+      "description": "ACTIVE: HEAL UP TO 2",
+      "use": {
+        "effect": "heal",
+        "amount": 2,
+        "attribute": "echo:attribute/health_cell.heal"
+      }
     },
     {
       "id": "echo:item/kinetic_coil",
       "key": 3,
       "displayName": "Kinetic Coil",
-      "maxStack": 1
+      "maxStack": 1,
+      "equipment": {
+        "id": "echo:equipment/kinetic_coil",
+        "slot": "echo:slot/suit"
+      },
+      "description": "BODY: SPEED +30"
     },
     {
       "id": "echo:item/scrap",
       "key": 4,
       "displayName": "Scrap",
-      "maxStack": 99
+      "maxStack": 99,
+      "description": "SALVAGED STATION MATERIAL"
     },
-    {"id":"echo:item/jump_visor","key":5,"displayName":"Jump Visor","maxStack":1},
-    {"id":"echo:item/vital_vest","key":6,"displayName":"Vital Vest","maxStack":1},
-    {"id":"echo:item/power_barrel","key":7,"displayName":"Power Barrel","maxStack":1},
-    {"id":"echo:item/sprint_module","key":8,"displayName":"Sprint Module","maxStack":1},
-    {"id":"echo:item/med_patch","key":9,"displayName":"Med Patch","maxStack":3},
-    {"id":"echo:item/med_kit","key":10,"displayName":"Med Kit","maxStack":3},
-    {"id":"echo:item/shield_cell","key":11,"displayName":"Shield Cell","maxStack":3},
-    {"id":"echo:item/speed_charge","key":12,"displayName":"Speed Charge","maxStack":3},
-    {"id":"echo:item/jump_charge","key":13,"displayName":"Jump Charge","maxStack":3},
-    {"id":"echo:item/blast_charge","key":14,"displayName":"Blast Charge","maxStack":3}
+    {"id":"echo:item/jump_visor","key":5,"displayName":"Jump Visor","maxStack":1,"equipment":{"id":"echo:equipment/jump_visor","slot":"echo:slot/head"},"description":"HEAD: JUMP +40"},
+    {"id":"echo:item/vital_vest","key":6,"displayName":"Vital Vest","maxStack":1,"equipment":{"id":"echo:equipment/vital_vest","slot":"echo:slot/suit"},"description":"BODY: MAX HEALTH +1"},
+    {"id":"echo:item/power_barrel","key":7,"displayName":"Power Barrel","maxStack":1,"equipment":{"id":"echo:equipment/power_barrel","slot":"echo:slot/weapon"},"description":"WEAPON: SHOT DAMAGE +1"},
+    {"id":"echo:item/sprint_module","key":8,"displayName":"Sprint Module","maxStack":1,"equipment":{"id":"echo:equipment/sprint_module","slot":"echo:slot/accessory"},"description":"ACCESSORY: SPEED +15"},
+    {"id":"echo:item/med_patch","key":9,"displayName":"Med Patch","maxStack":3,"description":"ACTIVE: HEAL 1","use":{"effect":"heal","amount":1}},
+    {"id":"echo:item/med_kit","key":10,"displayName":"Med Kit","maxStack":3,"description":"ACTIVE: HEAL 4","use":{"effect":"heal","amount":4}},
+    {"id":"echo:item/shield_cell","key":11,"displayName":"Shield Cell","maxStack":3,"description":"ACTIVE: SHIELD 4 SECONDS","use":{"effect":"shield","durationSteps":240}},
+    {"id":"echo:item/speed_charge","key":12,"displayName":"Speed Charge","maxStack":3,"description":"ACTIVE: SPEED +25 FOR 8 SECONDS","use":{"effect":"speed_boost","amount":25,"durationSteps":480}},
+    {"id":"echo:item/jump_charge","key":13,"displayName":"Jump Charge","maxStack":3,"description":"ACTIVE: JUMP +60 FOR 8 SECONDS","use":{"effect":"jump_boost","amount":60,"durationSteps":480}},
+    {"id":"echo:item/blast_charge","key":14,"displayName":"Blast Charge","maxStack":3,"description":"ACTIVE: NEARBY ENEMIES TAKE 2 DAMAGE","use":{"effect":"area_damage","amount":2,"radius":140}}
   ]
 }

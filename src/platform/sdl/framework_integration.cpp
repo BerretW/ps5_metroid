@@ -228,15 +228,25 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     if (!status) return status;
     worldLayout_->worldLighting = worldLighting_;
     for (const PropLayout& prop : worldLayout_->propList()) {
-        if (prop.interaction != "toggle_power") continue;
-        if (!powerModule_) {
-            return {ErrorCode::MissingDependency, prop.circuit,
-                    "A power-panel interaction requires the echo.power module."};
-        }
-        if (!powerModule_->hasCircuit(prop.circuit)) {
-            return {ErrorCode::MissingDependency, prop.circuit,
-                    "A power panel references an unknown circuit."};
-        }
+        const auto validateCircuit = [&](std::string_view circuit,
+                                         std::string_view context) -> framework::Status {
+            if (circuit.empty()) return framework::Status::success();
+            if (!powerModule_) {
+                return {ErrorCode::MissingDependency, circuit,
+                        context};
+            }
+            if (!powerModule_->hasCircuit(circuit)) {
+                return {ErrorCode::MissingDependency, circuit,
+                        "A world interaction references an unknown circuit."};
+            }
+            return framework::Status::success();
+        };
+        status = validateCircuit(prop.circuit,
+                                 "A power-panel interaction requires the echo.power module.");
+        if (!status) return status;
+        status = validateCircuit(prop.dialoguePowerCircuit,
+                                 "A dialogue power-state binding requires echo.power.");
+        if (!status) return status;
     }
     return framework::Status::success();
 }
@@ -249,9 +259,9 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return {framework::ErrorCode::InvalidState, "echo.project_echo",
                 "Framework integration is already initialized."};
     }
-    if (configPath == nullptr || dialoguePath == nullptr) {
+    if (configPath == nullptr) {
         return {framework::ErrorCode::InvalidArgument, {},
-                "Framework game configuration and dialogue paths are required."};
+                "Framework game configuration path is required."};
     }
     FileBuffer data{};
     std::size_t size{};
@@ -405,19 +415,80 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
             return {framework::ErrorCode::InvalidArgument, "echo.rpg.inventory",
                     "The selected inventory module requires an item catalog path."};
         }
+        if (!inventoryModule_) {
+            inventoryModule_.reset(new (std::nothrow) framework::InventoryModule{});
+            if (!inventoryModule_) {
+                return {framework::ErrorCode::CapacityExceeded, "echo.rpg.inventory",
+                        "Inventory module allocation failed."};
+            }
+        }
         status = readContentFile(itemCatalogPath, kMaxGameConfigBytes, data, size);
         if (!status) return status;
         framework::JsonDocument itemDocument{};
         status = framework::JsonDocument::parse(data.get(), size, itemDocument, jsonError);
         data.reset();
         if (!status) return status;
-        status = inventoryModule_.load(itemDocument.root());
+        status = inventoryModule_->load(itemDocument.root());
+        if (!status) return status;
+        lootTable_.reset(new (std::nothrow) EnemyLootTable{});
+        if (!lootTable_) {
+            return {framework::ErrorCode::CapacityExceeded, "enemy_loot",
+                    "Enemy loot table allocation failed."};
+        }
+        status = lootTable_->load(root.find("loot"), inventoryModule_->catalog());
+        if (!status) return status;
+    } else if (root.find("loot").valid()) {
+        return {framework::ErrorCode::MissingDependency, "enemy_loot",
+                "Enemy loot content requires the echo.rpg.inventory module."};
+    }
+    if (attributesSelected) {
+        status = attributesModule_.load(root.find("attributes"));
+        if (!status) return status;
+    } else if (root.find("attributes").valid()) {
+        return {framework::ErrorCode::MissingDependency, "echo.rpg.attributes",
+                "Attribute content requires the echo.rpg.attributes module."};
+    }
+    if (abilitiesSelected) {
+        if (!abilitiesModule_) {
+            abilitiesModule_.reset(new (std::nothrow) framework::AbilityModule{});
+            if (!abilitiesModule_) {
+                return {framework::ErrorCode::CapacityExceeded, "echo.rpg.abilities",
+                        "Abilities module allocation failed."};
+            }
+        }
+        status = abilitiesModule_->load(root.find("abilities"));
+        if (!status) return status;
+    } else if (root.find("abilities").valid()) {
+        return {framework::ErrorCode::MissingDependency, "echo.rpg.abilities",
+                "Ability content requires the echo.rpg.abilities module."};
+    }
+    if (equipmentSelected) {
+        if (!equipmentModule_) {
+            equipmentModule_.reset(new (std::nothrow) framework::EquipmentModule{});
+            if (!equipmentModule_) {
+                return {framework::ErrorCode::CapacityExceeded, "echo.rpg.equipment",
+                        "Equipment module allocation failed."};
+            }
+        }
+        status = equipmentModule_->load(root.find("equipment"));
         if (!status) return status;
     }
     framework::ContentRegistry content{};
     status = framework::loadResourceManifest(root, content);
     if (!status) {
         return {status.code, "resources", status.detail};
+    }
+    if (worldLayout_) {
+        for (const PropLayout& prop : worldLayout_->propList()) {
+            if (prop.dialogue.empty()) continue;
+            framework::ResourceInfo propDialogue{};
+            status = content.find(prop.dialogue, propDialogue);
+            if (!status || propDialogue.type != framework::ResourceType::Dialogue ||
+                propDialogue.optional) {
+                return {framework::ErrorCode::MissingDependency, prop.dialogue,
+                        "A dialogue prop requires a registered non-optional dialogue resource."};
+            }
+        }
     }
     if (cutscenesSelected) {
         framework::ResourceInfo cutsceneResource{};
@@ -436,16 +507,6 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return {framework::ErrorCode::MissingDependency, "echo:dialogue/engineer",
                 "The engineer dialogue must be a required dialogue resource."};
     }
-    framework::ResourceInfo cargoDialogueResource{};
-    const bool cargoQuestSelected = worldSelected && questsSelected && powerSelected;
-    if (cargoQuestSelected) {
-        status = content.find("echo:dialogue/cargo_operator", cargoDialogueResource);
-        if (!status || cargoDialogueResource.type != framework::ResourceType::Dialogue ||
-            cargoDialogueResource.optional) {
-            return {framework::ErrorCode::MissingDependency, "echo:dialogue/cargo_operator",
-                    "The Cargo Control dialogue must be a required dialogue resource."};
-        }
-    }
     framework::ResourceInfo keyResource{};
     status = content.find("echo:item/maintenance_key", keyResource);
     if (!status || keyResource.type != framework::ResourceType::Item || keyResource.optional) {
@@ -453,36 +514,25 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                 "The maintenance key must be a required item resource."};
     }
     if (inventorySelected) {
-        for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
-             id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
-            const auto itemId = static_cast<echo::ItemId>(id);
-            const std::string_view itemResource = Game::itemResource(itemId);
-            framework::ResourceInfo resource{};
-            status = content.find(itemResource, resource);
-            const framework::ItemDefinition* definition =
-                inventoryModule_.catalog().find(itemResource);
-            if (!status || resource.type != framework::ResourceType::Item || resource.optional ||
-                definition == nullptr || definition->key != id ||
-                definition->maxStack != Game::itemStackLimit(itemId)) {
-                return {framework::ErrorCode::MissingDependency, itemResource,
-                        "A required gameplay item or its matching catalog entry is missing."};
+        for (std::size_t index = 0; index < inventoryModule_->catalog().size(); ++index) {
+            const framework::ItemDefinition* item = inventoryModule_->catalog().at(index);
+            if (item->key == 0 ||
+                item->key >= static_cast<std::uint32_t>(echo::ItemId::Count)) {
+                return {framework::ErrorCode::InvalidValue, item->id.data(),
+                        "Item catalog keys must retain the stable gameplay save range."};
             }
-        }
-        const framework::ItemDefinition* key =
-            inventoryModule_.catalog().find(keyResource.id);
-        if (key == nullptr ||
-            key->key != static_cast<std::uint32_t>(echo::ItemId::MaintenanceKey)) {
-            return {framework::ErrorCode::MissingDependency, keyResource.id,
-                    "The required maintenance key is missing from the selected item catalog."};
-        }
-        for (std::size_t index = 0; index < inventoryModule_.catalog().size(); ++index) {
-            const framework::ItemDefinition* item = inventoryModule_.catalog().at(index);
             framework::ResourceInfo resource{};
             status = content.find(item->id.data(), resource);
             if (!status || resource.type != framework::ResourceType::Item ||
                 resource.optional) {
                 return {framework::ErrorCode::MissingDependency, item->id.data(),
                         "Each item catalog entry requires a matching non-optional item resource."};
+            }
+        }
+        for (unsigned key = 1; key < static_cast<unsigned>(echo::ItemId::Count); ++key) {
+            if (inventoryModule_->catalog().find(key) == nullptr) {
+                return {framework::ErrorCode::MissingDependency, "echo.rpg.inventory",
+                        "Item catalog must define every stable gameplay save key."};
             }
         }
     }
@@ -520,72 +570,76 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         }
     }
 
-    status = readContentFile(dialoguePath, kMaxDialogueBytes, data, size);
-    if (!status) {
-        return status;
-    }
-    std::unique_ptr<framework::DialogueDocument> dialogue(
-        new (std::nothrow) framework::DialogueDocument{});
-    if (!dialogue) {
-        return {framework::ErrorCode::CapacityExceeded, "dialogue",
-                "Dialogue document allocation failed."};
-    }
-    status = dialogue->parse(data.get(), size, jsonError);
-    data.reset();
-    if (!status) {
-        return status;
-    }
-    if (dialogue->definition()->id != dialogueResource.id) {
-        return {framework::ErrorCode::InvalidValue, "dialogue",
-                "The dialogue file does not match the engineer resource ID."};
-    }
-    status = validateDialogueDisplay(*dialogue->definition());
-    if (!status) {
-        return status;
-    }
-    status = dialogueModule_.add(*dialogue->definition());
-    if (!status) {
-        return status;
-    }
-    dialogueDocument_ = std::move(dialogue);
-
-    if (cargoQuestSelected) {
-        if (contentRoot == nullptr) {
-            return {framework::ErrorCode::InvalidArgument, "echo:dialogue/cargo_operator",
-                    "The content root is required to load Cargo Control dialogue."};
+    std::size_t requiredDialogueCount = 0;
+    for (std::size_t index = 0; index < content.size(); ++index) {
+        framework::ResourceInfo resource{};
+        if (content.at(index, resource) &&
+            resource.type == framework::ResourceType::Dialogue && !resource.optional) {
+            ++requiredDialogueCount;
         }
-        std::array<char, 512> cargoDialoguePath{};
-        const int cargoDialoguePathLength = std::snprintf(
-            cargoDialoguePath.data(), cargoDialoguePath.size(),
-            "%sframework/cargo_operator.json", contentRoot);
-        if (cargoDialoguePathLength <= 0 ||
-            static_cast<std::size_t>(cargoDialoguePathLength) >= cargoDialoguePath.size()) {
-            return {framework::ErrorCode::InvalidValue, "echo:dialogue/cargo_operator",
-                    "Cargo Control dialogue path is too long."};
+    }
+    if (requiredDialogueCount > dialogueDocuments_.size()) {
+        return {framework::ErrorCode::CapacityExceeded, "resources",
+                "Required dialogue resources exceed the runtime capacity."};
+    }
+    for (std::size_t index = 0; index < content.size(); ++index) {
+        framework::ResourceInfo resource{};
+        if (!content.at(index, resource) ||
+            resource.type != framework::ResourceType::Dialogue || resource.optional) {
+            continue;
         }
-        status = readContentFile(cargoDialoguePath.data(), kMaxDialogueBytes, data, size);
+        std::array<char, 512> resolvedPath{};
+        const char* dialogueSource = nullptr;
+        if (!resource.source.empty()) {
+            if (contentRoot == nullptr) {
+                return {framework::ErrorCode::InvalidArgument, resource.id,
+                        "A dialogue resource source requires the asset root."};
+            }
+            const int pathLength = std::snprintf(
+                resolvedPath.data(), resolvedPath.size(), "%s%.*s", contentRoot,
+                static_cast<int>(resource.source.size()), resource.source.data());
+            if (pathLength <= 0 ||
+                static_cast<std::size_t>(pathLength) >= resolvedPath.size()) {
+                return {framework::ErrorCode::CapacityExceeded, resource.id,
+                        "Dialogue resource source path is too long."};
+            }
+            dialogueSource = resolvedPath.data();
+        } else if (requiredDialogueCount == 1 && dialoguePath != nullptr) {
+            dialogueSource = dialoguePath;
+        } else {
+            return {framework::ErrorCode::MissingDependency, resource.id,
+                    "Required dialogue resource has no source path."};
+        }
+        status = readContentFile(dialogueSource, kMaxDialogueBytes, data, size);
         if (!status) return status;
-        std::unique_ptr<framework::DialogueDocument> cargoDialogue(
+        std::unique_ptr<framework::DialogueDocument> dialogue(
             new (std::nothrow) framework::DialogueDocument{});
-        if (!cargoDialogue) {
-            return {framework::ErrorCode::CapacityExceeded, "echo:dialogue/cargo_operator",
-                    "Cargo Control dialogue document allocation failed."};
+        if (!dialogue) {
+            return {framework::ErrorCode::CapacityExceeded, resource.id,
+                    "Dialogue document allocation failed."};
         }
-        status = cargoDialogue->parse(data.get(), size, jsonError);
+        status = dialogue->parse(data.get(), size, jsonError);
         data.reset();
         if (!status) return status;
-        if (cargoDialogue->definition()->id != cargoDialogueResource.id) {
-            return {framework::ErrorCode::InvalidValue, "echo:dialogue/cargo_operator",
-                    "The Cargo Control file does not match its resource ID."};
+        if (dialogue->definition()->id != resource.id) {
+            return {framework::ErrorCode::InvalidValue, resource.id,
+                    "Dialogue source does not match its declared resource ID."};
         }
-        status = validateDialogueDisplay(*cargoDialogue->definition());
+        status = validateDialogueDisplay(*dialogue->definition());
         if (!status) return status;
-        status = dialogueModule_.add(*cargoDialogue->definition());
+        status = dialogueModule_.add(*dialogue->definition());
         if (!status) return status;
-        cargoDialogueDocument_ = std::move(cargoDialogue);
+        dialogueDocuments_[dialogueDocumentCount_++] = std::move(dialogue);
     }
     technicianInteractionReach_ = interaction.horizontalReach;
 
+    if (!equipmentModule_) {
+        equipmentModule_.reset(new (std::nothrow) framework::EquipmentModule{});
+        if (!equipmentModule_) {
+            return {framework::ErrorCode::CapacityExceeded, "echo.rpg.equipment",
+                    "Equipment module allocation failed."};
+        }
+    }
     status = modules_.add(stateModule_, stateSelected);
     if (!status) {
         return status;
@@ -598,21 +652,25 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
     if (!status) {
         return status;
     }
-    status = modules_.add(inventoryModule_, inventorySelected);
-    if (!status) {
-        return status;
+    if (inventoryModule_) {
+        status = modules_.add(*inventoryModule_, inventorySelected);
+        if (!status) {
+            return status;
+        }
     }
     status = modules_.add(attributesModule_, attributesSelected);
     if (!status) {
         return status;
     }
-    status = modules_.add(equipmentModule_, equipmentSelected);
+    status = modules_.add(*equipmentModule_, equipmentSelected);
     if (!status) {
         return status;
     }
-    status = modules_.add(abilitiesModule_, abilitiesSelected);
-    if (!status) {
-        return status;
+    if (abilitiesModule_) {
+        status = modules_.add(*abilitiesModule_, abilitiesSelected);
+        if (!status) {
+            return status;
+        }
     }
     status = modules_.add(questModule_, questsSelected);
     if (!status) {
@@ -683,10 +741,14 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     }
     status = game.configureDialogue(
         dialogueModule_, stateModule_.state, technicianInteractionReach_,
-        inventoryModule_.initialized() ? &inventoryModule_ : nullptr);
+        inventoryModule_ && inventoryModule_->initialized() ? inventoryModule_.get() : nullptr);
     if (!status) return status;
-    if (abilitiesModule_.initialized()) {
-        status = game.configureAbilities(abilitiesModule_);
+    if (lootTable_) {
+        status = game.configureLoot(*lootTable_);
+        if (!status) return status;
+    }
+    if (abilitiesModule_ && abilitiesModule_->initialized()) {
+        status = game.configureAbilities(*abilitiesModule_);
         if (!status) return status;
     }
     if (questModule_.initialized()) {
@@ -700,8 +762,8 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     if (attributesModule_.initialized()) {
         status = game.configureAttributes(attributesModule_);
         if (!status) return status;
-        if (equipmentModule_.initialized()) {
-            return game.configureEquipment(equipmentModule_);
+        if (equipmentModule_ && equipmentModule_->initialized()) {
+            return game.configureEquipment(*equipmentModule_);
         }
         return framework::Status::success();
     }
@@ -824,8 +886,12 @@ void FrameworkIntegration::shutdown() noexcept {
     }
     actions_.setGameActive(false);
     modules_.shutdownAll();
-    dialogueDocument_.reset();
-    cargoDialogueDocument_.reset();
+    for (std::size_t index = dialogueDocumentCount_; index > 0; --index) {
+        dialogueDocuments_[index - 1].reset();
+    }
+    dialogueDocumentCount_ = 0;
+    lootTable_.reset();
+    equipmentModule_.reset();
     initialized_ = false;
 }
 

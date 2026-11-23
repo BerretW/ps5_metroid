@@ -30,22 +30,42 @@ echo::framework::JsonDocument parse(std::string_view text) {
 int main() {
     using namespace echo::framework;
     constexpr std::string_view validCatalog = R"({
-        "schemaVersion": 1,
+        "schemaVersion": 3,
         "items": [
             {"id":"echo:item/maintenance_key","key":1,
-             "displayName":"Maintenance Key","maxStack":1},
+             "displayName":"Maintenance Key","maxStack":1,
+             "equipment":{"id":"echo:equipment/test_gear",
+                          "slot":"echo:slot/head"}},
             {"id":"echo:item/health_cell","key":2,
-             "displayName":"Health Cell","maxStack":3}
+             "displayName":"Health Cell","maxStack":3,
+             "description":"ACTIVE: HEAL UP TO 2",
+             "use":{"effect":"heal","amount":2,
+                    "attribute":"echo:attribute/health_cell.heal"}},
+            {"id":"echo:item/test","key":3,
+             "displayName":"Test Item","maxStack":1}
         ]
     })";
     JsonDocument document = parse(validCatalog);
     ItemCatalog catalog{};
-    check(catalog.load(document.root()) && catalog.size() == 2,
+    check(catalog.load(document.root()) && catalog.size() == 3,
           "bounded item catalog loads its stable definitions");
     const ItemDefinition* key = catalog.find("echo:item/maintenance_key");
     check(key != nullptr && key->key == 1 && key->maxStack == 1 &&
               std::string_view(key->displayName.data()) == "Maintenance Key",
           "item metadata is copied into catalog-owned storage");
+    check(key != nullptr &&
+              std::string_view(key->equipmentId.data()) == "echo:equipment/test_gear" &&
+              std::string_view(key->equipmentSlot.data()) == "echo:slot/head",
+          "equipment bindings are copied into catalog-owned storage");
+    const ItemDefinition* healthCell = catalog.find(2);
+    check(healthCell != nullptr &&
+              healthCell->useEffect == ItemUseEffect::Heal &&
+              healthCell->useAmount == 2 &&
+              std::string_view(healthCell->useAttribute.data()) ==
+                  "echo:attribute/health_cell.heal" &&
+              std::string_view(healthCell->description.data()) ==
+                  "ACTIVE: HEAL UP TO 2",
+          "bounded item use effects and descriptions are owned by the catalog");
 
     FixedInventory<std::uint32_t, 3> inventory{};
     check(inventory.add(2, 3, 5) && inventory.size() == 2 &&
@@ -87,15 +107,20 @@ int main() {
           "grants fill existing stacks without compacting empty slots");
 
     for (const std::string_view invalid : {
-             R"({"schemaVersion":2,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1}]})",
+             R"({"schemaVersion":4,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1}]})",
              R"({"schemaVersion":1,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1},{"id":"echo:item/a","key":2,"displayName":"B","maxStack":1}]})",
              R"({"schemaVersion":1,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":0}]})",
              R"({"schemaVersion":1,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"extra":true}]})",
+             R"({"schemaVersion":2,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"use":{"effect":"unknown"}}]})",
+             R"({"schemaVersion":2,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"use":{"effect":"area_damage","amount":2}}]})",
+             R"({"schemaVersion":2,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"use":{"effect":"shield","durationSteps":70000}}]})",
+             R"({"schemaVersion":3,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"equipment":{"id":"echo:equipment/a","slot":"echo:slot/head","extra":true}}]})",
+             R"({"schemaVersion":3,"items":[{"id":"echo:item/a","key":1,"displayName":"A","maxStack":1,"equipment":{"id":"echo:equipment/a","slot":"not-a-content-id"}}]})",
          }) {
         JsonDocument invalidDocument = parse(invalid);
         check(catalog.load(invalidDocument.root()).code != ErrorCode::None,
               "invalid item definitions are rejected");
-        check(catalog.size() == 2,
+        check(catalog.size() == 3,
               "failed catalog reload preserves the previously loaded catalog");
     }
 
@@ -104,7 +129,8 @@ int main() {
           "inventory service exposes stable module metadata");
     const CapabilityManifestFragment fragment =
         inventoryCapabilityManifestFragment();
-    check(fragment.modules.size() == 1 && fragment.contentSchemas.size() == 1,
+    check(fragment.modules.size() == 1 && fragment.contentSchemas.size() == 1 &&
+              fragment.contentSchemas[0].version == 3,
           "inventory module exports its module and content schema metadata");
 
     if (failures != 0) {

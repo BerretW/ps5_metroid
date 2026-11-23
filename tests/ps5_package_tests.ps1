@@ -110,28 +110,51 @@ try {
         $_ -ne "echo.rpg.abilities"
     })
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "required game modules or resources are missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.loot.drops[1].saveSlot = $gameConfigData.loot.drops[0].saveSlot
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid framework enemy loot table"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.loot.drops[0].item = "echo:item/not_in_catalog"
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid framework enemy loot table"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    @($gameConfigData.resources | Where-Object {
+        $_.id -eq "echo:dialogue/cargo_operator"
+    })[0].source = "framework/../cargo_operator.json"
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "resource source path"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.quests.quests[0].objectives[0].fact = "echo:fact/unknown"
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "main quest fact is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.quests.quests[0].branch.choices[0].rewardItem = "echo:item/unknown"
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "main quest route is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.quests.quests[1].objectives[0].fact = "echo:fact/unknown"
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "Cargo Hold repair quest is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
@@ -139,7 +162,7 @@ try {
     $gameConfigData.cutscenes.cutscenes[0].cards = @(
         $gameConfigData.cutscenes.cutscenes[0].cards | Select-Object -First 2)
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "Central Chamber cutscene is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
@@ -148,7 +171,7 @@ try {
         $_.id -ne "echo:cutscene/central_signal"
     })
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "required game modules or resources are missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
@@ -157,7 +180,7 @@ try {
         $_.id -ne "echo:ability/echo_step"
     })
     [IO.File]::WriteAllText($gameConfig,
-        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "required game modules or resources are missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
@@ -231,7 +254,7 @@ try {
     [IO.File]::WriteAllText($itemCatalog,
         (ConvertTo-Json -InputObject $itemDocument -Depth 16),
         (New-Object Text.UTF8Encoding($false)))
-    Expect-Rejection "Invalid item catalog"
+    Expect-Rejection "Invalid framework enemy loot table"
     [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
     $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
     $itemDocument.items = @($itemDocument.items | Where-Object {
@@ -249,6 +272,26 @@ try {
     [IO.File]::WriteAllText($itemCatalog,
         (ConvertTo-Json -InputObject $itemDocument -Depth 16),
         (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid framework enemy loot table"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $medPatch = @($itemDocument.items | Where-Object {
+        $_.id -eq "echo:item/med_patch"
+    })[0]
+    $medPatch.use.effect = 'not_compiled'
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16 -Compress),
+        (New-Object System.Text.UTF8Encoding($false)))
+    Expect-Rejection "Invalid item catalog"
+    [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
+    $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
+    $kineticCoil = @($itemDocument.items | Where-Object {
+        $_.id -eq "echo:item/kinetic_coil"
+    })[0]
+    $kineticCoil.equipment.slot = "echo:slot/unknown"
+    [IO.File]::WriteAllText($itemCatalog,
+        (ConvertTo-Json -InputObject $itemDocument -Depth 16 -Compress),
+        (New-Object System.Text.UTF8Encoding($false)))
     Expect-Rejection "Invalid item catalog"
     [IO.File]::WriteAllBytes($itemCatalog, $originalItemCatalog)
     [IO.File]::WriteAllText($itemCatalog, "{ not valid json")
@@ -286,7 +329,7 @@ try {
     $originalGameConfig = [IO.File]::ReadAllBytes($gameConfigPath)
     $gameJson = [Text.Encoding]::UTF8.GetString($originalGameConfig) | ConvertFrom-Json
     $gameJson.technician | Add-Member -NotePropertyName transform -NotePropertyValue ([pscustomobject]@{ position = @(108, 280) })
-    [IO.File]::WriteAllText($gameConfigPath, ($gameJson | ConvertTo-Json -Depth 12),
+    [IO.File]::WriteAllText($gameConfigPath, ($gameJson | ConvertTo-Json -Depth 12 -Compress),
         (New-Object Text.UTF8Encoding($false)))
     Expect-Rejection "the engineer position belongs to echo:object/engineer"
     [IO.File]::WriteAllBytes($gameConfigPath, $originalGameConfig)
@@ -323,4 +366,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package -LogDirectory $testLogs -VulkanGame:$Vulkan
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil/Cargo quest and dialogue conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, unsafe resource paths, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil/Cargo quest and dialogue conditions, missing item definitions/dialogue/catalog, invalid item effect IDs, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."

@@ -23,13 +23,13 @@ namespace {
 using namespace echo::framework;
 
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
-constexpr std::array<std::string_view, 8> kGameConfigFields{
+constexpr std::array<std::string_view, 12> kGameConfigFields{
     "game", "modules", "technician", "resources", "quests", "cutscenes", "power",
-    "worldLighting"};
+    "worldLighting", "equipment", "attributes", "abilities", "loot"};
 // The engineer's position belongs to echo:object/engineer spawn data.
 constexpr std::array<std::string_view, 1> kTechnicianFields{"interaction"};
-constexpr std::array<std::string_view, 5> kResourceFields{
-    "id", "type", "optional", "dependsOn", "optionalDependencies"};
+constexpr std::array<std::string_view, 6> kResourceFields{
+    "id", "type", "source", "optional", "dependsOn", "optionalDependencies"};
 constexpr std::array<std::string_view, 2> kComponentFields{
     "echo:component/transform2d", echo::kDialogueInteractionComponentId};
 
@@ -248,6 +248,7 @@ constexpr std::array<std::string_view, 2> kComponentFields{
 [[nodiscard]] Status validateDialogueActions(
     const DialogueDefinition& definition,
     std::span<const CapabilityManifestFragment> fragments,
+    const ItemCatalog& itemCatalog,
     JsonValue manifest) noexcept {
     const JsonValue actions = manifest.find("actions");
     for (const DialogueNode& node : definition.nodes) {
@@ -305,12 +306,13 @@ constexpr std::array<std::string_view, 2> kComponentFields{
                 for (const ActionParameter& parameter : request.parameters) {
                     if (parameter.name == "item") item = &parameter;
                 }
-                if (item == nullptr || item->value.type != ValueType::String ||
-                    (item->value.stringValue() != "echo:item/maintenance_key" &&
-                     item->value.stringValue() != "echo:item/health_cell" &&
-                     item->value.stringValue() != "echo:item/kinetic_coil")) {
+                const ItemDefinition* definition =
+                    item != nullptr && item->value.type == ValueType::String
+                        ? itemCatalog.find(item->value.stringValue()) : nullptr;
+                if (definition == nullptr || definition->key == 0 ||
+                    definition->key >= static_cast<std::uint32_t>(echo::ItemId::Count)) {
                     return {ErrorCode::InvalidValue, request.id,
-                                "Dialogue grants must reference a compiled project item."};
+                            "Dialogue grants must reference an item in the selected catalog."};
                 }
             }
         }
@@ -412,6 +414,45 @@ constexpr std::array<std::string_view, 2> kComponentFields{
         return {ErrorCode::MissingDependency, "echo.rpg.inventory",
                 "The reference game must select its compiled inventory module."};
     }
+    const bool equipmentSelected =
+        std::find(selected.begin(), selected.begin() +
+                     static_cast<std::ptrdiff_t>(modules.size()),
+                 "echo.rpg.equipment") !=
+        selected.begin() + static_cast<std::ptrdiff_t>(modules.size());
+    if (equipmentSelected) {
+        EquipmentModule equipment{};
+        status = equipment.load(root.find("equipment"));
+        if (!status) return status;
+    } else if (root.find("equipment").valid()) {
+        return {ErrorCode::MissingDependency, "echo.rpg.equipment",
+                "Equipment content requires the compiled equipment module."};
+    }
+    const bool attributesSelected =
+        std::find(selected.begin(), selected.begin() +
+                     static_cast<std::ptrdiff_t>(modules.size()),
+                 "echo.rpg.attributes") !=
+        selected.begin() + static_cast<std::ptrdiff_t>(modules.size());
+    if (attributesSelected) {
+        AttributesModule attributes{};
+        status = attributes.load(root.find("attributes"));
+        if (!status) return status;
+    } else if (root.find("attributes").valid()) {
+        return {ErrorCode::MissingDependency, "echo.rpg.attributes",
+                "Attribute content requires the compiled attributes module."};
+    }
+    const bool abilitiesSelected =
+        std::find(selected.begin(), selected.begin() +
+                     static_cast<std::ptrdiff_t>(modules.size()),
+                 "echo.rpg.abilities") !=
+        selected.begin() + static_cast<std::ptrdiff_t>(modules.size());
+    if (abilitiesSelected) {
+        AbilityModule abilities{};
+        status = abilities.load(root.find("abilities"));
+        if (!status) return status;
+    } else if (root.find("abilities").valid()) {
+        return {ErrorCode::MissingDependency, "echo.rpg.abilities",
+                "Ability content requires the compiled abilities module."};
+    }
     const bool powerSelected =
         std::find(selected.begin(), selected.begin() +
                       static_cast<std::ptrdiff_t>(modules.size()),
@@ -509,23 +550,6 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     status = requireResource(resources, "echo:ability/echo_step",
                              ResourceType::Ability);
     if (!status) return status;
-    status = requireResource(resources, "echo:item/maintenance_key",
-                             ResourceType::Item);
-    if (!status) return status;
-    status = requireResource(resources, "echo:item/health_cell",
-                             ResourceType::Item);
-    if (!status) return status;
-    status = requireResource(resources, "echo:item/kinetic_coil",
-                             ResourceType::Item);
-    if (!status) return status;
-    status = requireResource(resources, "echo:item/scrap", ResourceType::Item);
-    if (!status) return status;
-    for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
-         id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
-        status = requireResource(resources, echo::Game::itemResource(static_cast<echo::ItemId>(id)),
-                                 ResourceType::Item);
-        if (!status) return status;
-    }
     status = requireResource(resources, "echo:dialogue/engineer",
                              ResourceType::Dialogue);
     if (!status) return status;
@@ -534,13 +558,23 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     if (!status) return status;
     for (std::size_t index = 0; index < itemCatalog.size(); ++index) {
         const ItemDefinition* item = itemCatalog.at(index);
-        ResourceInfo resource{};
-        status = resources.find(item->id.data(), resource);
-        if (!status || resource.type != ResourceType::Item || resource.optional) {
-            return {ErrorCode::MissingDependency, item->id.data(),
-                    "Each catalog item requires a matching non-optional item resource."};
+        if (item->key == 0 ||
+            item->key >= static_cast<std::uint32_t>(echo::ItemId::Count)) {
+            return {ErrorCode::InvalidValue, item->id.data(),
+                    "Item keys must remain in the stable gameplay save range."};
+        }
+        status = requireResource(resources, item->id.data(), ResourceType::Item);
+        if (!status) return status;
+    }
+    for (unsigned key = 1; key < static_cast<unsigned>(echo::ItemId::Count); ++key) {
+        if (itemCatalog.find(key) == nullptr) {
+            return {ErrorCode::MissingDependency, "echo.rpg.inventory",
+                    "Item catalog must define every stable gameplay save key."};
         }
     }
+    echo::EnemyLootTable lootTable{};
+    status = lootTable.load(root.find("loot"), itemCatalog);
+    if (!status) return status;
 
     const JsonValue technician = root.find("technician");
     status = validateObjectFields(technician, kTechnicianFields, "technician");
@@ -633,42 +667,18 @@ int main(int argc, char** argv) {
     const ItemDefinition* healthCell =
         itemModule.catalog().find("echo:item/health_cell");
     if (healthCell == nullptr ||
-        healthCell->key != static_cast<std::uint32_t>(echo::ItemId::HealthCell) ||
-        healthCell->maxStack != 3) {
+        healthCell->key != static_cast<std::uint32_t>(echo::ItemId::HealthCell)) {
         tools::reportStatus({ErrorCode::MissingDependency, "echo:item/health_cell",
-                             "Item catalog must define the compiled three-stack health cell."});
+                             "Item catalog must preserve the stable Health Cell save key."});
         return 1;
     }
-    const ItemDefinition* kineticCoil =
-        itemModule.catalog().find("echo:item/kinetic_coil");
-    if (kineticCoil == nullptr ||
-        kineticCoil->key != static_cast<std::uint32_t>(echo::ItemId::KineticCoil) ||
-        kineticCoil->maxStack != 1) {
-        tools::reportStatus({ErrorCode::MissingDependency, "echo:item/kinetic_coil",
-                             "Item catalog must define the compiled single-slot kinetic coil."});
-        return 1;
-    }
-    const ItemDefinition* scrap = itemModule.catalog().find("echo:item/scrap");
-    if (scrap == nullptr ||
-        scrap->key != static_cast<std::uint32_t>(echo::ItemId::Scrap) ||
-        scrap->maxStack != 99) {
-        tools::reportStatus({ErrorCode::MissingDependency, "echo:item/scrap",
-                             "Item catalog must define the compiled 99-stack enemy loot."});
-        return 1;
-    }
-    for (unsigned id = static_cast<unsigned>(echo::ItemId::JumpVisor);
-         id < static_cast<unsigned>(echo::ItemId::Count); ++id) {
-        const auto itemId = static_cast<echo::ItemId>(id);
-        const std::string_view resource = echo::Game::itemResource(itemId);
-        const ItemDefinition* item = itemModule.catalog().find(resource);
-        if (item == nullptr || item->key != id ||
-            item->maxStack != echo::Game::itemStackLimit(itemId)) {
-            tools::reportStatus({ErrorCode::MissingDependency, resource,
-                                 "Item catalog must match the compiled gameplay item."});
+    for (unsigned key = 1; key < static_cast<unsigned>(echo::ItemId::Count); ++key) {
+        if (itemModule.catalog().find(key) == nullptr) {
+            tools::reportStatus({ErrorCode::MissingDependency, "echo.rpg.inventory",
+                                 "Item catalog must define every stable gameplay save key."});
             return 1;
         }
     }
-
     status = tools::readJsonFile(argv[4], manifestDocument, error);
     if (!status) {
         reportInputFailure("Capability manifest", status, error);
@@ -770,6 +780,7 @@ int main(int argc, char** argv) {
     }
 
     status = validateDialogueActions(*definition, fragments,
+                                     itemModule.catalog(),
                                      manifestDocument.root());
     if (!status) {
         tools::reportStatus(status);

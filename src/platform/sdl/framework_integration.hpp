@@ -20,6 +20,7 @@
 
 namespace echo {
 class Game;
+class EnemyLootTable;
 struct WorldLayout;
 }
 
@@ -98,25 +99,27 @@ private:
     [[nodiscard]] framework::Status loadWorld(const char* contentRoot) noexcept;
     framework_detail::StateModule stateModule_{};
     framework_detail::ProjectEchoModule projectModule_{};
-    framework::InventoryModule inventoryModule_{};
+    std::unique_ptr<framework::InventoryModule> inventoryModule_{};
     framework::AttributesModule attributesModule_{};
-    framework::EquipmentModule equipmentModule_{};
+    std::unique_ptr<framework::EquipmentModule> equipmentModule_{};
     framework::QuestModule questModule_{};
     framework::CutsceneModule cutsceneModule_{};
     std::unique_ptr<framework::PowerModule> powerModule_{};
     std::unique_ptr<framework::WorldModule> worldModule_{};
     std::unique_ptr<WorldLayout> worldLayout_{};
+    std::unique_ptr<EnemyLootTable> lootTable_{};
     std::array<char, 160> worldErrorSubject_{};
     framework::WorldLighting worldLighting_{};
-    std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
-    std::unique_ptr<framework::DialogueDocument> cargoDialogueDocument_{};
+    std::array<std::unique_ptr<framework::DialogueDocument>,
+               framework::kMaxDialogues> dialogueDocuments_{};
+    std::size_t dialogueDocumentCount_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};
     framework::ActionRegistry actions_{};
     framework::EventBus<8, 8, 64> events_{};
     framework_detail::UnlockListener unlockListener_{};
     framework::Subscription unlockSubscription_{};
-    framework::AbilityModule abilitiesModule_{kProjectAbilityDefinitions};
+    std::unique_ptr<framework::AbilityModule> abilitiesModule_{};
     float technicianInteractionReach_{kDefaultInteractionReach};
     bool initialized_{};
 };

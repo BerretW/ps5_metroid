@@ -18,7 +18,7 @@ $createdFiles = New-Object System.Collections.Generic.List[string]
 
 function Write-JsonFixture([string]$name, $value) {
     $path = Join-Path $testDirectory $name
-    $json = ConvertTo-Json -InputObject $value -Depth 32
+    $json = ConvertTo-Json -InputObject $value -Depth 32 -Compress
     [System.IO.File]::WriteAllText($path, $json, $encoding)
     $createdFiles.Add($path)
     return $path
@@ -58,6 +58,26 @@ try {
     })
     $path = Write-JsonFixture 'missing-abilities-module.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'missing abilities module'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.attributes.definitions[0].baseValue = 9
+    $path = Write-JsonFixture 'invalid-attribute-bounds.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'out-of-range attribute default'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.abilities.definitions[0].id = 'echo:item/not_an_ability'
+    $path = Write-JsonFixture 'invalid-ability-definition.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'invalid ability definition'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.loot.drops[0].item = 'echo:item/not_in_catalog'
+    $path = Write-JsonFixture 'invalid-enemy-loot-item.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unknown enemy loot item'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.loot.drops[1].saveSlot = $config.loot.drops[0].saveSlot
+    $path = Write-JsonFixture 'duplicate-enemy-loot-slot.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'duplicate enemy loot save slot'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.quests.quests[0].objectives[1].fact = 'echo:fact/unknown'
@@ -199,7 +219,7 @@ try {
     $createdFiles.Add($oversizedPath)
     Invoke-Validator $oversizedPath $Dialogue $Manifest $false 'oversized game config'
 
-    Write-Output 'Project content validator accepted valid content and rejected 25 invalid cases.'
+    Write-Output 'Project content validator accepted valid content and rejected invalid fixtures.'
 }
 finally {
     foreach ($path in $createdFiles) {

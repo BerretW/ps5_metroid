@@ -24,15 +24,38 @@ struct EquipmentDefinition {
 
 class EquipmentModule final : public IModule {
 public:
+    static constexpr std::size_t kMaxDefinitions = 32;
+    static constexpr std::size_t kMaxModifiers = 64;
+
     [[nodiscard]] const ModuleInfo& info() const noexcept override;
     bool initialize(ModuleContext&) noexcept override;
     void shutdown() noexcept override;
 
+    [[nodiscard]] Status load(JsonValue document) noexcept;
     [[nodiscard]] const EquipmentDefinition* find(std::string_view id) const noexcept;
     [[nodiscard]] std::span<const EquipmentDefinition> definitions() const noexcept;
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
 
 private:
+    struct StoredModifier {
+        std::array<char, 128> attributeId{};
+        std::int32_t amount{};
+    };
+
+    struct StoredDefinition {
+        std::array<char, 128> id{};
+        std::array<char, 128> slot{};
+        std::size_t modifierOffset{};
+        std::size_t modifierCount{};
+    };
+
+    std::array<StoredDefinition, kMaxDefinitions> storedDefinitions_{};
+    std::array<StoredModifier, kMaxModifiers> storedModifiers_{};
+    std::array<EquipmentAttributeModifier, kMaxModifiers> modifierViews_{};
+    std::array<EquipmentDefinition, kMaxDefinitions> definitions_{};
+    std::size_t definitionCount_{};
+    std::size_t modifierCount_{};
+    bool loaded_{};
     bool initialized_{};
 };
 

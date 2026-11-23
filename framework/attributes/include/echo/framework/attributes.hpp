@@ -174,12 +174,35 @@ private:
 
 class AttributesModule final : public IModule {
 public:
+    static constexpr std::size_t kMaxDefinitions = 8;
+
+    AttributesModule() noexcept = default;
+    AttributesModule(const AttributesModule&) = delete;
+    AttributesModule& operator=(const AttributesModule&) = delete;
+    AttributesModule(AttributesModule&&) = delete;
+    AttributesModule& operator=(AttributesModule&&) = delete;
+
     [[nodiscard]] const ModuleInfo& info() const noexcept override;
     bool initialize(ModuleContext&) noexcept override;
     void shutdown() noexcept override;
+    [[nodiscard]] Status load(JsonValue document) noexcept;
+    [[nodiscard]] std::span<const AttributeDefinition> definitions() const noexcept {
+        return {definitions_.data(), definitionCount_};
+    }
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
 
 private:
+    struct StoredDefinition {
+        std::array<char, 128> id{};
+        std::int32_t baseValue{};
+        std::int32_t minimum{};
+        std::int32_t maximum{};
+    };
+
+    std::array<StoredDefinition, kMaxDefinitions> storedDefinitions_{};
+    std::array<AttributeDefinition, kMaxDefinitions> definitions_{};
+    std::size_t definitionCount_{};
+    bool loaded_{};
     bool initialized_{};
 };
 

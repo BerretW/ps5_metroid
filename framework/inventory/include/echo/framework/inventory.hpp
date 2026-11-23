@@ -12,11 +12,31 @@
 
 namespace echo::framework {
 
+enum class ItemUseEffect : std::uint8_t {
+    None,
+    Heal,
+    Shield,
+    SpeedBoost,
+    JumpBoost,
+    AreaDamage
+};
+
+inline constexpr std::int32_t kMaxItemEffectAmount = 1000;
+inline constexpr std::uint16_t kMaxItemUseDurationSteps = 480;
+
 struct ItemDefinition {
     std::uint32_t key{};
     std::array<char, 128> id{};
     std::array<char, 64> displayName{};
+    std::array<char, 64> description{};
+    std::array<char, 128> equipmentId{};
+    std::array<char, 64> equipmentSlot{};
+    std::array<char, 64> useAttribute{};
     std::uint16_t maxStack{};
+    ItemUseEffect useEffect{ItemUseEffect::None};
+    std::int32_t useAmount{};
+    std::uint16_t useDurationSteps{};
+    std::uint16_t useRadius{};
 };
 
 class ItemCatalog {
