@@ -483,6 +483,9 @@ constexpr std::array<std::string_view, 2> kComponentFields{
     if (!status) return status;
     status = echo::validateProjectQuest(questModule);
     if (!status) return status;
+    status = echo::validateProjectQuestRewards(
+        questModule, itemCatalog, static_cast<std::uint32_t>(echo::ItemId::Count));
+    if (!status) return status;
     for (const QuestDefinition& quest : questModule.definitions()) {
         for (const QuestObjective& objective : quest.objectives()) {
             if (!echo::platform::supportsBitmapText(objective.text.data(), 48)) {
@@ -496,12 +499,10 @@ constexpr std::array<std::string_view, 2> kComponentFields{
                     "Quest branch prompt does not fit the game's bitmap font."};
         }
         for (const QuestBranch& branch : quest.branches()) {
-            const ItemDefinition* reward = itemCatalog.find(branch.rewardItem.data());
-            if (reward == nullptr || branch.rewardQuantity > reward->maxStack ||
-                !echo::platform::supportsBitmapText(branch.label.data(), 48) ||
+            if (!echo::platform::supportsBitmapText(branch.label.data(), 48) ||
                 !echo::platform::supportsBitmapText(branch.objective.data(), 48)) {
                 return {ErrorCode::InvalidValue, "quests.branch",
-                        "Quest branch text or reward does not match the game catalog."};
+                        "Quest branch text does not fit the game's bitmap font."};
             }
         }
     }

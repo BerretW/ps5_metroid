@@ -105,6 +105,17 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'unsupported quest reward'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.choices[1].rewardItem = 'echo:item/scrap'
+    $config.quests.quests[0].branch.choices[1].rewardQuantity = 3
+    $path = Write-JsonFixture 'alternate-quest-reward.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $true 'different bounded quest reward'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.quests.quests[0].branch.choices[1].rewardQuantity = 4
+    $path = Write-JsonFixture 'oversized-quest-reward.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'quest reward exceeds stack limit'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.cutscenes.cutscenes[0].cards[0].text = 'INVALID?'
     $path = Write-JsonFixture 'invalid-cutscene-text.json' $config
     Invoke-Validator $path $Dialogue $Manifest $false 'unsupported cutscene glyph'

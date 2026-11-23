@@ -149,7 +149,22 @@ try {
     [IO.File]::WriteAllText($gameConfig,
         (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
         (New-Object Text.UTF8Encoding($false)))
-    Expect-Rejection "main quest route is missing"
+    Expect-Rejection "main quest reward is invalid"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.quests.quests[0].branch.choices[1].rewardItem = "echo:item/scrap"
+    $gameConfigData.quests.quests[0].branch.choices[1].rewardQuantity = 3
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    & $validator -PackagePath $fixture -LogDirectory $isolatedLogs -VulkanGame:$Vulkan
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.quests.quests[0].branch.choices[1].rewardQuantity = 4
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16 -Compress),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "main quest reward is invalid"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.quests.quests[1].objectives[0].fact = "echo:fact/unknown"

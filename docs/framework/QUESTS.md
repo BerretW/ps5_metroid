@@ -32,6 +32,14 @@ The route choice and reward-claimed flag are stored in autosave format 8.
 Formats 1–7 migrate explicitly; the version-one migration still grants the
 Maintenance Key to preserve its previous unlocked-route behavior. Reward
 insertion is bounded by the compiled item catalog and inventory stack limits.
+Branch `rewardItem` and `rewardQuantity` come from quest JSON rather than a
+fixed project reward table. Each reward must refer to a supported catalog item
+and have a positive quantity no greater than its stack limit. If a unique
+item (stack limit 1) is already present in the backpack, equipment or active
+slot, the reward remains pending rather than creating a duplicate. Pending
+rewards use the currently loaded definition; already-claimed rewards are not
+granted again when the data changes. The project still fixes its quest IDs,
+facts, objective order and route-to-save-slot mapping.
 
 This is the first branching quest milestone, not a complete quest system.
 Quest acceptance and independent journals remain future work; see

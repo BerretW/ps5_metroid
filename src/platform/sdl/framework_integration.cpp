@@ -430,6 +430,12 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         if (!status) return status;
         status = inventoryModule_->load(itemDocument.root());
         if (!status) return status;
+        if (questsSelected) {
+            status = validateProjectQuestRewards(
+                questModule_, inventoryModule_->catalog(),
+                static_cast<std::uint32_t>(ItemId::Count));
+            if (!status) return status;
+        }
         lootTable_.reset(new (std::nothrow) EnemyLootTable{});
         if (!lootTable_) {
             return {framework::ErrorCode::CapacityExceeded, "enemy_loot",

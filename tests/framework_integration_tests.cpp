@@ -168,6 +168,34 @@ int main() {
             check(!integration->initialize(fixturePath, dialoguePath, itemCatalogPath, ECHO_SOURCE_ASSETS),
                   "runtime rejects unsupported quest or cutscene content");
         }
+        std::string alternate = source;
+        const std::string originalReward = "\"rewardItem\": \"echo:item/med_kit\"";
+        const std::size_t rewardPosition = alternate.find(originalReward);
+        check(rewardPosition != std::string::npos, "alternate reward fixture field exists");
+        if (rewardPosition != std::string::npos) {
+            alternate.replace(rewardPosition, originalReward.size(),
+                              "\"rewardItem\": \"echo:item/scrap\"");
+            const std::string originalQuantity = "\"rewardQuantity\": 1";
+            const std::size_t quantityPosition = alternate.find(originalQuantity, rewardPosition);
+            check(quantityPosition != std::string::npos, "alternate reward quantity exists");
+            if (quantityPosition != std::string::npos) {
+                alternate.replace(quantityPosition, originalQuantity.size(), "\"rewardQuantity\": 3");
+                check(writeFixture(alternate), "alternate reward config is written");
+                auto integration = std::make_unique<echo::platform::FrameworkIntegration>();
+                echo::Game rewardGame;
+                check(integration->initialize(fixturePath, dialoguePath, itemCatalogPath,
+                                              ECHO_SOURCE_ASSETS) &&
+                          integration->configureGame(rewardGame),
+                      "startup accepts a supported data-driven quest reward and quantity");
+                alternate.replace(quantityPosition, std::string("\"rewardQuantity\": 3").size(),
+                                  "\"rewardQuantity\": 100");
+                check(writeFixture(alternate), "oversized reward config is written");
+                auto invalidReward = std::make_unique<echo::platform::FrameworkIntegration>();
+                check(!invalidReward->initialize(fixturePath, dialoguePath, itemCatalogPath,
+                                                 ECHO_SOURCE_ASSETS),
+                      "startup rejects a quest reward exceeding its catalog stack limit");
+            }
+        }
     }
     check(std::remove(fixturePath) == 0, "quest configuration fixture is removed");
     {

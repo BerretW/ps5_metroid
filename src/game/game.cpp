@@ -261,19 +261,11 @@ framework::Status Game::configureQuests(const framework::QuestModule& module) no
         return {framework::ErrorCode::MissingDependency, "echo.rpg.inventory",
                 "Project quest rewards require the initialized item catalog."};
     }
-    const framework::Status status = validateProjectQuest(module);
+    framework::Status status = validateProjectQuest(module);
     if (!status) return status;
-    for (const framework::QuestBranch& branch :
-         module.find(kMainQuestId)->branches()) {
-        const framework::ItemDefinition* reward =
-            inventoryModule_->catalog().find(branch.rewardItem.data());
-        if (reward == nullptr || reward->key == 0 ||
-            reward->key >= static_cast<std::uint32_t>(ItemId::Count) ||
-            reward->maxStack < branch.rewardQuantity) {
-            return {framework::ErrorCode::MissingDependency, branch.rewardItem.data(),
-                    "Quest rewards must match a supported project inventory item."};
-        }
-    }
+    status = validateProjectQuestRewards(module, inventoryModule_->catalog(),
+                                         static_cast<std::uint32_t>(ItemId::Count));
+    if (!status) return status;
     mainQuest_ = module.find(kMainQuestId);
     cargoQuest_ = module.find(kCargoQuestId);
     return framework::Status::success();
@@ -347,10 +339,12 @@ framework::Status Game::claimQuestRewardIfReady() noexcept {
         return {framework::ErrorCode::MissingDependency, branch->rewardItem.data(),
                 "The quest reward is not a supported project inventory item."};
     }
-    if (inventory_.add(static_cast<ItemId>(reward->key), reward->maxStack,
-                       branch->rewardQuantity)) {
-        questRewardClaimed_ = true;
-    }
+    const ItemId item = static_cast<ItemId>(reward->key);
+    if (reward->maxStack == 1 && itemQuantity(item) != 0) return framework::Status::success();
+    const framework::Status status = inventory_.Storage::add(
+        item, reward->maxStack, branch->rewardQuantity);
+    if (!status && status.code != framework::ErrorCode::CapacityExceeded) return status;
+    if (status) questRewardClaimed_ = true;
     return framework::Status::success();
 }
 

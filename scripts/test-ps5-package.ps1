@@ -228,18 +228,28 @@ if (Test-Path -LiteralPath $assetDir) {
                 throw "Invalid framework game configuration: main quest routes are missing."
             }
             foreach ($expectedRoute in @(
-                @{ id = "coil"; fact = "echo:fact/kinetic_coil"; reward = "echo:item/shield_cell" },
-                @{ id = "sentry"; fact = "echo:fact/sentry_defeated"; reward = "echo:item/med_kit" }
+                @{ id = "coil"; fact = "echo:fact/kinetic_coil" },
+                @{ id = "sentry"; fact = "echo:fact/sentry_defeated" }
             )) {
                 $route = @($branch.choices | Where-Object { $_.id -eq $expectedRoute.id })
                 if ($route.Count -ne 1 -or $route[0].fact -ne $expectedRoute.fact -or
-                    $route[0].rewardItem -ne $expectedRoute.reward -or
-                    $route[0].rewardQuantity -ne 1 -or
                     [string]::IsNullOrWhiteSpace($route[0].label) -or
                     $route[0].label.Length -gt 48 -or
                     [string]::IsNullOrWhiteSpace($route[0].objective) -or
                     $route[0].objective.Length -gt 48) {
                     throw "Invalid framework game configuration: main quest route is missing."
+                }
+                $reward = @($itemCatalog.items | Where-Object { $_.id -eq $route[0].rewardItem })
+                $resource = @($gameConfig.resources | Where-Object {
+                    $_.id -eq $route[0].rewardItem -and $_.type -eq "item" -and -not $_.optional
+                })
+                if ($route[0].rewardItem -isnot [string] -or
+                    ($route[0].rewardQuantity -isnot [int] -and
+                     $route[0].rewardQuantity -isnot [long]) -or
+                    $route[0].rewardQuantity -le 0 -or $reward.Count -ne 1 -or
+                    $reward[0].key -lt 1 -or $reward[0].key -ge 15 -or
+                    $route[0].rewardQuantity -gt $reward[0].maxStack -or $resource.Count -ne 1) {
+                    throw "Invalid framework game configuration: main quest reward is invalid."
                 }
             }
             $centralCutscene = @($gameConfig.cutscenes.cutscenes | Where-Object {

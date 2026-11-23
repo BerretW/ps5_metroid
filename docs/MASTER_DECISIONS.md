@@ -109,6 +109,7 @@ come from the bounded Attributes block. Charger detection range and charge
 speed, stalker detection range, and sentry range, projectile speed and fire
 interval, and the armored enemy's guard cycle and damage reduction now come
 from inherited world-object properties with optional placement overrides.
-Reusable behavior composition, stable save-slot definitions, stable item
-save-key mapping, project quest constraints, and fixed world/save assumptions
-remain to be audited and migrated.
+Quest branch reward items and quantities now use validated catalog references
+without a duplicate fixed reward table. Reusable behavior composition, stable
+save-slot definitions, stable item save-key mapping, remaining project quest
+constraints, and fixed world/save assumptions remain to be audited and migrated.

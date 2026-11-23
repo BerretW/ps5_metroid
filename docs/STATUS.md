@@ -2,6 +2,26 @@
 
 Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after running validation; a source implementation alone does not count as a runtime result.
 
+**PS5 operator report (2026-11-23):** The operator reported that the current
+Vulkan package works on PS5. The binary digest, hardware setup and specific
+features exercised were not stated; the report cannot be attributed to a
+specific recorded digest or interpreted as verification of individual features.
+
+**Data-driven quest rewards (2026-11-23):** Quest route reward IDs and
+quantities are no longer duplicated in the project quest contract. Startup,
+host content validation and PS5 package checks validate the configured rewards
+against the item catalog and stack limits. Gameplay tests cover changed rewards,
+pending unique equipment, and checkpoint restore. Windows Debug build/tests pass
+22/22. Both native Windows PS5 variants compile, link, pass static validation
+and package tests under `PPSA91007`, including alternate and invalid rewards.
+Controller FSELF: 1,942,769 bytes, SHA-256
+`0e5f5dd549fc981526ab274be26d3eed3470e0261a6a965636e2f8bf840d0b0f`.
+Vulkan FSELF: 28,217,101 bytes, SHA-256
+`3c45595d8a8aaa45caa44176525ebf436687999f3751bf0af1a5be5406688d5b`.
+Both contain the 9,841-byte `game.json` with SHA-256
+`2a6a3d349433dcb0e328e01756433f6819e95ec9e2c95561a7936bd9a42b6c86`.
+Neither exact digest has been identified in the PS5 hardware report above.
+
 **Data-driven armored guard (2026-11-23):** Guard cycle, start and damage
 reduction load from inherited object properties with placement overrides.
 Gameplay, damage and side-view rendering use the same guard state. Windows

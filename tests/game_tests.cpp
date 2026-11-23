@@ -1449,6 +1449,71 @@ void testAbilityGateAndBacktracking() {
     check(restored.restore(game.checkpoint()) && restored.questProgress().completed == 4 &&
               restored.questRewardClaimed() && restored.itemQuantity(echo::ItemId::MedKit) == 1,
           "completed route and claimed reward persist through checkpoint restore");
+
+    const auto loadRewardQuest = [&](std::string_view item, std::string_view quantity,
+                                     echo::framework::QuestModule& output) {
+        std::string modified = config;
+        const std::string original = "\"rewardItem\": \"echo:item/med_kit\"";
+        const std::size_t rewardPosition = modified.find(original);
+        if (rewardPosition == std::string::npos) return false;
+        modified.replace(rewardPosition, original.size(),
+                         "\"rewardItem\": \"" + std::string(item) + "\"");
+        const std::string originalQuantity = "\"rewardQuantity\": 1";
+        const std::size_t quantityPosition = modified.find(originalQuantity, rewardPosition);
+        if (quantityPosition == std::string::npos) return false;
+        modified.replace(quantityPosition, originalQuantity.size(),
+                         "\"rewardQuantity\": " + std::string(quantity));
+        echo::framework::JsonDocument rewardDocument{};
+        echo::framework::JsonError rewardError{};
+        return echo::framework::JsonDocument::parse(
+                   modified.data(), modified.size(), rewardDocument, rewardError) &&
+               output.load(rewardDocument.root().find("quests")) &&
+               output.initialize(moduleContext);
+    };
+    auto alternateQuests = std::make_unique<echo::framework::QuestModule>();
+    auto alternateGame = std::make_unique<echo::Game>();
+    auto rewardCheckpoint = game.checkpoint();
+    rewardCheckpoint.inventory.clear();
+    rewardCheckpoint.equipment = {};
+    rewardCheckpoint.activeItem = {};
+    rewardCheckpoint.questRewardClaimed = false;
+    check(rewardCheckpoint.inventory.add(echo::ItemId::MaintenanceKey) &&
+              loadRewardQuest("echo:item/scrap", "3", *alternateQuests) &&
+              fixture.bindInventory(*alternateGame) &&
+              alternateGame->configureAbilities(abilities) &&
+              alternateGame->configureQuests(*alternateQuests) &&
+              alternateGame->restore(rewardCheckpoint),
+          "a completed checkpoint restores with a different data-driven reward");
+    check(alternateGame->update({}) && alternateGame->questRewardClaimed() &&
+              alternateGame->itemQuantity(echo::ItemId::Scrap) == 3 &&
+              alternateGame->update({}) && alternateGame->itemQuantity(echo::ItemId::Scrap) == 3 &&
+              alternateGame->restore(alternateGame->checkpoint()),
+          "configured reward and quantity are granted once and survive checkpoint restore");
+
+    auto uniqueQuests = std::make_unique<echo::framework::QuestModule>();
+    auto uniqueGame = std::make_unique<echo::Game>();
+    rewardCheckpoint.equipment[0] = {echo::ItemId::JumpVisor, 1};
+    check(loadRewardQuest("echo:item/jump_visor", "1", *uniqueQuests) &&
+              fixture.bind(*uniqueGame, echo::kDefaultInteractionReach, true) &&
+              uniqueGame->configureAbilities(abilities) &&
+              uniqueGame->configureQuests(*uniqueQuests) &&
+              uniqueGame->restore(rewardCheckpoint) && uniqueGame->update({}) &&
+              !uniqueGame->questRewardClaimed() &&
+              uniqueGame->itemQuantity(echo::ItemId::JumpVisor) == 1 &&
+              uniqueGame->restore(uniqueGame->checkpoint()),
+          "an already equipped unique reward remains pending without producing an invalid save");
+    rewardCheckpoint = uniqueGame->checkpoint();
+    rewardCheckpoint.equipment[0] = {};
+    check(uniqueGame->restore(rewardCheckpoint) && uniqueGame->update({}) &&
+              uniqueGame->questRewardClaimed() &&
+              uniqueGame->itemQuantity(echo::ItemId::JumpVisor) == 1,
+          "the pending unique reward is granted after the existing item is removed");
+
+    auto invalidQuests = std::make_unique<echo::framework::QuestModule>();
+    auto invalidGame = std::make_unique<echo::Game>();
+    check(loadRewardQuest("echo:item/med_kit", "4", *invalidQuests) &&
+              fixture.bindInventory(*invalidGame) && !invalidGame->configureQuests(*invalidQuests),
+          "quest rewards exceeding the catalog stack limit are rejected");
     restored.start();
     check(restored.questProgress().completed == 0, "starting over resets derived quest progress");
 
