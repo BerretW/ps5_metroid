@@ -13,6 +13,13 @@ PS5 Vulkan cross-build and package rejection tests pass statically; this new
 package has NOT been tested on hardware. The Vulkan game still compiles the
 SDL renderer for the world and remaining UI, so the migration is incomplete.
 
+**Cargo Hold emergency-power objective:** the Cargo Control terminal and north
+panel now support a dedicated repair quest with state-aware dialogue and HUD
+progress. Windows build/tests passed 22/22. The current PS5 Vulkan package
+(`dist/ps5-vulkan/PPSA91007`) passes static validation with 73 validated assets,
+and `tests/ps5_package_tests.ps1 -Vulkan` passes, including missing/malformed
+quest and dialogue cases. PS5 hardware execution is NOT TESTED.
+
 ### Manual PS5 verification for a new Vulkan candidate
 
 Back up the existing title package and saves before manual transfer; retain

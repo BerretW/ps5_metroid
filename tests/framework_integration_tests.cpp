@@ -264,20 +264,22 @@ int main() {
     check(power != nullptr &&
               power->isPowered("echo:power/cargo_main", mainPower) && mainPower &&
               power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
-              emergencyPower,
-          "the selected Power module loads both Cargo Hold lighting circuits");
+              !emergencyPower,
+          "Cargo Hold emergency power starts offline while main power remains on");
     check(power != nullptr && power->setRequested("echo:power/cargo_main", false) &&
               power->isPowered("echo:power/cargo_main", mainPower) && !mainPower &&
               power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
-              emergencyPower,
-          "Cargo Hold emergency lighting remains powered when main power is off");
+              !emergencyPower,
+          "Cargo Hold circuits can be controlled independently");
     check(integration->beginGame() &&
-              power->isPowered("echo:power/cargo_main", mainPower) && mainPower,
+              power->isPowered("echo:power/cargo_main", mainPower) && mainPower &&
+              power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
+              !emergencyPower,
           "starting a new game restores configured power defaults");
     check(integration->togglePowerCircuit("echo:power/cargo_main") &&
               power->isPowered("echo:power/cargo_main", mainPower) && !mainPower &&
               power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
-              emergencyPower,
+              !emergencyPower,
           "the registered power action switches off the main circuit independently");
     check(integration->togglePowerCircuit("echo:power/cargo_main") &&
               power->isPowered("echo:power/cargo_main", mainPower) && mainPower,
@@ -318,6 +320,21 @@ int main() {
                       powerPanel->interaction == "toggle_power" &&
                       powerPanel->circuit == "echo:power/cargo_main",
                   "the Cargo Hold console is an interactable world-space power panel");
+            const echo::PropLayout* emergencyPanel = nullptr;
+            const echo::PropLayout* cargoTerminal = nullptr;
+            for (const echo::PropLayout& prop : loaded->propList()) {
+                if (prop.room != echo::RoomId::CargoHold) continue;
+                if (std::string_view(prop.id.data()) == "north_panel") {
+                    emergencyPanel = &prop;
+                } else if (std::string_view(prop.id.data()) == "cargo_terminal") {
+                    cargoTerminal = &prop;
+                }
+            }
+            check(emergencyPanel != nullptr &&
+                      emergencyPanel->interaction == "toggle_power" &&
+                      emergencyPanel->circuit == "echo:power/cargo_emergency" &&
+                      cargoTerminal != nullptr && cargoTerminal->interaction.empty(),
+                  "the Cargo Hold repair task has separate terminal and emergency-panel props");
             check(echo::nearbyPowerPanel(*loaded, echo::RoomId::LandingBay,
                                          {384.0F, 224.0F}) == nullptr &&
                       echo::nearbyPowerPanel(*loaded, echo::RoomId::CargoHold,
@@ -409,9 +426,44 @@ int main() {
                 auto checkpoint = cargoGame.checkpoint();
                 checkpoint.room = echo::RoomId::CargoHold;
                 checkpoint.playerVelocity = {};
-                checkpoint.playerPosition = {700.0F, 178.0F};
+                echo::Vec2 terminalPosition{};
+                check(cargoGame.propPosition(echo::RoomId::CargoHold, "cargo_terminal",
+                                             terminalPosition),
+                      "Cargo Control terminal has a stable world position");
+                checkpoint.playerPosition = terminalPosition;
                 check(cargoGame.restore(checkpoint),
                       "a checkpoint from the original Cargo Hold remains restorable");
+                echo::framework::QuestProgress cargoProgress{};
+                check(cargoGame.cargoTerminalNearby() &&
+                          cargoGame.cargoQuestProgress(cargoProgress) &&
+                          cargoProgress.total == 1 && cargoProgress.completed == 0 &&
+                          cargoProgress.objective == "RESTORE CARGO EMERGENCY POWER",
+                      "Cargo Hold shows its repair task and terminal interaction");
+                check(cargoGame.update({.interactPressed = true}) &&
+                          cargoGame.dialogueText() == "CARGO HOLD MAINTENANCE ARCHIVE." &&
+                          cargoGame.dialogueChoiceCount() == 1 &&
+                          cargoGame.dialogueChoiceText(0) == "OPEN REPAIR TASK" &&
+                          cargoGame.update({.interactPressed = true}) &&
+                          cargoGame.dialogueText() ==
+                              "RESTORE EMERGENCY POWER AT THE NORTH PANEL." &&
+                          cargoGame.update({.interactPressed = true}) &&
+                          !cargoGame.dialogueActive(),
+                      "Cargo Control briefs the player through its localized dialogue module");
+                check(power->toggle("echo:power/cargo_emergency") &&
+                          cargoGame.cargoQuestProgress(cargoProgress) &&
+                          cargoProgress.completed == cargoProgress.total,
+                      "restoring the emergency circuit completes the Cargo Hold quest");
+                check(cargoGame.update({.interactPressed = true}) &&
+                          cargoGame.dialogueChoiceCount() == 1 &&
+                          cargoGame.dialogueChoiceText(0) == "CHECK POWER STATUS" &&
+                          cargoGame.update({.interactPressed = true}) &&
+                          cargoGame.dialogueText() ==
+                              "EMERGENCY POWER IS STABLE. CARGO HOLD SECURED.",
+                      "the terminal reports completion after the saved circuit is restored");
+                check(integration->beginGame() &&
+                          power->isPowered("echo:power/cargo_emergency", emergencyPower) &&
+                          !emergencyPower,
+                      "a new game resets the repair task's circuit progress");
                 checkpoint.playerPosition = {2500.0F, 1200.0F};
                 check(cargoGame.restore(checkpoint),
                       "a checkpoint beyond the old room bounds is restorable");

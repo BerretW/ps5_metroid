@@ -182,8 +182,8 @@ bool drawInventoryMenu(rendering::ICanvas2D& canvas, ControlScheme controls,
     }
     paint.text(28, 321, effect, 1, kCyan);
     paint.text(28, 333, controls == ControlScheme::PlayStation
-                           ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/BACK"
-                           : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/BACK", 1, kMuted);
+                           ? "\x05 SELECT  \x01 PICK/MOVE  \x04 CANCEL/CLOSE"
+                           : "ARROWS SELECT  ENTER PICK/MOVE  ESC CANCEL/CLOSE", 1, kMuted);
     return paint.ok();
 }
 

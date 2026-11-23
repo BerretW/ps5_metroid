@@ -1160,6 +1160,13 @@ int main() {
               "the heal prompt shows keyboard and PlayStation-specific controls");
 
         echo::platform::InventoryMenu inventoryMenu{};
+        inventoryMenu.reset(false);
+        check(!inventoryMenu.returnToPause,
+              "closing an inventory opened during play resumes gameplay");
+        inventoryMenu.reset(true);
+        check(inventoryMenu.returnToPause,
+              "closing an inventory opened from pause returns to pause");
+        inventoryMenu.reset();
         check(inventoryMenu.confirm(dialogueGame) &&
                   inventoryMenu.source == 0,
               "inventory confirmation picks up the selected bag item");
@@ -1762,6 +1769,10 @@ int main() {
                     }
                 }
             }
+            const auto emergencyOn = integration.powerModule()->setRequested(
+                "echo:power/cargo_emergency", true);
+            check(static_cast<bool>(emergencyOn),
+                  "the Cargo Hold emergency circuit is available to world materials");
             spriteProbe = {};
             spriteProbe.trackedHandle = consoleTexture;
             const bool recordedConsoleStart = keyboard.recordGame(
@@ -1809,10 +1820,6 @@ int main() {
                       std::abs((emergencyMoved.x - emergencyStart.x) - 4.0F) < 0.01F &&
                       std::abs((emergencyMoved.y - emergencyStart.y) - 10.0F) < 0.01F,
                   "the Cargo Hold emergency light follows its moving prop in projected world space");
-            const auto emergencyOn = integration.powerModule()->setRequested(
-                "echo:power/cargo_emergency", true);
-            check(static_cast<bool>(emergencyOn),
-                  "the Cargo Hold emergency circuit is available to world materials");
             spriteProbe = {};
             check(keyboard.recordGame(spriteProbe, cargoGame, false, false, "SPACE", "J", "E",
                                       &canvasSprites, canvasWorldSprites.get()) &&

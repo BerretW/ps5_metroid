@@ -776,7 +776,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     ECHO_DIAG("ECHO DIAG 05c: game content ready; before save storage");
-    logMessage("Echo Framework and engineer dialogue initialized from assets/framework");
+    logMessage("Echo Framework and dialogue initialized from assets/framework");
 #if defined(__PROSPERO__)
     echo::framework::Ps5SaveStorage saveProvider{};
 #else
@@ -1709,7 +1709,7 @@ int main(int argc, char** argv) {
 #endif
 
     const auto openInventory = [&]() {
-        inventoryMenu.reset();
+        inventoryMenu.reset(paused);
         inventoryMessage.fill(0);
         pendingJump = false;
         pendingInteract = false;
@@ -1724,7 +1724,7 @@ int main(int argc, char** argv) {
         if (command == InventoryCommand::Back) {
             if (inventoryMenu.back()) {
                 screen = Screen::Playing;
-                paused = true;
+                paused = inventoryMenu.returnToPause;
             }
             inventoryMessage.fill(0);
         } else if (command == InventoryCommand::Confirm) {

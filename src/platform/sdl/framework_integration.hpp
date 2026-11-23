@@ -109,6 +109,7 @@ private:
     std::array<char, 160> worldErrorSubject_{};
     framework::WorldLighting worldLighting_{};
     std::unique_ptr<framework::DialogueDocument> dialogueDocument_{};
+    std::unique_ptr<framework::DialogueDocument> cargoDialogueDocument_{};
     framework::DialogueModule dialogueModule_{};
     framework::ModuleRegistry modules_{};
     framework::ActionRegistry actions_{};

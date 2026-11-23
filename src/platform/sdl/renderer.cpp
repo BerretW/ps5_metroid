@@ -1889,8 +1889,26 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
             game.questRewardClaimed() ? "MISSION COMPLETE" : "REWARD NEEDS BAG SPACE";
         text(76, 54, status, 1, kCyan);
     }
+    if (game.roomId() == RoomId::CargoHold) {
+        framework::QuestProgress cargoQuest{};
+        const framework::Status cargoStatus = game.cargoQuestProgress(cargoQuest);
+        if (!cargoStatus) {
+            if (!cargoQuestFailureLogged_) {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cargo quest progress failed: %s",
+                             cargoStatus.detail.data());
+                cargoQuestFailureLogged_ = true;
+            }
+        } else if (cargoQuest.total != 0) {
+            const std::string_view objective =
+                cargoQuest.completed == cargoQuest.total
+                    ? "CARGO EMERGENCY POWER RESTORED"
+                    : cargoQuest.objective;
+            text(12, 82, "CARGO TASK", 1, kMuted);
+            text(76, 82, objective, 1, kCyan);
+        }
+    }
     if (!paused && !game.dialogueActive() && activeItem.item != ItemId::None) {
-        const int useHintY = game.roomId() == RoomId::CargoHold ? 82 : 54;
+        const int useHintY = game.roomId() == RoomId::CargoHold ? 94 : 54;
         text(481, useHintY, controls_ == ControlScheme::PlayStation ? "R1 USE" : "H USE",
              1, kCyan);
     }
@@ -1948,7 +1966,8 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey, 2, kCyan);
     }
     if (!paused && !game.dialogueActive() &&
-        game.nearbyPowerPanel(player.position) != nullptr) {
+        (game.nearbyPowerPanel(player.position) != nullptr ||
+         game.cargoTerminalNearby())) {
         text(520, 285, controls_ == ControlScheme::PlayStation ? "\x03" : interactKey,
              2, kCyan);
     }

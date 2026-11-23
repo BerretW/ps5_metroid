@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:dialogue/cargo_operator",
+  "version": 1,
+  "startNode": "archive",
+  "nodes": [
+    {
+      "id": "archive",
+      "speaker": "CARGO CONTROL",
+      "speakerCs": "NAKLADOVY DISPECINK",
+      "text": "CARGO HOLD MAINTENANCE ARCHIVE.",
+      "textCs": "ARCHIV UDRZBY NAKLADOVEHO PROSTORU.",
+      "choices": [
+        {
+          "id": "open_task",
+          "label": "OPEN REPAIR TASK",
+          "labelCs": "ZOBRAZIT OPRAVU",
+          "targetNode": "repair_task",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "quest.cargo_emergency_powered",
+            "comparison": "eq",
+            "value": false
+          }
+        },
+        {
+          "id": "check_status",
+          "label": "CHECK POWER STATUS",
+          "labelCs": "ZKONTROLOVAT NAPAJENI",
+          "targetNode": "repair_complete",
+          "visibleWhen": {
+            "op": "compare",
+            "scope": "global",
+            "key": "quest.cargo_emergency_powered",
+            "comparison": "eq",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "repair_task",
+      "speaker": "CARGO CONTROL",
+      "speakerCs": "NAKLADOVY DISPECINK",
+      "text": "RESTORE EMERGENCY POWER AT THE NORTH PANEL.",
+      "textCs": "OBNOV NOUZOVE NAPAJENI U SEVERNIHO PANELU."
+    },
+    {
+      "id": "repair_complete",
+      "speaker": "CARGO CONTROL",
+      "speakerCs": "NAKLADOVY DISPECINK",
+      "text": "EMERGENCY POWER IS STABLE. CARGO HOLD SECURED.",
+      "textCs": "NOUZOVE NAPAJENI JE STABILNI. NAKLADOVY PROSTOR JE ZAJISTEN."
+    }
+  ]
+}

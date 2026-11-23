@@ -40,6 +40,9 @@ endif()
 if(NOT TARGET EchoFramework::Narrative)
     message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_NARRATIVE=ON.")
 endif()
+if(NOT TARGET EchoFramework::Power)
+    message(FATAL_ERROR "PROJECT ECHO requires ECHO_FRAMEWORK_ENABLE_POWER=ON.")
+endif()
 
 add_library(echo_game
     src/game/game.cpp
@@ -50,7 +53,7 @@ target_compile_features(echo_game PUBLIC cxx_std_20)
 target_link_libraries(echo_game PUBLIC
     EchoFramework::Narrative EchoFramework::Inventory EchoFramework::Attributes
     EchoFramework::Equipment EchoFramework::Abilities EchoFramework::Quests
-    EchoFramework::Cutscenes EchoFramework::World)
+    EchoFramework::Cutscenes EchoFramework::World EchoFramework::Power)
 
 if(ECHO_FRAMEWORK_BUILD_TOOLS)
     add_executable(echo_project_component_editor framework/tools/component_editor.cpp)

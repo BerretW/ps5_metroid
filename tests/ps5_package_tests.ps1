@@ -129,6 +129,13 @@ try {
     Expect-Rejection "main quest route is missing"
     [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
     $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
+    $gameConfigData.quests.quests[1].objectives[0].fact = "echo:fact/unknown"
+    [IO.File]::WriteAllText($gameConfig,
+        (ConvertTo-Json -InputObject $gameConfigData -Depth 16),
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Cargo Hold repair quest is missing"
+    [IO.File]::WriteAllBytes($gameConfig, $originalConfig)
+    $gameConfigData = [Text.Encoding]::UTF8.GetString($originalConfig) | ConvertFrom-Json
     $gameConfigData.cutscenes.cutscenes[0].cards = @(
         $gameConfigData.cutscenes.cutscenes[0].cards | Select-Object -First 2)
     [IO.File]::WriteAllText($gameConfig,
@@ -187,6 +194,25 @@ try {
     Remove-Item -LiteralPath $dialogue -Force
     Expect-Rejection "Packaged engineer dialogue is missing"
     [IO.File]::WriteAllBytes($dialogue, $originalDialogue)
+    $cargoDialogue = Join-Path $fixture "assets\framework\cargo_operator.json"
+    $originalCargoDialogue = [IO.File]::ReadAllBytes($cargoDialogue)
+    [IO.File]::WriteAllText($cargoDialogue, "{ not valid json")
+    Expect-Rejection "Invalid Cargo Control dialogue"
+    [IO.File]::WriteAllBytes($cargoDialogue, $originalCargoDialogue)
+    $validCargoDialogue = [Text.Encoding]::UTF8.GetString($originalCargoDialogue)
+    $invalidCargoCondition = $validCargoDialogue.Replace(
+        '"key": "quest.cargo_emergency_powered"',
+        '"key": "quest.unknown_power_state"')
+    if ($invalidCargoCondition -eq $validCargoDialogue) {
+        throw "Could not create an invalid Cargo Control dialogue fixture."
+    }
+    [IO.File]::WriteAllText($cargoDialogue, $invalidCargoCondition,
+        (New-Object Text.UTF8Encoding($false)))
+    Expect-Rejection "Cargo Control dialogue: repair task choices"
+    [IO.File]::WriteAllBytes($cargoDialogue, $originalCargoDialogue)
+    Remove-Item -LiteralPath $cargoDialogue -Force
+    Expect-Rejection "Packaged Cargo Control dialogue is missing"
+    [IO.File]::WriteAllBytes($cargoDialogue, $originalCargoDialogue)
     $itemCatalog = Join-Path $fixture "assets\framework\items.json"
     $originalItemCatalog = [IO.File]::ReadAllBytes($itemCatalog)
     $itemDocument = [Text.Encoding]::UTF8.GetString($originalItemCatalog) | ConvertFrom-Json
@@ -297,4 +323,4 @@ try {
     Remove-Item -LiteralPath $container -Force
     & $validator -PackagePath $package -LogDirectory $testLogs -VulkanGame:$Vulkan
 }
-Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."
+Write-Host "PS5 $packageVariant package tests PASS: project/yyjson licenses, SDL revision, isolated reports, corrupt PNG/config/dialogue/items, missing ability module/resource, invalid ability/Health Cell/Kinetic Coil/Cargo quest and dialogue conditions, missing item definitions/dialogue/catalog, world manifest/ID/sprite references, engineer spawn ownership, digest corruption, signed misaligned ELF."

@@ -10,8 +10,13 @@ struct InventoryMenu {
     static constexpr std::size_t kNoSource = Game::kInventorySlotCount;
     std::size_t selected{};
     std::size_t source{kNoSource};
+    bool returnToPause{};
 
-    void reset() noexcept { selected = 0; source = kNoSource; }
+    void reset(bool wasPaused = false) noexcept {
+        selected = 0;
+        source = kNoSource;
+        returnToPause = wasPaused;
+    }
 
     void navigate(int horizontal, int vertical) noexcept {
         constexpr int columns = 5;

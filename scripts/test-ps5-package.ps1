@@ -114,6 +114,7 @@ if (Test-Path -LiteralPath $assetDir) {
                 @($gameConfig.modules) -notcontains "echo.rpg.quests" -or
                 @($gameConfig.modules) -notcontains "echo.narrative.cutscenes" -or
                 @($gameConfig.modules) -notcontains "echo.project_echo" -or
+                @($gameConfig.modules) -notcontains "echo.power" -or
                 -not ($gameConfig.resources -is [array]) -or
                 $null -eq $gameConfig.technician -or
                 @($gameConfig.resources | Where-Object {
@@ -121,6 +122,9 @@ if (Test-Path -LiteralPath $assetDir) {
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:dialogue/engineer" -and $_.type -eq "dialogue"
+                }).Count -ne 1 -or
+                @($gameConfig.resources | Where-Object {
+                    $_.id -eq "echo:dialogue/cargo_operator" -and $_.type -eq "dialogue"
                 }).Count -ne 1 -or
                 @($gameConfig.resources | Where-Object {
                     $_.id -eq "echo:cutscene/central_signal" -and $_.type -eq "cutscene"
@@ -154,6 +158,14 @@ if (Test-Path -LiteralPath $assetDir) {
                 if (@($mainQuest[0].objectives | Where-Object { $_.fact -eq $fact }).Count -ne 1) {
                     throw "Invalid framework game configuration: main quest fact is missing."
                 }
+            }
+            $cargoQuest = @($gameConfig.quests.quests | Where-Object {
+                $_.id -eq "echo:quest/cargo_hold_repair"
+            })
+            if ($cargoQuest.Count -ne 1 -or @($cargoQuest[0].objectives).Count -ne 1 -or
+                $cargoQuest[0].objectives[0].fact -ne "echo:fact/cargo_emergency_powered" -or
+                $cargoQuest[0].objectives[0].text -ne "RESTORE CARGO EMERGENCY POWER") {
+                throw "Invalid framework game configuration: Cargo Hold repair quest is missing."
             }
             $branch = $mainQuest[0].branch
             if ($null -eq $branch -or $branch.after -ne 1 -or
@@ -256,6 +268,42 @@ if (Test-Path -LiteralPath $assetDir) {
                     $_.id -eq $kineticCoilChoices[0].targetNode
                 }).Count -ne 1) {
                 throw "Invalid engineer dialogue: Kinetic Coil offer is missing or incorrectly gated."
+            }
+        } elseif ($asset.Extension -eq ".json" -and
+                  $asset.FullName -eq (Join-Path $assetDir "framework\cargo_operator.json")) {
+            if ($asset.Length -eq 0 -or $asset.Length -gt 16KB) {
+                throw "Invalid Cargo Control dialogue: file must be between 1 byte and 16 KiB."
+            }
+            try {
+                $cargoDialogue = Get-Content -LiteralPath $asset.FullName -Raw |
+                    ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Invalid Cargo Control dialogue: $($_.Exception.Message)"
+            }
+            if ($cargoDialogue.schemaVersion -ne 1 -or
+                $cargoDialogue.id -ne "echo:dialogue/cargo_operator" -or
+                $cargoDialogue.version -lt 1 -or -not $cargoDialogue.startNode -or
+                -not ($cargoDialogue.nodes -is [array]) -or
+                $cargoDialogue.nodes.Count -lt 1 -or $cargoDialogue.nodes.Count -gt 64 -or
+                @($cargoDialogue.nodes | Where-Object {
+                    $_.id -eq $cargoDialogue.startNode
+                }).Count -ne 1) {
+                throw "Invalid Cargo Control dialogue: required metadata or start node is missing."
+            }
+            $repairChoices = @($cargoDialogue.nodes | ForEach-Object { $_.choices } |
+                Where-Object { $_.id -in @("open_task", "check_status") })
+            if ($repairChoices.Count -ne 2 -or
+                @($repairChoices | Where-Object {
+                    $_.id -eq "open_task" -and
+                    $_.visibleWhen.key -eq "quest.cargo_emergency_powered" -and
+                    $_.visibleWhen.value -eq $false
+                }).Count -ne 1 -or
+                @($repairChoices | Where-Object {
+                    $_.id -eq "check_status" -and
+                    $_.visibleWhen.key -eq "quest.cargo_emergency_powered" -and
+                    $_.visibleWhen.value -eq $true
+                }).Count -ne 1) {
+                throw "Invalid Cargo Control dialogue: repair task choices are missing or incorrectly gated."
             }
         } elseif ($asset.Extension -eq ".json" -and
                   $asset.FullName -eq (Join-Path $assetDir "framework\items.json")) {
@@ -391,6 +439,9 @@ if (Test-Path -LiteralPath $assetDir) {
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\engineer.json") -PathType Leaf)) {
         throw "Packaged engineer dialogue is missing."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\cargo_operator.json") -PathType Leaf)) {
+        throw "Packaged Cargo Control dialogue is missing."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $assetDir "framework\items.json") -PathType Leaf)) {
         throw "Packaged item catalog is missing."

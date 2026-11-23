@@ -36,6 +36,9 @@ constexpr std::array<framework::AttributeDefinition, 5> kPlayerAttributeDefiniti
     {kProjectileDamageAttribute, 1, 1, 3},
 }};
 constexpr std::string_view kEngineerDialogue = "echo:dialogue/engineer";
+constexpr std::string_view kCargoOperatorDialogue = "echo:dialogue/cargo_operator";
+constexpr std::string_view kCargoTerminalId = "cargo_terminal";
+constexpr std::string_view kCargoEmergencyCircuit = "echo:power/cargo_emergency";
 constexpr std::string_view kGrantItemAction = "echo.inventory.grant";
 constexpr std::string_view kMaintenanceKeyResource = "echo:item/maintenance_key";
 constexpr std::string_view kHealthCellResource = "echo:item/health_cell";
@@ -47,6 +50,8 @@ constexpr framework::StateAddress kHasKineticCoil{
     framework::StateScope::Global, {}, "equipment.kinetic_coil"};
 constexpr framework::StateAddress kNeedsHealing{
     framework::StateScope::Global, {}, "player.needs_healing"};
+constexpr framework::StateAddress kCargoEmergencyPowered{
+    framework::StateScope::Global, {}, "quest.cargo_emergency_powered"};
 
 struct ProjectItemMapping {
     std::string_view resource;
@@ -204,6 +209,20 @@ framework::Status Game::configureQuests(const framework::QuestModule& module) no
         }
     }
     mainQuest_ = module.find(kMainQuestId);
+    cargoQuest_ = module.find(kCargoQuestId);
+    return framework::Status::success();
+}
+
+framework::Status Game::configurePower(framework::PowerModule& module) noexcept {
+    if (!module.initialized() || !module.hasCircuit(kCargoEmergencyCircuit)) {
+        return {framework::ErrorCode::MissingDependency, kCargoEmergencyCircuit,
+                "The Cargo Hold quest requires an initialized emergency-power circuit."};
+    }
+    if (powerModule_ != nullptr) {
+        return {framework::ErrorCode::InvalidState, "echo.power",
+                "Gameplay power services are already configured."};
+    }
+    powerModule_ = &module;
     return framework::Status::success();
 }
 
@@ -221,6 +240,27 @@ framework::QuestProgress Game::questProgress() const noexcept {
         questBranch_ == 1 ? kMainQuestBranchIds[0] :
         questBranch_ == 2 ? kMainQuestBranchIds[1] : std::string_view{};
     return framework::evaluateQuest(*mainQuest_, {facts.data(), count}, branch);
+}
+
+framework::Status Game::cargoQuestProgress(
+    framework::QuestProgress& progress) const noexcept {
+    progress = {};
+    if (room_ != RoomId::CargoHold || cargoQuest_ == nullptr) {
+        return framework::Status::success();
+    }
+    if (powerModule_ == nullptr) {
+        return {framework::ErrorCode::InvalidState, kCargoQuestId,
+                "The Cargo Hold quest has no configured power service."};
+    }
+    bool powered = false;
+    const framework::Status status =
+        powerModule_->isPowered(kCargoEmergencyCircuit, powered);
+    if (!status) return status;
+    const std::array<std::string_view, 1> facts{
+        powered ? kCargoQuestFact : std::string_view{}};
+    const std::size_t factCount = powered ? 1 : 0;
+    progress = framework::evaluateQuest(*cargoQuest_, {facts.data(), factCount});
+    return framework::Status::success();
 }
 
 framework::Status Game::claimQuestRewardIfReady() noexcept {
@@ -343,6 +383,19 @@ framework::Status Game::configureDialogue(
     const Status found = module.find(kEngineerDialogue, definition);
     if (!found) {
         return found;
+    }
+    bool cargoTerminalConfigured = false;
+    for (const PropLayout& prop : world_->propList()) {
+        if (prop.room == RoomId::CargoHold &&
+            std::string_view(prop.id.data()) == kCargoTerminalId) {
+            cargoTerminalConfigured = true;
+            break;
+        }
+    }
+    if (cargoTerminalConfigured) {
+        const DialogueDefinition* cargoDefinition = nullptr;
+        const Status cargoFound = module.find(kCargoOperatorDialogue, cargoDefinition);
+        if (!cargoFound) return cargoFound;
     }
     for (const DialogueNode& node : definition->nodes) {
         for (const DialogueChoice& choice : node.choices) {
@@ -733,6 +786,31 @@ bool Game::technicianNearby() const noexcept {
     const Rect reach{technician_.x - interactionReach_, technician_.y - 20.0F,
                      technician_.width + 2.0F * interactionReach_, technician_.height + 40.0F};
     return overlaps({player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight}, reach);
+}
+
+bool Game::cargoTerminalNearby() const noexcept {
+    if (room_ != RoomId::CargoHold) return false;
+    constexpr float kInteractionRadius = 48.0F;
+    constexpr float kInteractionRadiusSquared = kInteractionRadius * kInteractionRadius;
+    const float playerCenterX = player_.position.x + kPlayerWidth * 0.5F;
+    const float playerCenterY = player_.position.y + kPlayerHeight * 0.5F;
+    const std::span<const PropLayout> props = world_->propList();
+    for (std::size_t index = 0; index < props.size(); ++index) {
+        const PropLayout& prop = props[index];
+        if (prop.room != room_ || std::string_view(prop.id.data()) != kCargoTerminalId ||
+            prop.archetype == nullptr) {
+            continue;
+        }
+        const Vec2 position = runtimePropTransforms_[index].overridden
+            ? runtimePropTransforms_[index].position
+            : prop.position;
+        const float deltaX =
+            playerCenterX - (position.x + prop.archetype->width() * 0.5F);
+        const float deltaY =
+            playerCenterY - (position.y + prop.archetype->height() * 0.5F);
+        return deltaX * deltaX + deltaY * deltaY <= kInteractionRadiusSquared;
+    }
+    return false;
 }
 
 bool Game::overlaps(const Rect& first, const Rect& second) noexcept {
@@ -1290,6 +1368,19 @@ framework::Status Game::syncDialogueState() noexcept {
         framework::StateValue::fromBoolean(player_.health < maximumHealth()));
 }
 
+framework::Status Game::syncCargoDialogueState() noexcept {
+    if (dialogueState_ == nullptr || powerModule_ == nullptr) {
+        return {framework::ErrorCode::InvalidState, kCargoOperatorDialogue,
+                "Cargo Control dialogue requires configured state and power services."};
+    }
+    bool powered = false;
+    const framework::Status status =
+        powerModule_->isPowered(kCargoEmergencyCircuit, powered);
+    if (!status) return status;
+    return dialogueState_->set(
+        kCargoEmergencyPowered, framework::StateValue::fromBoolean(powered));
+}
+
 framework::Status Game::setDialogueLanguage(framework::DialogueLanguage language) noexcept {
     using namespace framework;
     if (language != DialogueLanguage::English && language != DialogueLanguage::Czech) {
@@ -1657,16 +1748,25 @@ framework::Status Game::updateDialogue(const Input& input) noexcept {
 
 framework::Status Game::interact(int moveDirection) noexcept {
     const Rect playerBounds{player_.position.x, player_.position.y, kPlayerWidth, kPlayerHeight};
-    if (technicianNearby()) {
+    const bool engineerNearby = technicianNearby();
+    const bool terminalNearby = !engineerNearby && cargoTerminalNearby();
+    if (engineerNearby || terminalNearby) {
         if (dialogueModule_ == nullptr || dialogueState_ == nullptr) {
-            return {framework::ErrorCode::InvalidState, kEngineerDialogue,
-                    "The engineer dialogue has not been configured."};
+            return {framework::ErrorCode::InvalidState,
+                    terminalNearby ? kCargoOperatorDialogue : kEngineerDialogue,
+                    "Dialogue services have not been configured."};
         }
         framework::Status status = syncDialogueState();
         if (!status) {
             return status;
         }
-        status = dialogueModule_->start(kEngineerDialogue, dialogueSession_);
+        const std::string_view dialogueId =
+            terminalNearby ? kCargoOperatorDialogue : kEngineerDialogue;
+        if (terminalNearby) {
+            status = syncCargoDialogueState();
+            if (!status) return status;
+        }
+        status = dialogueModule_->start(dialogueId, dialogueSession_);
         if (!status) {
             return status;
         }

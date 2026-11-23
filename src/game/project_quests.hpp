@@ -8,6 +8,8 @@
 namespace echo {
 
 inline constexpr std::string_view kMainQuestId = "echo:quest/main_route";
+inline constexpr std::string_view kCargoQuestId = "echo:quest/cargo_hold_repair";
+inline constexpr std::string_view kCargoQuestFact = "echo:fact/cargo_emergency_powered";
 inline constexpr std::array<std::string_view, 3> kMainQuestFacts{
     "echo:fact/maintenance_key", "echo:fact/echo_step", "echo:fact/exit_reached"};
 inline constexpr std::array<std::string_view, 2> kMainQuestBranchFacts{
@@ -39,6 +41,13 @@ inline constexpr std::array<std::string_view, 2> kMainQuestRewards{
             return {framework::ErrorCode::MissingDependency, kMainQuestId,
                     "The main quest route facts and rewards must match the game contract."};
         }
+    }
+    const framework::QuestDefinition* cargoQuest = module.find(kCargoQuestId);
+    if (cargoQuest == nullptr || cargoQuest->objectives().size() != 1 ||
+        !cargoQuest->branches().empty() ||
+        cargoQuest->objectives()[0].fact.data() != kCargoQuestFact) {
+        return {framework::ErrorCode::MissingDependency, kCargoQuestId,
+                "The Cargo Hold repair quest must have one emergency-power objective."};
     }
     return framework::Status::success();
 }

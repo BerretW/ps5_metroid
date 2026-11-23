@@ -436,6 +436,16 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return {framework::ErrorCode::MissingDependency, "echo:dialogue/engineer",
                 "The engineer dialogue must be a required dialogue resource."};
     }
+    framework::ResourceInfo cargoDialogueResource{};
+    const bool cargoQuestSelected = worldSelected && questsSelected && powerSelected;
+    if (cargoQuestSelected) {
+        status = content.find("echo:dialogue/cargo_operator", cargoDialogueResource);
+        if (!status || cargoDialogueResource.type != framework::ResourceType::Dialogue ||
+            cargoDialogueResource.optional) {
+            return {framework::ErrorCode::MissingDependency, "echo:dialogue/cargo_operator",
+                    "The Cargo Control dialogue must be a required dialogue resource."};
+        }
+    }
     framework::ResourceInfo keyResource{};
     status = content.find("echo:item/maintenance_key", keyResource);
     if (!status || keyResource.type != framework::ResourceType::Item || keyResource.optional) {
@@ -538,6 +548,42 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
         return status;
     }
     dialogueDocument_ = std::move(dialogue);
+
+    if (cargoQuestSelected) {
+        if (contentRoot == nullptr) {
+            return {framework::ErrorCode::InvalidArgument, "echo:dialogue/cargo_operator",
+                    "The content root is required to load Cargo Control dialogue."};
+        }
+        std::array<char, 512> cargoDialoguePath{};
+        const int cargoDialoguePathLength = std::snprintf(
+            cargoDialoguePath.data(), cargoDialoguePath.size(),
+            "%sframework/cargo_operator.json", contentRoot);
+        if (cargoDialoguePathLength <= 0 ||
+            static_cast<std::size_t>(cargoDialoguePathLength) >= cargoDialoguePath.size()) {
+            return {framework::ErrorCode::InvalidValue, "echo:dialogue/cargo_operator",
+                    "Cargo Control dialogue path is too long."};
+        }
+        status = readContentFile(cargoDialoguePath.data(), kMaxDialogueBytes, data, size);
+        if (!status) return status;
+        std::unique_ptr<framework::DialogueDocument> cargoDialogue(
+            new (std::nothrow) framework::DialogueDocument{});
+        if (!cargoDialogue) {
+            return {framework::ErrorCode::CapacityExceeded, "echo:dialogue/cargo_operator",
+                    "Cargo Control dialogue document allocation failed."};
+        }
+        status = cargoDialogue->parse(data.get(), size, jsonError);
+        data.reset();
+        if (!status) return status;
+        if (cargoDialogue->definition()->id != cargoDialogueResource.id) {
+            return {framework::ErrorCode::InvalidValue, "echo:dialogue/cargo_operator",
+                    "The Cargo Control file does not match its resource ID."};
+        }
+        status = validateDialogueDisplay(*cargoDialogue->definition());
+        if (!status) return status;
+        status = dialogueModule_.add(*cargoDialogue->definition());
+        if (!status) return status;
+        cargoDialogueDocument_ = std::move(cargoDialogue);
+    }
     technicianInteractionReach_ = interaction.horizontalReach;
 
     status = modules_.add(stateModule_, stateSelected);
@@ -628,6 +674,11 @@ framework::Status FrameworkIntegration::configureGame(Game& game) noexcept {
     framework::Status status = framework::Status::success();
     if (worldLayout_) {
         status = game.configureWorld(*worldLayout_);
+        if (!status) return status;
+    }
+    if (powerModule_ != nullptr && questModule_.find(kCargoQuestId) != nullptr &&
+        worldLayout_) {
+        status = game.configurePower(*powerModule_);
         if (!status) return status;
     }
     status = game.configureDialogue(
@@ -773,6 +824,8 @@ void FrameworkIntegration::shutdown() noexcept {
     }
     actions_.setGameActive(false);
     modules_.shutdownAll();
+    dialogueDocument_.reset();
+    cargoDialogueDocument_.reset();
     initialized_ = false;
 }
 

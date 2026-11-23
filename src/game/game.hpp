@@ -6,6 +6,7 @@
 #include "echo/framework/inventory.hpp"
 #include "echo/framework/narrative.hpp"
 #include "echo/framework/cutscenes.hpp"
+#include "echo/framework/power.hpp"
 #include "echo/framework/world.hpp"
 #include "game/project_components.hpp"
 #include "game/project_abilities.hpp"
@@ -345,11 +346,15 @@ public:
         const framework::AbilityModule& module) noexcept;
     [[nodiscard]] framework::Status configureEquipment(
         const framework::EquipmentModule& module) noexcept;
+    [[nodiscard]] framework::Status configurePower(
+        framework::PowerModule& module) noexcept;
     [[nodiscard]] framework::Status configureQuests(
         const framework::QuestModule& module) noexcept;
     [[nodiscard]] framework::Status configureCutscenes(
         const framework::CutsceneModule& module) noexcept;
     [[nodiscard]] framework::QuestProgress questProgress() const noexcept;
+    [[nodiscard]] framework::Status cargoQuestProgress(
+        framework::QuestProgress& progress) const noexcept;
     [[nodiscard]] std::uint8_t questBranch() const noexcept { return questBranch_; }
     [[nodiscard]] bool questRewardClaimed() const noexcept { return questRewardClaimed_; }
     [[nodiscard]] std::size_t questChoiceSelection() const noexcept {
@@ -401,6 +406,7 @@ public:
     [[nodiscard]] Rect abilityPickup() const noexcept { return abilityPickup_; }
     [[nodiscard]] Rect technicianBounds() const noexcept;
     [[nodiscard]] bool technicianNearby() const noexcept;
+    [[nodiscard]] bool cargoTerminalNearby() const noexcept;
     [[nodiscard]] bool dialogueActive() const noexcept { return dialogueSession_.active(); }
     [[nodiscard]] bool cutsceneActive() const noexcept { return cutscenePlayer_.active(); }
     [[nodiscard]] std::string_view cutsceneSpeaker() const noexcept;
@@ -447,6 +453,7 @@ private:
     void resolveRoomEdges() noexcept;
     [[nodiscard]] framework::Status interact(int moveDirection) noexcept;
     [[nodiscard]] framework::Status syncDialogueState() noexcept;
+    [[nodiscard]] framework::Status syncCargoDialogueState() noexcept;
     [[nodiscard]] framework::Status refreshDialogue() noexcept;
     [[nodiscard]] framework::Status updateDialogue(const Input& input) noexcept;
     [[nodiscard]] framework::Status claimQuestRewardIfReady() noexcept;
@@ -518,7 +525,9 @@ private:
     framework::AbilitySet<8> abilities_{};
     const framework::EquipmentModule* equipmentModule_{};
     framework::EquipmentLoadout<4> equipment_{};
+    framework::PowerModule* powerModule_{};
     const framework::QuestDefinition* mainQuest_{};
+    const framework::QuestDefinition* cargoQuest_{};
     const framework::CutsceneDefinition* centralCutscene_{};
     framework::CutscenePlayer cutscenePlayer_{};
 };

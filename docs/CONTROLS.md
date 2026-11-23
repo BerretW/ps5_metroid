@@ -12,7 +12,7 @@
 | Use active item | H | Right shoulder | R1 |
 | Open inventory | I (also from pause) | Left shoulder | L1 |
 | Inventory navigate / select / move | Arrows/WASD, Enter/Space | D-pad, A | D-pad, Cross × |
-| Inventory cancel selection / close to pause | Escape / I | B / Start | Circle ○ / Options |
+| Inventory cancel selection / close inventory | Escape / I | B / Start | Circle ○ / Options |
 | Select dialogue choice | Left/Right arrows or A/D | Left stick or D-pad left/right | Left stick or D-pad left/right |
 | Pause / resume | Escape / Enter | Start / A | Options / Cross × |
 | Toggle map | M | Not assigned | Touchpad press |
@@ -38,13 +38,18 @@ those counts here. The overlay is cosmetic and appears only during gameplay.
 
 The Landing Bay's west exit leads to the isometric Cargo Hold, drawn Diablo 2-style with a 2:1 diamond grid. There is no gravity or jump: the stick, D-pad or arrows walk in eight screen directions, and Fire shoots along the aim. Aiming is twin-stick: the mouse (Windows) or right stick aims independently of movement, and an orange crosshair shows the direction. While mouse-aiming on Windows the cursor is locked inside the window and replaced by the crosshair; pausing (Esc), the map, menus or switching windows release it. Moving the mouse selects mouse aim until a controller button or the right stick takes over; with the right stick released and no mouse aim, shots follow the last movement direction. The usual Fire key/button still works, plus the left mouse button and R2. Crates in front of the player become translucent. Stalkers chase you on sight; the floor pools hurt but can be crossed. Leave through the east doorway to return to the side-view Landing Bay.
 
+The Cargo Hold has an optional repair task: use the maintenance archive terminal
+to get the briefing, then restore emergency power at the north panel. The HUD
+tracks the objective, and the restored circuit is included in the autosave.
+
 In the Landing Bay, approach Engineer Mira and press Use to begin or advance her dialogue. When choices appear, press left/right to select either the lab information or the Maintenance Key, then press Use to confirm. The inventory HUD shows the key, which opens the Research Laboratory door. After obtaining it, her conversation reflects that it is already owned. Return to her after finding Echo Step to ask how it opens the Central Chamber gate.
 
 Inventory contains 20 fixed backpack slots, separate Head/Body/Weapon/Accessory
 equipment slots, and one physical active-item stack. Select an occupied slot,
 confirm, navigate to a destination, then confirm to move, swap or merge a
 complete stack. Incompatible transfers and stack overflow do not change either
-slot. Back first cancels the selected source; pressing it again closes to pause.
+slot. Back first cancels the selected source; pressing it again closes the
+inventory and returns to the state it was opened from (active play or pause).
 Inventory freezes gameplay and successful moves autosave. If I is already bound
 to jump/fire/interact, that action keeps working during gameplay; open inventory
 with I from pause instead.

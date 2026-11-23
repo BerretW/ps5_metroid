@@ -424,6 +424,14 @@
       "facing": "left"
     },
     {
+      "id": "cargo_terminal",
+      "object": "echo:object/prop_console",
+      "position": [
+        2500,
+        1200
+      ]
+    },
+    {
       "id": "power_panel",
       "object": "echo:object/prop_console",
       "position": [
@@ -488,7 +496,7 @@
       ],
       "properties": {
         "interaction": "toggle_power",
-        "circuit": "echo:power/cargo_main"
+        "circuit": "echo:power/cargo_emergency"
       }
     },
     {

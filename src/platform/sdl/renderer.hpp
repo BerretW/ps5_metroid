@@ -181,6 +181,7 @@ private:
     bool drawingWorld_{};
     bool lightOverflowLogged_{};
     bool powerQueryFailureLogged_{};
+    bool cargoQuestFailureLogged_{};
     bool lightStateWarningLogged_{};
     bool lightFadeFailureLogged_{};
     bool shadowOverflowLogged_{};

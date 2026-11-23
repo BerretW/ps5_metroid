@@ -38,7 +38,7 @@
       },
       {
         "id": "echo:power/cargo_emergency",
-        "defaultOn": true
+        "defaultOn": false
       },
       {
         "id": "echo:power/landing_main",
@@ -82,6 +82,16 @@
             }
           ]
         }
+      },
+      {
+        "id": "echo:quest/cargo_hold_repair",
+        "objectives": [
+          {
+            "id": "emergency_power",
+            "fact": "echo:fact/cargo_emergency_powered",
+            "text": "RESTORE CARGO EMERGENCY POWER"
+          }
+        ]
       }
     ]
   },
@@ -158,6 +168,10 @@
         "echo:item/health_cell",
         "echo:item/kinetic_coil"
       ]
+    },
+    {
+      "id": "echo:dialogue/cargo_operator",
+      "type": "dialogue"
     },
     {
       "id": "echo:cutscene/central_signal",
