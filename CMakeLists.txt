@@ -196,6 +196,15 @@ endif()
     endif()
 
 enable_testing()
+if(WIN32)
+    find_program(ECHO_POWERSHELL_EXECUTABLE NAMES pwsh.exe powershell.exe)
+    if(ECHO_POWERSHELL_EXECUTABLE)
+        add_test(NAME echo_windows_vulkan_sdk
+            COMMAND "${ECHO_POWERSHELL_EXECUTABLE}" -NoProfile
+                -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan_sdk_tests.ps1")
+    endif()
+endif()
 option(ECHO_VULKAN_GPU_TESTS "Run Vulkan tests that require a Windows GPU and display" OFF)
 if(WIN32 AND ECHO_VULKAN_GPU_TESTS AND ECHO_GRAPHICS_BACKEND STREQUAL "Vulkan")
     add_test(NAME echo_vulkan_game_smoke COMMAND project_echo_vulkan --vulkan-smoke-test)

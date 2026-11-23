@@ -29,6 +29,23 @@ winget install --id Microsoft.PowerShell --exact
 
 Install Visual Studio Build Tools from Microsoft's official installer and select the **Desktop development with C++** workload. Review installation selections before applying them.
 
+Install the official Vulkan SDK for the default Windows build, for example:
+
+```powershell
+winget install --id KhronosGroup.VulkanSDK --exact
+```
+
+Select the SDK headers, x64 import library, `glslangValidator`, and `spirv-val`
+if the installer offers component choices. A Vulkan driver or runtime alone
+does not provide these development files. The installer sets `VULKAN_SDK`;
+open a new terminal if necessary, or set `$env:VULKAN_SDK` to the SDK directory
+for the current terminal. The Windows build and doctor also read the saved user
+or machine value when the current process has no `VULKAN_SDK`. An explicitly
+set process value takes precedence. Run the doctor again to check the files.
+For an SDL-only environment, use `.\scripts\doctor.ps1 -Target Windows -LegacySDL`.
+The separate PS5 Vulkan pipeline requires the specific SDK version pinned in
+`experiments\vulkan3d\dependencies.json`.
+
 ## Build, test, run
 
 For an interactive platform selector, double-click `build.bat` in the repository root, or run `.\build.bat`. Press **W** (or **1**) for Windows Vulkan Release plus tests, **P** (or **2**) for PS5, then choose **S** for SDL or **V** for Vulkan. Press **Q** to cancel either menu. On Czech or other layouts where the top row does not type digits, use the letters or the numpad; an unaccepted key only beeps. The selector calls the existing PowerShell scripts; all listed prerequisites still apply. The PS5 Vulkan option uses the prerequisites and native build path documented in [PS5 Vulkan build](experiments/vulkan3d/PS5_BUILD.md#ps5-vulkan-game-candidate).
