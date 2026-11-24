@@ -93,6 +93,10 @@ inline framework::Status encodeGameCheckpoint(const Game& game,
         if (const Status next = setInteger("world.triggers_fired",
                                            checkpoint.firedTriggers); !next) return next;
     }
+    if (checkpoint.shmupCleared != 0) {
+        if (const Status next = setInteger("world.shmup_cleared",
+                                           checkpoint.shmupCleared); !next) return next;
+    }
     if (const Status next = setInteger("inventory.count",
                                        static_cast<std::int64_t>(checkpoint.inventory.count)); !next) return next;
     if (const Status next = setInteger("inventory.layout", 2); !next) return next;
@@ -239,6 +243,15 @@ inline framework::Status decodeGameCheckpoint(
         firedTriggers = firedValue.integer;
     }
     candidate.firedTriggers = static_cast<std::uint8_t>(firedTriggers);
+    StateValue shmupValue{};
+    if (get("world.shmup_cleared", shmupValue)) {
+        if (shmupValue.type != ValueType::Integer || shmupValue.integer < 0 ||
+            shmupValue.integer > 255) {
+            return {ErrorCode::CorruptData, "world.shmup_cleared",
+                    "Autosave SHMUP state is invalid."};
+        }
+        candidate.shmupCleared = static_cast<std::uint8_t>(shmupValue.integer);
+    }
     if (candidate.questRewardClaimed &&
         (candidate.questBranch == 0 || !candidate.completed)) {
         return {ErrorCode::CorruptData, "quest.reward_claimed",

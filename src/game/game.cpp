@@ -569,6 +569,9 @@ void Game::start() noexcept {
     questRewardClaimed_ = false;
     questChoiceSelection_ = 0;
     firedTriggers_ = 0;
+    shmupCleared_ = 0;
+    shmupOutcome_ = 0;
+    shmupSession_ = {};
     dialogueSession_.reset();
     cutscenePlayer_.reset();
     dialogueLine_ = {};
@@ -665,6 +668,7 @@ GameCheckpoint Game::checkpoint() const noexcept {
     result.questBranch = questBranch_;
     result.questRewardClaimed = questRewardClaimed_;
     result.firedTriggers = firedTriggers_;
+    result.shmupCleared = shmupCleared_;
     result.deaths = deaths_;
     result.inventory = inventory_;
     result.equipment = equipmentItems_;
@@ -697,6 +701,8 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
         checkpointValue.deaths < 0 ||
         (world_->doorCount < 8 && (checkpointValue.firedTriggers >> world_->doorCount) != 0) ||
+        (world_->shmup.stageCount < 8 &&
+         (checkpointValue.shmupCleared >> world_->shmup.stageCount) != 0) ||
         checkpointValue.hasDoubleJump != checkpointValue.abilityCollected ||
         checkpointValue.questBranch > kMainQuestBranchIds.size() ||
         (checkpointValue.questBranch != 0 &&
@@ -862,6 +868,9 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     restored.questRewardClaimed_ = checkpointValue.questRewardClaimed;
     restored.questChoiceSelection_ = 0;
     restored.firedTriggers_ = checkpointValue.firedTriggers;
+    restored.shmupCleared_ = checkpointValue.shmupCleared;
+    restored.shmupOutcome_ = 0;
+    restored.shmupSession_ = {};
     restored.deaths_ = checkpointValue.deaths;
     for (std::size_t enemy = 0; enemy < restored.enemies_.size(); ++enemy) {
         restored.enemies_[enemy].health = checkpointValue.enemyHealth[enemy];
@@ -1013,6 +1022,7 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
     if (dialogueSession_.active()) {
         return updateDialogue(input);
     }
+    if (shmupSession_.active()) return updateShmup(input, dt);
     const framework::QuestProgress quest = questProgress();
     if (quest.choiceRequired) {
         if (input.moveX != 0 && questChoiceDirection_ == 0 && !quest.choices.empty()) {
@@ -1998,16 +2008,67 @@ framework::Status Game::interact(int moveDirection) noexcept {
         } else {
             status = runDoorActions(index);
             if (!status) return status;
-            enterRoom(door.destination, door.arriveFromLeft,
-                      door.hasArrivePosition ? &door.arrivePosition : nullptr);
+            if (door.shmup[0] != '\0') {
+                const ShmupStage* stage = world_->shmup.find(DoorLayout::text(door.shmup));
+                if (stage == nullptr) {
+                    return {framework::ErrorCode::MissingDependency, DoorLayout::text(door.shmup),
+                            "A door references a SHMUP stage that is not loaded."};
+                }
+                shmupOutcome_ = 0;
+                shmupSession_.begin(*stage);
+            } else {
+                enterRoom(door.destination, door.arriveFromLeft,
+                          door.hasArrivePosition ? &door.arrivePosition : nullptr);
+            }
         }
         break;
     }
     return framework::Status::success();
 }
 
+bool Game::shmupStageCleared(std::string_view stageId) const noexcept {
+    const int index = world_->shmup.indexOf(stageId);
+    return index >= 0 && (shmupCleared_ & (1U << index)) != 0;
+}
+
+framework::Status Game::updateShmup(const Input& input, float deltaSeconds) noexcept {
+    shmupSession_.step({input.moveX, input.moveY, input.shootHeld}, deltaSeconds);
+    return shmupSession_.result() == ShmupResult::Running ? framework::Status::success()
+                                                          : finishShmup();
+}
+
+framework::Status Game::finishShmup() noexcept {
+    const ShmupStage* stage = shmupSession_.stage();
+    const bool cleared = shmupSession_.result() == ShmupResult::Cleared;
+    shmupOutcome_ = cleared ? 1 : 2;
+    framework::Status status = framework::Status::success();
+    const int index = stage != nullptr ? world_->shmup.indexOf(stage->idText()) : -1;
+    if (cleared && index >= 0 && (shmupCleared_ & (1U << index)) == 0) {
+        shmupCleared_ = static_cast<std::uint8_t>(shmupCleared_ | (1U << index));
+        const std::string_view reward(stage->rewardItem.data());
+        if (!reward.empty()) {
+            const framework::ItemDefinition* definition = itemDefinition(reward);
+            if (definition == nullptr) {
+                status = {framework::ErrorCode::MissingDependency, reward,
+                          "A SHMUP stage rewards an unknown item."};
+            } else if (definition->maxStack != 1 || !hasItem(static_cast<ItemId>(definition->key))) {
+                (void)inventory_.add(static_cast<ItemId>(definition->key), definition->maxStack, 1);
+            }
+        }
+    }
+    shmupSession_ = {};
+    invulnerabilityTimer_ = 1.0F;
+    return status;
+}
+
 bool Game::factActive(std::string_view id) const noexcept {
     if (id.empty()) return true;
+    for (std::size_t index = 0; index < world_->shmup.stageCount; ++index) {
+        if ((shmupCleared_ & (1U << index)) != 0 &&
+            std::string_view(world_->shmup.stages[index].completionFact.data()) == id) {
+            return true;
+        }
+    }
     for (std::size_t index = 0; index < world_->doorCount; ++index) {
         if ((firedTriggers_ & (1U << index)) != 0 &&
             DoorLayout::text(world_->doors[index].setsFact) == id) {

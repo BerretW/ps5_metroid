@@ -226,6 +226,10 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     }
     status = buildWorldLayout(*worldModule_, *worldLayout_);
     if (!status) return status;
+    status = loadFile("shmup/stages.json", [&](framework::JsonValue root) {
+        return parseShmupLibrary(root, worldLayout_->shmup);
+    });
+    if (!status) return status;
     worldLayout_->worldLighting = worldLighting_;
     for (const PropLayout& prop : worldLayout_->propList()) {
         const auto validateCircuit = [&](std::string_view circuit,
@@ -278,6 +282,19 @@ framework::Status FrameworkIntegration::validateDoorReferences() const noexcept 
             (!inventoryModule_ || inventoryModule_->catalog().find(item) == nullptr)) {
             return {ErrorCode::MissingDependency, item,
                     "A door or trigger references an unknown item."};
+        }
+        const std::string_view stage = DoorLayout::text(door.shmup);
+        if (!stage.empty() && worldLayout_->shmup.find(stage) == nullptr) {
+            return {ErrorCode::MissingDependency, stage,
+                    "A door references an unknown SHMUP stage."};
+        }
+    }
+    for (std::size_t index = 0; index < worldLayout_->shmup.stageCount; ++index) {
+        const std::string_view reward(worldLayout_->shmup.stages[index].rewardItem.data());
+        if (!reward.empty() &&
+            (!inventoryModule_ || inventoryModule_->catalog().find(reward) == nullptr)) {
+            return {ErrorCode::MissingDependency, reward,
+                    "A SHMUP stage rewards an unknown item."};
         }
     }
     return framework::Status::success();

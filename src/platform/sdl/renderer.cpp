@@ -1153,6 +1153,117 @@ void Renderer::drawIsometricWorld(const Game& game, bool paused) noexcept {
     }
 }
 
+void Renderer::drawShmup(const Game& game, bool paused) noexcept {
+    const ShmupSession& session = game.shmup();
+    const ShmupStage* stage = session.stage();
+    if (stage == nullptr) return;
+    panel({0, 0, 640, 360}, SDL_Color{stage->background[0], stage->background[1],
+                                       stage->background[2], 255});
+    // Three parallax star layers derived from the scroll distance; no state is mutated.
+    constexpr std::array<float, 3> kStarSpeed{0.25F, 0.55F, 1.0F};
+    for (std::size_t layer = 0; layer < kStarSpeed.size(); ++layer) {
+        for (std::uint32_t star = 0; star < 28; ++star) {
+            const std::uint32_t hash = (star + 1U) * 2654435761U + static_cast<std::uint32_t>(layer) * 40503U;
+            const float baseX = static_cast<float>((hash >> 7) % 700U);
+            const int y = static_cast<int>((hash >> 17) % 360U);
+            float x = std::fmod(baseX - session.scroll() * kStarSpeed[layer], 700.0F);
+            if (x < 0.0F) x += 700.0F;
+            const int size = layer == 2 ? 3 : layer == 1 ? 2 : 1;
+            const std::uint8_t shade = static_cast<std::uint8_t>(90 + layer * 50);
+            panel({static_cast<int>(x) - 30, y, size + (layer == 2 ? 3 : 0), size},
+                  SDL_Color{shade, shade, static_cast<std::uint8_t>(shade + 20), 255});
+        }
+    }
+
+    for (const ShmupEnemyState& enemy : session.enemies()) {
+        if (!enemy.active) continue;
+        const ShmupEnemyType& type = stage->enemyTypes[enemy.type];
+        const SDL_Color body = enemy.flash > 0.0F
+            ? SDL_Color{255, 255, 255, 255}
+            : SDL_Color{type.color[0], type.color[1], type.color[2], 255};
+        const int x = static_cast<int>(enemy.x);
+        const int y = static_cast<int>(enemy.y);
+        const int w = static_cast<int>(type.width);
+        const int h = static_cast<int>(type.height);
+        panel({x, y + h / 4, w, h / 2}, body);
+        panel({x + w / 4, y, w / 2, h}, body);
+        panel({x + 2, y + h / 2 - 2, 5, 4}, SDL_Color{20, 10, 14, 255});
+    }
+
+    const ShmupBossState& boss = session.boss();
+    if (boss.active) {
+        const ShmupBoss& definition = stage->boss;
+        const int x = static_cast<int>(boss.x);
+        const int y = static_cast<int>(boss.y);
+        const int w = static_cast<int>(definition.width);
+        const int h = static_cast<int>(definition.height);
+        const bool shifting = boss.transitionLeft > 0.0F &&
+                              static_cast<int>(boss.transitionLeft * 12.0F) % 2 == 0;
+        const SDL_Color body = boss.flash > 0.0F || shifting
+            ? SDL_Color{255, 255, 255, 255}
+            : SDL_Color{definition.color[0], definition.color[1], definition.color[2], 255};
+        panel({x, y + h / 6, w, h * 2 / 3}, body);
+        panel({x + w / 6, y, w * 2 / 3, h}, body);
+        panel({x - 10, y + h / 2 - 6, 14, 12}, kOrange);
+        const std::uint8_t core = static_cast<std::uint8_t>(80 + boss.phase * 70);
+        panel({x + w / 3, y + h / 3, w / 3, h / 3}, SDL_Color{core, 40, 60, 255});
+    }
+
+    for (const ShmupBullet& shot : session.playerShots()) {
+        if (!shot.active) continue;
+        panel({static_cast<int>(shot.x), static_cast<int>(shot.y), 12, 4}, kCyan);
+    }
+    for (const ShmupBullet& bullet : session.enemyShots()) {
+        if (!bullet.active) continue;
+        const int size = static_cast<int>(bullet.size);
+        panel({static_cast<int>(bullet.x) - size / 2, static_cast<int>(bullet.y) - size / 2, size, size},
+              SDL_Color{255, 214, 120, 255});
+        panel({static_cast<int>(bullet.x) - size / 4, static_cast<int>(bullet.y) - size / 4,
+               std::max(1, size / 2), std::max(1, size / 2)},
+              SDL_Color{255, 90, 70, 255});
+    }
+
+    const ShmupShip& ship = session.ship();
+    const bool blink = session.invulnerable() > 0.0F &&
+                       static_cast<int>(session.invulnerable() * 14.0F) % 2 == 0;
+    if (!blink) {
+        const int x = static_cast<int>(ship.x);
+        const int y = static_cast<int>(ship.y);
+        const int w = static_cast<int>(stage->player.width);
+        const int h = static_cast<int>(stage->player.height);
+        panel({x, y + h / 3, w, h / 3}, kCyan);
+        panel({x + w / 4, y, w / 3, h}, SDL_Color{40, 150, 170, 255});
+        panel({x - 6, y + h / 2 - 2, 6, 4}, kOrange);
+    }
+
+    panel({0, 0, 640, 22}, SDL_Color{4, 10, 17, 218});
+    text(10, 7, stage->name.data(), 1, kText);
+    for (int index = 0; index < stage->player.health; ++index) {
+        panel({150 + index * 14, 6, 10, 9}, index < session.health() ? kRed : SDL_Color{55, 60, 67, 255});
+    }
+    std::array<char, 24> score{};
+    std::snprintf(score.data(), score.size(), "SCORE %05d", session.score());
+    text(560, 7, score.data(), 1, kMuted);
+    if (boss.active) {
+        const ShmupBoss& definition = stage->boss;
+        panel({120, 334, 400, 14}, SDL_Color{4, 10, 17, 230});
+        panel({123, 337, static_cast<int>(394.0F * session.bossHealthFraction()), 8},
+              boss.transitionLeft > 0.0F ? kOrange : kRed);
+        // Tick marks show where each later boss phase begins.
+        for (std::size_t phase = 1; phase < definition.phaseCount; ++phase) {
+            panel({123 + static_cast<int>(394.0F * definition.phases[phase].healthBelow), 335, 2, 12}, kText);
+        }
+        std::array<char, 48> label{};
+        std::snprintf(label.data(), label.size(), "%s  PHASE %u/%u", definition.name.data(),
+                      static_cast<unsigned>(boss.phase + 1), static_cast<unsigned>(definition.phaseCount));
+        text(120, 322, label.data(), 1, kText);
+    }
+    if (paused) {
+        panel({240, 150, 160, 40}, SDL_Color{4, 10, 17, 230});
+        text(284, 166, "PAUSED", 2, kText);
+    }
+}
+
 void Renderer::drawParticles(const Game& game,
                              std::span<const vfx::Particle> particles) noexcept {
     const Player& player = game.player();
@@ -1347,6 +1458,11 @@ void Renderer::drawGameContent(const Game& game, bool showMap, bool paused,
                                std::span<const vfx::Particle> fog) noexcept {
     const RoomLayout& room = game.currentRoom();
     const WorldLayout& world = game.world();
+
+    if (game.shmupActive()) {
+        drawShmup(game, paused);
+        return;
+    }
 
     const Vec2 shakeOffset = game.cameraShakeOffset();
     worldOffsetX_ = static_cast<int>(shakeOffset.x);

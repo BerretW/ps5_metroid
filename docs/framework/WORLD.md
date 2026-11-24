@@ -227,6 +227,10 @@ and rejects layouts the simulation cannot represent:
     `door_power_bypass` (Power Station → Maintenance Tunnel, `requiresCircuit` +
     `requiresFact` + `arriveX`/`arriveY`) require visiting the survey trigger and powering the
     Cargo Hold emergency circuit; `door_power_return` uses `targetPlacement` and `requiresAbility`.
+  - `shmup` (a stage ID from `assets/shmup/stages.json`) turns a door into the entrance of a
+    SHMUP stage: it takes no `target` or arrival properties, still honours every condition, and
+    unknown stages or reward items are rejected at startup. Example: `door_shmup_hangar` in the
+    Landing Bay. See [SHMUP.md](SHMUP.md).
 - Props may use placement properties `interaction: "toggle_power"` and
   `circuit` for the bounded in-game power-panel action. A prop may also declare
   `dialogue` with a stable dialogue resource ID. Optional

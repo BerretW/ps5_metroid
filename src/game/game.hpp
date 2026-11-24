@@ -12,6 +12,7 @@
 #include "game/project_abilities.hpp"
 #include "game/project_quests.hpp"
 #include "game/project_cutscenes.hpp"
+#include "game/shmup.hpp"
 
 #include <array>
 #include <cstddef>
@@ -232,7 +233,8 @@ struct DoorLayout {
     std::array<char, 96> cutscene{};
     std::array<char, 96> setsFact{};
     std::array<char, 96> toggleCircuit{};
-
+    // A door that starts a SHMUP stage instead of changing room.
+    std::array<char, 96> shmup{};
     [[nodiscard]] static std::string_view text(const std::array<char, 96>& buffer) noexcept {
         return buffer.data();
     }
@@ -284,6 +286,8 @@ struct WorldLayout {
     RoomId abilityRoom{RoomId::ResearchLab};
     Rect abilityPickup{};
     WorldArchetypes archetypes{};
+    // Data-driven SHMUP stages (assets/shmup/stages.json); empty when none are loaded.
+    ShmupLibrary shmup{};
 
     [[nodiscard]] std::span<const DoorLayout> doorList() const noexcept {
         return {doors.data(), doorCount};
@@ -389,6 +393,8 @@ struct GameCheckpoint {
     bool questRewardClaimed{};
     // Bit N is set once door/trigger N (world door order) fired its once-only actions.
     std::uint8_t firedTriggers{};
+    // Bit N is set once SHMUP stage N (library order) has been cleared.
+    std::uint8_t shmupCleared{};
 };
 
 class Game {
@@ -483,6 +489,13 @@ public:
     [[nodiscard]] const PropLayout* nearbyDialogueProp() const noexcept;
     [[nodiscard]] bool dialogueActive() const noexcept { return dialogueSession_.active(); }
     [[nodiscard]] bool cutsceneActive() const noexcept { return cutscenePlayer_.active(); }
+    // True while a SHMUP stage replaces the room simulation.
+    [[nodiscard]] bool shmupActive() const noexcept { return shmupSession_.active(); }
+    [[nodiscard]] const ShmupSession& shmup() const noexcept { return shmupSession_; }
+    [[nodiscard]] std::uint8_t shmupCleared() const noexcept { return shmupCleared_; }
+    [[nodiscard]] bool shmupStageCleared(std::string_view stageId) const noexcept;
+    // Outcome of the most recent stage: 0 none, 1 cleared, 2 failed (display only).
+    [[nodiscard]] std::uint8_t shmupOutcome() const noexcept { return shmupOutcome_; }
     [[nodiscard]] std::string_view cutsceneSpeaker() const noexcept;
     [[nodiscard]] std::string_view cutsceneText() const noexcept;
     [[nodiscard]] std::size_t cutsceneCardIndex() const noexcept {
@@ -555,6 +568,8 @@ private:
     [[nodiscard]] framework::Status doorConditionsMet(const DoorLayout& door,
                                                       bool& met) const noexcept;
     [[nodiscard]] framework::Status runDoorActions(std::size_t doorIndex) noexcept;
+    [[nodiscard]] framework::Status updateShmup(const Input& input, float deltaSeconds) noexcept;
+    [[nodiscard]] framework::Status finishShmup() noexcept;
     [[nodiscard]] bool collidesWithWorld(const Rect& bounds) const noexcept;
     [[nodiscard]] bool overlapsHazard(const Rect& bounds) const noexcept;
     [[nodiscard]] static bool overlaps(const Rect& first, const Rect& second) noexcept;
@@ -622,6 +637,9 @@ private:
     const framework::CutsceneDefinition* centralCutscene_{};
     const framework::CutsceneModule* cutsceneModule_{};
     std::uint8_t firedTriggers_{};
+    std::uint8_t shmupCleared_{};
+    std::uint8_t shmupOutcome_{};
+    ShmupSession shmupSession_{};
     framework::CutscenePlayer cutscenePlayer_{};
 };
 

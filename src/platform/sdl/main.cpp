@@ -481,6 +481,11 @@ struct SoundState {
     bool completed{};
     std::uint8_t questBranch{};
     bool questRewardClaimed{};
+    std::uint32_t shmupShots{};
+    std::uint32_t shmupHits{};
+    std::uint32_t shmupHurt{};
+    std::uint32_t shmupKills{};
+    std::uint8_t shmupCleared{};
 };
 
 SoundState captureSoundState(const echo::Game& game) noexcept {
@@ -517,6 +522,11 @@ SoundState captureSoundState(const echo::Game& game) noexcept {
     state.completed = game.completed();
     state.questBranch = game.questBranch();
     state.questRewardClaimed = game.questRewardClaimed();
+    state.shmupShots = game.shmup().shotsFired();
+    state.shmupHits = game.shmup().hitsLanded();
+    state.shmupHurt = game.shmup().hitsTaken();
+    state.shmupKills = game.shmup().kills();
+    state.shmupCleared = game.shmupCleared();
     return state;
 }
 
@@ -557,6 +567,11 @@ unsigned soundEventsBetween(const SoundState& before, const SoundState& after) n
     if (after.gateBlocked && !before.gateBlocked) {
         events |= bit(SoundId::GateDenied);
     }
+    if (after.shmupShots > before.shmupShots) events |= bit(SoundId::Shot);
+    if (after.shmupKills > before.shmupKills) events |= bit(SoundId::EnemyDefeat);
+    else if (after.shmupHits > before.shmupHits) events |= bit(SoundId::EnemyHit);
+    if (after.shmupHurt > before.shmupHurt) events |= bit(SoundId::Hurt);
+    if (after.shmupCleared != before.shmupCleared) events |= bit(SoundId::Pickup);
     return events;
 }
 
@@ -2213,8 +2228,10 @@ int main(int argc, char** argv) {
                 }
             }
 
+            // SHMUP stages also fire with the jump button, so no extra binding is needed.
+            if (game.shmupActive()) shootHeld = shootHeld || jumpHeld;
             bool powerPanelHandled = false;
-            if (pendingInteract && !game.dialogueActive()) {
+            if (pendingInteract && !game.dialogueActive() && !game.shmupActive()) {
                 const echo::PropLayout* powerPanel =
                     game.nearbyPowerPanel(game.player().position);
                 if (powerPanel != nullptr) {
@@ -2303,7 +2320,8 @@ int main(int argc, char** argv) {
                 after.activeLoot != before.activeLoot ||
                 after.completed != before.completed ||
                 after.questBranch != before.questBranch ||
-                after.questRewardClaimed != before.questRewardClaimed) {
+                after.questRewardClaimed != before.questRewardClaimed ||
+                after.shmupCleared != before.shmupCleared) {
                 (void)saveCurrentGame();
             }
             pendingJump = false;

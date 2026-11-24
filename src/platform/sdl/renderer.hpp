@@ -161,6 +161,7 @@ private:
                     Uint64 ticks, Rect bounds, float cameraX, bool flip) noexcept;
     bool drawRoomLayers(const RoomLayout& room, float cameraX) noexcept;
     void drawSideWorld(const Game& game, bool paused) noexcept;
+    void drawShmup(const Game& game, bool paused) noexcept;
     // Diablo-style 2:1 projection with depth-sorted blocks, actors and shots.
     void drawIsometricWorld(const Game& game, bool paused) noexcept;
     ControlScheme controls_;

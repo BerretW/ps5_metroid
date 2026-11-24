@@ -89,7 +89,7 @@ echo::framework::Status initializeWithEditedAsset(
     std::error_code error;
     fs::remove_all(root, error);
     fs::create_directories(root, error);
-    for (const char* directory : {"world", "framework"}) {
+    for (const char* directory : {"world", "framework", "shmup"}) {
         error.clear();
         fs::copy(fs::path(ECHO_SOURCE_ASSETS) / directory, root / directory,
                  fs::copy_options::recursive, error);
@@ -951,7 +951,7 @@ int main() {
             }
             check(enemiesMatch, "JSON enemy placements reproduce every save slot");
             // The shipped world adds three demonstration doors/triggers beyond the compiled pair.
-            bool doorsMatch = loaded->doorCount == expected.doorCount + 3;
+            bool doorsMatch = loaded->doorCount == expected.doorCount + 4;
             for (std::size_t index = 0; doorsMatch && index < expected.doorCount; ++index) {
                 const echo::DoorLayout& reference = expected.doors[index];
                 bool found = false;

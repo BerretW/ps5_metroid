@@ -431,7 +431,8 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
         !readContentIdProperty(placement, object, "requiresFact", door.requiresFact) ||
         !readContentIdProperty(placement, object, "cutscene", door.cutscene) ||
         !readContentIdProperty(placement, object, "setsFact", door.setsFact) ||
-        !readContentIdProperty(placement, object, "toggleCircuit", door.toggleCircuit)) {
+        !readContentIdProperty(placement, object, "toggleCircuit", door.toggleCircuit) ||
+        !readContentIdProperty(placement, object, "shmup", door.shmup)) {
         return invalid(placement.object.data(),
                        "Door and trigger conditions and actions need valid content IDs.");
     }
@@ -444,7 +445,14 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     const ObjectProperty* targetPlacement = findProperty(placement, object, "targetPlacement");
     const bool hasCustomArrival = arriveX != nullptr || arriveY != nullptr ||
                                   targetPlacement != nullptr;
-    if (targetProperty == nullptr) {
+    const bool startsShmup = door.shmup[0] != '\0';
+    if (startsShmup) {
+        if (targetProperty != nullptr || arriveProperty != nullptr || hasCustomArrival) {
+            return invalid(placement.object.data(),
+                           "A door that starts a SHMUP stage takes no target or arrival.");
+        }
+        door.destination = room;
+    } else if (targetProperty == nullptr) {
         if (object.category() != ObjectCategory::Trigger || !door.hasActions() ||
             arriveProperty != nullptr || hasCustomArrival) {
             return invalid(placement.object.data(),
@@ -575,7 +583,8 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         }
         for (const std::array<char, 96>* id :
              {&door.requiresItem, &door.requiresAbility, &door.requiresCircuit,
-              &door.requiresFact, &door.cutscene, &door.setsFact, &door.toggleCircuit}) {
+              &door.requiresFact, &door.cutscene, &door.setsFact, &door.toggleCircuit,
+              &door.shmup}) {
             if (!validContentIdBuffer(*id)) {
                 return invalid("world.doors",
                                "Door and trigger conditions and actions need valid content IDs.");

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -1673,9 +1674,170 @@ void testDoorTriggerExtensions() {
     check(!restoredFacts.restore(corrupt), "checkpoints cannot fire triggers that do not exist");
 }
 
+echo::ShmupStage makeTinyShmupStage(int bossHealth, bool deadlyBoss) {
+    echo::ShmupStage stage{};
+    setContentId(stage.id, "echo:shmup/test_stage");
+    setContentId(stage.completionFact, "echo:fact/test_stage_cleared");
+    stage.player.health = deadlyBoss ? 1 : 100;
+    stage.player.bulletDamage = 1;
+    stage.boss.health = bossHealth;
+    stage.boss.spawnTime = 0.2F;
+    stage.boss.y = 132.0F;
+    stage.boss.phaseCount = 2;
+    stage.boss.phases[0].healthBelow = 1.0F;
+    stage.boss.phases[0].motion = {echo::ShmupMotionKind::Hold, 60.0F, 0.0F, 0.0F, 480.0F};
+    stage.boss.phases[1].healthBelow = 0.5F;
+    stage.boss.phases[1].transitionSeconds = 0.5F;
+    stage.boss.phases[1].motion = stage.boss.phases[0].motion;
+    if (deadlyBoss) {
+        for (std::size_t phase = 0; phase < stage.boss.phaseCount; ++phase) {
+            stage.boss.phases[phase].attackCount = 1;
+            stage.boss.phases[phase].attacks[0] = {echo::ShmupAttackKind::Aimed, 0.2F, 0.1F, 1, 0.0F, 300.0F, 8.0F};
+        }
+    }
+    return stage;
+}
+
+void testShmupSimulation() {
+    static echo::ShmupLibrary shipped{};
+    std::ifstream input(ECHO_SOURCE_ASSETS "shmup/stages.json", std::ios::binary);
+    const std::string source{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    echo::framework::JsonDocument document{};
+    echo::framework::JsonError error{};
+    const bool parsedOk = static_cast<bool>(
+        echo::framework::JsonDocument::parse(source.data(), source.size(), document, error));
+    check(parsedOk && static_cast<bool>(echo::parseShmupLibrary(document.root(), shipped)),
+          "the shipped SHMUP stage library parses");
+    const echo::ShmupStage* cargoRun = shipped.find("echo:shmup/cargo_run");
+    check(cargoRun != nullptr && cargoRun->boss.phaseCount == 3 && cargoRun->enemyTypeCount >= 5,
+          "the shipped stage defines several enemy types and a three-phase boss");
+
+    const auto reject = [&](const char* text, const char* message) {
+        echo::framework::JsonDocument bad{};
+        echo::framework::JsonError badError{};
+        static echo::ShmupLibrary scratch{};
+        scratch = {};
+        const bool parsed = static_cast<bool>(
+            echo::framework::JsonDocument::parse(text, std::strlen(text), bad, badError));
+        check(!parsed || !static_cast<bool>(echo::parseShmupLibrary(bad.root(), scratch)), message);
+    };
+    reject(R"({"version":1,"stages":[{"id":"nope"}]})", "stages with malformed IDs are rejected");
+    reject(R"({"version":1,"stages":[],"extra":1})", "unknown SHMUP keys are rejected");
+
+    if (cargoRun != nullptr) {
+        // Same stage with an invulnerable pilot and a short boss fight, to cover all phases.
+        static echo::ShmupStage fight{};
+        fight = *cargoRun;
+        fight.player.health = 100000;
+        fight.boss.spawnTime = 0.5F;
+        fight.boss.health = 24;
+        echo::ShmupSession session;
+        session.begin(fight);
+        std::size_t highestPhase = 0;
+        bool bulletsClearedInTransition = false;
+        bool sawInvulnerableBoss = false;
+        float previousTransition = 0.0F;
+        for (int tick = 0; tick < 20000 && session.result() == echo::ShmupResult::Running; ++tick) {
+            const float targetY = session.boss().active ? session.boss().y + fight.boss.height * 0.5F : 180.0F;
+            const int steer = session.ship().y + fight.player.height * 0.5F < targetY - 4.0F ? 1
+                              : session.ship().y + fight.player.height * 0.5F > targetY + 4.0F ? -1 : 0;
+            session.step({.moveX = 0, .moveY = steer, .shoot = true}, echo::kFixedStep);
+            const echo::ShmupBossState& boss = session.boss();
+            highestPhase = std::max(highestPhase, boss.phase);
+            if (boss.transitionLeft > 0.0F && previousTransition <= 0.0F) {
+                bool any = false;
+                for (const echo::ShmupBullet& bullet : session.enemyShots()) any = any || bullet.active;
+                bulletsClearedInTransition = bulletsClearedInTransition || !any;
+            }
+            if (boss.transitionLeft > 0.0F) {
+                const int before = boss.health;
+                session.step({.shoot = true}, echo::kFixedStep);
+                sawInvulnerableBoss = sawInvulnerableBoss || session.boss().health == before;
+            }
+            previousTransition = boss.transitionLeft;
+        }
+        check(session.result() == echo::ShmupResult::Cleared && highestPhase == 2,
+              "the boss passes through every phase before the stage is cleared");
+        check(bulletsClearedInTransition, "a boss phase change clears enemy bullets");
+        check(sawInvulnerableBoss, "the boss is invulnerable while changing phase");
+        check(session.kills() > 0 && session.shotsFired() > 0 && session.hitsLanded() > 0,
+              "SHMUP sessions count shots, hits and kills");
+    }
+
+    static echo::ShmupStage deadly{};
+    deadly = makeTinyShmupStage(1000, true);
+    echo::ShmupSession failing;
+    failing.begin(deadly);
+    for (int tick = 0; tick < 2000 && failing.result() == echo::ShmupResult::Running; ++tick) {
+        failing.step({}, echo::kFixedStep);
+    }
+    check(failing.result() == echo::ShmupResult::Failed && failing.hitsTaken() > 0,
+          "a defenceless pilot fails against an attacking boss");
+
+    // Identical inputs must reproduce the identical outcome.
+    echo::ShmupSession first;
+    echo::ShmupSession second;
+    first.begin(deadly);
+    second.begin(deadly);
+    for (int tick = 0; tick < 600; ++tick) {
+        first.step({.moveY = tick % 7 < 3 ? 1 : -1, .shoot = true}, echo::kFixedStep);
+        second.step({.moveY = tick % 7 < 3 ? 1 : -1, .shoot = true}, echo::kFixedStep);
+    }
+    check(first.ship().y == second.ship().y && first.score() == second.score() &&
+              first.hitsTaken() == second.hitsTaken(),
+          "SHMUP simulation is deterministic");
+}
+
+void testShmupDoorInGame() {
+    static echo::WorldLayout layout = echo::defaultWorldLayout();
+    layout.doors[2] = makeTestDoor(true);
+    setContentId(layout.doors[2].shmup, "echo:shmup/test_stage");
+    layout.doorCount = 3;
+    layout.shmup = {};
+    layout.shmup.stages[0] = makeTinyShmupStage(6, false);
+    layout.shmup.stageCount = 1;
+    echo::Game game = gameInTunnel(layout);
+    check(!game.shmupStageCleared("echo:shmup/test_stage"), "a stage starts uncleared");
+    step(game, {.interactPressed = true});
+    check(game.shmupActive() && game.roomId() == echo::RoomId::MaintenanceTunnel,
+          "a door with a shmup property starts the stage");
+
+    for (int tick = 0; tick < 4000 && game.shmupActive(); ++tick) {
+        const float centre = game.shmup().ship().y + 7.0F;
+        const int steer = centre < 176.0F ? 1 : centre > 184.0F ? -1 : 0;
+        step(game, {.moveY = steer, .shootHeld = true});
+    }
+    check(!game.shmupActive() && game.shmupStageCleared("echo:shmup/test_stage") &&
+              game.shmupCleared() == 1 && game.shmupOutcome() != 0,
+          "clearing the boss ends the stage and records the clear");
+    const echo::GameCheckpoint saved = game.checkpoint();
+    check(saved.shmupCleared == 1, "a cleared stage is saved in the checkpoint");
+    echo::Game restored = gameInTunnel(layout);
+    check(restored.restore(saved) && restored.shmupStageCleared("echo:shmup/test_stage"),
+          "cleared stages survive checkpoints");
+    echo::GameCheckpoint corrupt = saved;
+    corrupt.shmupCleared = 0b10;
+    check(!restored.restore(corrupt), "checkpoints cannot clear stages that do not exist");
+
+    layout.shmup.stages[0] = makeTinyShmupStage(1000, true);
+    echo::Game losing = gameInTunnel(layout);
+    step(losing, {.interactPressed = true});
+    for (int tick = 0; tick < 4000 && losing.shmupActive(); ++tick) step(losing, {});
+    check(!losing.shmupActive() && losing.shmupCleared() == 0 &&
+              losing.roomId() == echo::RoomId::MaintenanceTunnel,
+          "failing a stage returns to the room without recording a clear");
+
+    layout.doors[2].hasArrivePosition = false;
+    echo::Game rejecting;
+    setContentId(layout.doors[2].shmup, "not a content id");
+    check(!rejecting.configureWorld(layout), "a malformed shmup stage ID is rejected");
+}
+
 } // namespace
 
 int main() {
+    testShmupSimulation();
+    testShmupDoorInGame();
     testDoorTriggerExtensions();
     testBitmapTextPresentation();
     testMovementJumpAndFloorCollision();

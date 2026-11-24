@@ -55,6 +55,7 @@ add_executable(echo_vulkan_menu
     src/menu.cpp
     "${ECHO_ROOT}/src/game/game.cpp"
     "${ECHO_ROOT}/src/game/world_layout.cpp"
+    "${ECHO_ROOT}/src/game/shmup.cpp"
     "${ECHO_ROOT}/src/platform/sdl/framework_integration.cpp"
     "${ECHO_ROOT}/src/platform/sdl/renderer.cpp"
     "${ECHO_ROOT}/src/platform/presentation/ui_presentation.cpp"

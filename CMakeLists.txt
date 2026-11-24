@@ -47,6 +47,7 @@ endif()
 add_library(echo_game
     src/game/game.cpp
     src/game/world_layout.cpp
+    src/game/shmup.cpp
 )
 target_include_directories(echo_game PUBLIC src)
 target_compile_features(echo_game PUBLIC cxx_std_20)
@@ -284,6 +285,8 @@ target_link_libraries(echo_sdl_tests PRIVATE echo_game echo_assets SDL2-static
     EchoFramework::Data EchoFramework::Power EchoFramework::VFX)
 if(MSVC)
     target_compile_options(echo_sdl_tests PRIVATE /W4 /permissive-)
+    # The single test main holds many Game/WorldLayout copies on the stack.
+    target_link_options(echo_sdl_tests PRIVATE /STACK:8388608)
 else()
     target_compile_options(echo_sdl_tests PRIVATE -Wall -Wextra -Wpedantic)
 endif()

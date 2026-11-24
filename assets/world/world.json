@@ -28,7 +28,8 @@
     "echo:object/trigger_lab_exit",
     "echo:object/trigger_power_survey",
     "echo:object/door_power_bypass",
-    "echo:object/door_power_return"
+    "echo:object/door_power_return",
+    "echo:object/door_shmup_hangar"
   ],
   "rooms": [
     "echo:room/station_base",

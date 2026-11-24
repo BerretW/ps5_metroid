@@ -65,6 +65,7 @@ if(ECHO_PS5_GAME)
     add_executable(project_echo_ps5
         "${echo_root}/src/game/game.cpp"
         "${echo_root}/src/game/world_layout.cpp"
+        "${echo_root}/src/game/shmup.cpp"
         "${echo_root}/src/platform/sdl/main.cpp"
         "${echo_root}/src/platform/sdl/framework_integration.cpp"
         "${echo_root}/src/platform/sdl/renderer.cpp"

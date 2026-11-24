@@ -75,6 +75,11 @@
       "position": [200, 288]
     },
     {
+      "id": "shmup_hangar_door",
+      "object": "echo:object/door_shmup_hangar",
+      "position": [840, 272]
+    },
+    {
       "id": "crate_dock",
       "object": "echo:object/prop_crate",
       "position": [1180, 288],
