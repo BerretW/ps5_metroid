@@ -89,6 +89,10 @@ inline framework::Status encodeGameCheckpoint(const Game& game,
     if (const Status next = setBoolean("quest.reward_claimed",
                                        checkpoint.questRewardClaimed); !next) return next;
     if (const Status next = setInteger("game.deaths", checkpoint.deaths); !next) return next;
+    if (checkpoint.firedTriggers != 0) {
+        if (const Status next = setInteger("world.triggers_fired",
+                                           checkpoint.firedTriggers); !next) return next;
+    }
     if (const Status next = setInteger("inventory.count",
                                        static_cast<std::int64_t>(checkpoint.inventory.count)); !next) return next;
     if (const Status next = setInteger("inventory.layout", 2); !next) return next;
@@ -223,6 +227,18 @@ inline framework::Status decodeGameCheckpoint(
     candidate.playerFacing = static_cast<int>(facing);
     candidate.deaths = static_cast<int>(deaths);
     candidate.questBranch = static_cast<std::uint8_t>(questBranch);
+    // Optional so saves written before door triggers existed still load.
+    std::int64_t firedTriggers{};
+    StateValue firedValue{};
+    if (get("world.triggers_fired", firedValue)) {
+        if (firedValue.type != ValueType::Integer || firedValue.integer < 0 ||
+            firedValue.integer > 255) {
+            return {ErrorCode::CorruptData, "world.triggers_fired",
+                    "Autosave trigger state is invalid."};
+        }
+        firedTriggers = firedValue.integer;
+    }
+    candidate.firedTriggers = static_cast<std::uint8_t>(firedTriggers);
     if (candidate.questRewardClaimed &&
         (candidate.questBranch == 0 || !candidate.completed)) {
         return {ErrorCode::CorruptData, "quest.reward_claimed",

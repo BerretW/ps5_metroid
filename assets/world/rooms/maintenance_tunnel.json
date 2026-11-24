@@ -71,6 +71,10 @@
       "object": "echo:object/door_lab"
     },
     {
+      "id": "power_return_door",
+      "object": "echo:object/door_power_return"
+    },
+    {
       "id": "crate_a",
       "object": "echo:object/prop_crate",
       "position": [60, 288]

@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -76,6 +77,44 @@ bool loadWorldFixture(std::string_view changedId, std::string_view original,
     }
     if (!changed || !world.finalize()) return false;
     return static_cast<bool>(echo::buildWorldLayout(world, layout));
+}
+
+// Copies the world and framework assets to a scratch root, applies one text edit and
+// starts a fresh integration against it.
+echo::framework::Status initializeWithEditedAsset(
+    std::string_view relativeFile, std::string_view original, std::string_view replacement,
+    echo::platform::FrameworkIntegration& integration) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "echo-door-fixture";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root, error);
+    for (const char* directory : {"world", "framework"}) {
+        error.clear();
+        fs::copy(fs::path(ECHO_SOURCE_ASSETS) / directory, root / directory,
+                 fs::copy_options::recursive, error);
+        if (error) return {echo::framework::ErrorCode::NotFound, directory, "Fixture copy failed."};
+    }
+    const fs::path file = root / relativeFile;
+    std::string source;
+    {
+        std::ifstream input(file, std::ios::binary);
+        source.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    }
+    const std::size_t position = source.find(original);
+    if (position == std::string::npos) {
+        return {echo::framework::ErrorCode::NotFound, "fixture", "Edited text not found."};
+    }
+    source.replace(position, original.size(), replacement);
+    {
+        std::ofstream output(file, std::ios::binary);
+        output.write(source.data(), static_cast<std::streamsize>(source.size()));
+    }
+    const std::string content = root.generic_string() + "/";
+    const std::string framework = content + "framework/";
+    return integration.initialize(
+        (framework + "game.json").c_str(), (framework + "engineer.json").c_str(),
+        (framework + "items.json").c_str(), content.c_str());
 }
 
 } // namespace
@@ -411,6 +450,102 @@ int main() {
           "the registered power action restores the main circuit");
     echo::Game game;
     check(integration->configureGame(game), "game binds the initialized dialogue module");
+    {
+        static echo::WorldLayout gated{};
+        gated = *integration->worldLayout();
+        echo::DoorLayout door{};
+        door.room = echo::RoomId::MaintenanceTunnel;
+        door.bounds = {600.0F, 272.0F, 44.0F, 48.0F};
+        door.destination = echo::RoomId::PowerStation;
+        door.arriveFromLeft = true;
+        const std::string_view circuit = "echo:power/cargo_emergency";
+        std::copy(circuit.begin(), circuit.end(), door.requiresCircuit.begin());
+        gated.doors[gated.doorCount++] = door;
+        echo::Game gatedGame;
+        check(integration->configureGame(gatedGame), "gated game binds services");
+        check(gatedGame.configureWorld(gated), "circuit-gated door layout configures");
+        auto place = [&gatedGame] {
+            echo::GameCheckpoint cp = gatedGame.checkpoint();
+            cp.room = echo::RoomId::MaintenanceTunnel;
+            cp.playerPosition = {610.0F, 292.0F};
+            return gatedGame.restore(cp);
+        };
+        bool powered{};
+        check(place() && power->isPowered("echo:power/cargo_emergency", powered) && !powered &&
+                  gatedGame.update({.interactPressed = true}) && gatedGame.accessBlocked() &&
+                  gatedGame.roomId() == echo::RoomId::MaintenanceTunnel,
+              "a requiresCircuit door denies entry while the circuit is off");
+        check(integration->togglePowerCircuit("echo:power/cargo_emergency") &&
+                  place() && gatedGame.update({.interactPressed = true}) &&
+                  gatedGame.roomId() == echo::RoomId::PowerStation,
+              "a requiresCircuit door opens once the circuit is powered");
+        check(integration->togglePowerCircuit("echo:power/cargo_emergency"),
+              "emergency circuit is restored to its default");
+
+        door.requiresCircuit = {};
+        const std::string_view cutscene = "echo:cutscene/central_signal";
+        std::copy(cutscene.begin(), cutscene.end(), door.cutscene.begin());
+        door.transitions = false;
+        door.once = true;
+        door.destination = echo::RoomId::MaintenanceTunnel;
+        gated.doors[gated.doorCount - 1] = door;
+        check(gatedGame.configureWorld(gated) && place() && gatedGame.update({}) && gatedGame.cutsceneActive(),
+              "an event-only trigger starts its cutscene on overlap");
+        for (int i = 0; i < 40 && gatedGame.cutsceneActive(); ++i) {
+            check(gatedGame.update({.interactPressed = true}), "cutscene advances");
+        }
+        for (int i = 0; i < 5; ++i) check(gatedGame.update({}), "trigger idles");
+        check(!gatedGame.cutsceneActive(), "a once trigger does not restart its cutscene");
+    }
+    {
+        echo::Game demo;
+        check(integration->configureGame(demo), "demo game binds services");
+        auto place = [&demo](echo::RoomId room, float x) {
+            echo::GameCheckpoint cp = demo.checkpoint();
+            cp.room = room;
+            cp.playerPosition = {x, 292.0F};
+            return demo.restore(cp);
+        };
+        check(place(echo::RoomId::PowerStation, 335.0F) &&
+                  demo.update({.interactPressed = true}) && demo.accessBlocked() &&
+                  demo.roomId() == echo::RoomId::PowerStation,
+              "the shipped bypass door is locked before the survey and emergency power");
+        check(place(echo::RoomId::PowerStation, 205.0F) && demo.update({}) &&
+                  demo.checkpoint().firedTriggers != 0,
+              "the shipped survey trigger records its fact on overlap");
+        check(place(echo::RoomId::PowerStation, 335.0F) &&
+                  demo.update({.interactPressed = true}) && demo.accessBlocked(),
+              "the shipped bypass door still needs emergency power");
+        check(integration->togglePowerCircuit("echo:power/cargo_emergency") &&
+                  place(echo::RoomId::PowerStation, 335.0F) &&
+                  demo.update({.interactPressed = true}) &&
+                  demo.roomId() == echo::RoomId::MaintenanceTunnel &&
+                  demo.player().position.x == 640.0F,
+              "the shipped bypass door arrives at its custom coordinates");
+        check(integration->togglePowerCircuit("echo:power/cargo_emergency") &&
+                  place(echo::RoomId::MaintenanceTunnel, 225.0F) &&
+                  demo.update({.interactPressed = true}) && demo.accessBlocked(),
+              "the shipped return door requires Echo Step");
+    }
+    {
+        auto rejected = std::make_unique<echo::platform::FrameworkIntegration>();
+        check(initializeWithEditedAsset(
+                  "world/rooms/maintenance_tunnel.json", "\"object\": \"echo:object/door_lab\"",
+                  "\"object\": \"echo:object/door_lab\", \"properties\": "
+                  "{\"requiresCircuit\": \"echo:power/nonexistent\"}",
+                  *rejected).code == echo::framework::ErrorCode::MissingDependency,
+              "startup rejects a door referencing an unknown circuit");
+        auto missingCutscene = std::make_unique<echo::platform::FrameworkIntegration>();
+        check(initializeWithEditedAsset(
+                  "world/rooms/research_lab.json", "\"object\": \"echo:object/trigger_lab_exit\"",
+                  "\"object\": \"echo:object/trigger_lab_exit\", \"properties\": "
+                  "{\"cutscene\": \"echo:cutscene/missing\"}",
+                  *missingCutscene).code == echo::framework::ErrorCode::MissingDependency,
+              "startup rejects a trigger referencing an unknown cutscene");
+        std::error_code ignored;
+        std::filesystem::remove_all(std::filesystem::temp_directory_path() / "echo-door-fixture",
+                                    ignored);
+    }
     {
         auto fixtureWorld = std::make_unique<echo::framework::WorldModule>();
         auto fixtureLayout = std::make_unique<echo::WorldLayout>();
@@ -815,17 +950,23 @@ int main() {
                                enemy.type == reference.type && enemy.archetype != nullptr;
             }
             check(enemiesMatch, "JSON enemy placements reproduce every save slot");
-            bool doorsMatch = loaded->doorCount == expected.doorCount;
-            for (std::size_t index = 0; doorsMatch && index < loaded->doorCount; ++index) {
-                const echo::DoorLayout& door = loaded->doors[index];
+            // The shipped world adds three demonstration doors/triggers beyond the compiled pair.
+            bool doorsMatch = loaded->doorCount == expected.doorCount + 3;
+            for (std::size_t index = 0; doorsMatch && index < expected.doorCount; ++index) {
                 const echo::DoorLayout& reference = expected.doors[index];
-                doorsMatch = door.room == reference.room && door.destination == reference.destination &&
-                             door.bounds.x == reference.bounds.x && door.bounds.y == reference.bounds.y &&
-                             door.bounds.width == reference.bounds.width &&
-                             door.bounds.height == reference.bounds.height &&
-                             door.arriveFromLeft == reference.arriveFromLeft &&
-                             door.requiresKey == reference.requiresKey &&
-                             door.visible == reference.visible;
+                bool found = false;
+                for (std::size_t other = 0; other < loaded->doorCount && !found; ++other) {
+                    const echo::DoorLayout& door = loaded->doors[other];
+                    found = door.room == reference.room && door.destination == reference.destination &&
+                            door.bounds.x == reference.bounds.x && door.bounds.y == reference.bounds.y &&
+                            door.bounds.width == reference.bounds.width &&
+                            door.bounds.height == reference.bounds.height &&
+                            door.arriveFromLeft == reference.arriveFromLeft &&
+                            door.requiresKey == reference.requiresKey &&
+                            door.visible == reference.visible && door.transitions &&
+                            !door.hasActions() && !door.hasArrivePosition;
+                }
+                doorsMatch = found;
             }
             check(doorsMatch, "JSON doors and triggers reproduce the compiled transitions");
             check(loaded->playerStart.x == expected.playerStart.x &&

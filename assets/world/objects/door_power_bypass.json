@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/door_power_bypass",
+  "category": "door",
+  "sprite": {
+    "sheet": "sprites/door.png",
+    "frameWidth": 44,
+    "frameHeight": 48
+  },
+  "bounds": [44, 48],
+  "spawn": {
+    "position": [330, 272]
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    }
+  },
+  "defaultAnimation": "idle",
+  "properties": {
+    "target": "echo:room/maintenance_tunnel",
+    "arriveX": 640,
+    "arriveY": 292,
+    "requiresCircuit": "echo:power/cargo_emergency",
+    "requiresFact": "echo:fact/power_station_surveyed"
+  }
+}

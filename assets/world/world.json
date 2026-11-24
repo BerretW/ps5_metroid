@@ -25,7 +25,10 @@
     "echo:object/prop_console_alert",
     "echo:object/prop_power_indicator",
     "echo:object/prop_crate",
-    "echo:object/trigger_lab_exit"
+    "echo:object/trigger_lab_exit",
+    "echo:object/trigger_power_survey",
+    "echo:object/door_power_bypass",
+    "echo:object/door_power_return"
   ],
   "rooms": [
     "echo:room/station_base",

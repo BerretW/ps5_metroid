@@ -251,6 +251,38 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     return framework::Status::success();
 }
 
+framework::Status FrameworkIntegration::validateDoorReferences() const noexcept {
+    using framework::ErrorCode;
+    for (const DoorLayout& door : worldLayout_->doorList()) {
+        for (const std::array<char, 96>* circuitId : {&door.requiresCircuit, &door.toggleCircuit}) {
+            const std::string_view circuit = DoorLayout::text(*circuitId);
+            if (circuit.empty()) continue;
+            if (!powerModule_ || !powerModule_->hasCircuit(circuit)) {
+                return {ErrorCode::MissingDependency, circuit,
+                        "A door or trigger references an unknown power circuit."};
+            }
+        }
+        const std::string_view cutscene = DoorLayout::text(door.cutscene);
+        if (!cutscene.empty() && cutsceneModule_.find(cutscene) == nullptr) {
+            return {ErrorCode::MissingDependency, cutscene,
+                    "A trigger references an unknown cutscene."};
+        }
+        const std::string_view ability = DoorLayout::text(door.requiresAbility);
+        if (!ability.empty() &&
+            (!abilitiesModule_ || abilitiesModule_->find(ability) == nullptr)) {
+            return {ErrorCode::MissingDependency, ability,
+                    "A door or trigger references an unknown ability."};
+        }
+        const std::string_view item = DoorLayout::text(door.requiresItem);
+        if (!item.empty() &&
+            (!inventoryModule_ || inventoryModule_->catalog().find(item) == nullptr)) {
+            return {ErrorCode::MissingDependency, item,
+                    "A door or trigger references an unknown item."};
+        }
+    }
+    return framework::Status::success();
+}
+
 framework::Status FrameworkIntegration::initialize(const char* configPath,
                                                     const char* dialoguePath,
                                                     const char* itemCatalogPath,
@@ -510,6 +542,10 @@ framework::Status FrameworkIntegration::initialize(const char* configPath,
                     "echo:cutscene/central_signal",
                     "The Central Chamber cutscene must be a required cutscene resource."};
         }
+    }
+    if (worldLayout_) {
+        status = validateDoorReferences();
+        if (!status) return status;
     }
     framework::ResourceInfo dialogueResource{};
     status = content.find("echo:dialogue/engineer", dialogueResource);

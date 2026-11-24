@@ -83,6 +83,15 @@
       }
     },
     {
+      "id": "survey_trigger",
+      "object": "echo:object/trigger_power_survey",
+      "position": [200, 0]
+    },
+    {
+      "id": "bypass_door",
+      "object": "echo:object/door_power_bypass"
+    },
+    {
       "id": "alarm",
       "object": "echo:object/prop_console_alert",
       "position": [1060, 288],

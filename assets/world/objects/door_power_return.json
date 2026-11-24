@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/door_power_return",
+  "category": "door",
+  "sprite": {
+    "sheet": "sprites/door.png",
+    "frameWidth": 44,
+    "frameHeight": 48
+  },
+  "bounds": [44, 48],
+  "spawn": {
+    "position": [220, 272]
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    }
+  },
+  "defaultAnimation": "idle",
+  "properties": {
+    "target": "echo:room/power_station",
+    "targetPlacement": "bypass_door",
+    "requiresAbility": "echo:ability/echo_step"
+  }
+}

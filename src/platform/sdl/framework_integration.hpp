@@ -97,6 +97,7 @@ public:
 
 private:
     [[nodiscard]] framework::Status loadWorld(const char* contentRoot) noexcept;
+    [[nodiscard]] framework::Status validateDoorReferences() const noexcept;
     framework_detail::StateModule stateModule_{};
     framework_detail::ProjectEchoModule projectModule_{};
     std::unique_ptr<framework::InventoryModule> inventoryModule_{};

@@ -205,7 +205,28 @@ and rejects layouts the simulation cannot represent:
 - `behavior: "stalker"` enemies may only be placed in isometric rooms, must
   start on open floor, are not saved and respawn whenever the room is entered.
   Saved (side-view) enemies cannot be placed in isometric rooms.
-- Doors and triggers use `target`, `arrive` and optional `requiresItem`.
+- Doors and triggers (`category: "door"` / `"trigger"`, at most 8 per world) accept these
+  properties on the archetype or as placement overrides:
+  - Conditions, all of which must hold: `requiresItem`, `requiresAbility`, `requiresCircuit`
+    (the circuit must be powered) and `requiresFact` (set by a fired `setsFact` trigger, a
+    main-quest fact, or `echo:fact/cargo_emergency_powered`). An unmet condition plays the
+    denied feedback.
+  - Destination: `target` plus either `arrive` (`"left"`/`"right"`), `arriveX` and `arriveY`, or
+    `targetPlacement` (an object placement ID in the target room; its top-left position is used).
+    `arrive`, `arriveX`/`arriveY` and `targetPlacement` are mutually exclusive. The player
+    rectangle at a custom arrival must fit the target room and not overlap solid tiles.
+  - Actions: `cutscene`, `setsFact` and `toggleCircuit`. A trigger may omit `target` when it
+    defines at least one action; it then fires automatically on overlap and takes no arrival
+    properties. `once` (Boolean) defaults to `true` for event-only triggers and `false` for
+    transitions; fired state is a per-door bitmask stored in checkpoints and saves
+    (`world.triggers_fired`, optional for older saves).
+  - All IDs must be valid content IDs. Startup rejects references to circuits missing from the
+    power module, cutscenes missing from the cutscene module, abilities missing from the
+    ability module, and items missing from the item catalog.
+  - Shipped examples: `trigger_power_survey` (event-only `setsFact` trigger) and
+    `door_power_bypass` (Power Station → Maintenance Tunnel, `requiresCircuit` +
+    `requiresFact` + `arriveX`/`arriveY`) require visiting the survey trigger and powering the
+    Cargo Hold emergency circuit; `door_power_return` uses `targetPlacement` and `requiresAbility`.
 - Props may use placement properties `interaction: "toggle_power"` and
   `circuit` for the bounded in-game power-panel action. A prop may also declare
   `dialogue` with a stable dialogue resource ID. Optional

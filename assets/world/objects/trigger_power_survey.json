@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/trigger_power_survey",
+  "category": "trigger",
+  "sprite": {
+    "sheet": "sprites/door.png",
+    "frameWidth": 44,
+    "frameHeight": 48
+  },
+  "bounds": [40, 384],
+  "spawn": {
+    "position": [0, 0]
+  },
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    }
+  },
+  "defaultAnimation": "idle",
+  "properties": {
+    "setsFact": "echo:fact/power_station_surveyed",
+    "once": true
+  }
+}

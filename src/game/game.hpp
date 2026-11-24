@@ -218,6 +218,27 @@ struct DoorLayout {
     bool requiresKey{};
     bool visible{true};
     const framework::ObjectDefinition* archetype{};
+    // Event-only triggers have no destination and fire on overlap.
+    bool transitions{true};
+    // Limits trigger actions to one firing; the fired state is saved per door index.
+    bool once{};
+    bool hasArrivePosition{};
+    Vec2 arrivePosition{};
+    std::array<char, 32> targetPlacement{};
+    std::array<char, 96> requiresItem{};
+    std::array<char, 96> requiresAbility{};
+    std::array<char, 96> requiresCircuit{};
+    std::array<char, 96> requiresFact{};
+    std::array<char, 96> cutscene{};
+    std::array<char, 96> setsFact{};
+    std::array<char, 96> toggleCircuit{};
+
+    [[nodiscard]] static std::string_view text(const std::array<char, 96>& buffer) noexcept {
+        return buffer.data();
+    }
+    [[nodiscard]] bool hasActions() const noexcept {
+        return cutscene[0] != '\0' || setsFact[0] != '\0' || toggleCircuit[0] != '\0';
+    }
 };
 
 struct PropLayout {
@@ -366,6 +387,8 @@ struct GameCheckpoint {
     bool completed{};
     std::uint8_t questBranch{};
     bool questRewardClaimed{};
+    // Bit N is set once door/trigger N (world door order) fired its once-only actions.
+    std::uint8_t firedTriggers{};
 };
 
 class Game {
@@ -526,7 +549,12 @@ private:
     void setInventorySlot(std::size_t slot, ItemStack stack) noexcept;
     [[nodiscard]] int attributeValue(std::string_view id, int fallback) const noexcept;
     void damagePlayer() noexcept;
-    void enterRoom(RoomId destination, bool fromLeft) noexcept;
+    void enterRoom(RoomId destination, bool fromLeft,
+                   const Vec2* arrival = nullptr) noexcept;
+    [[nodiscard]] bool factActive(std::string_view id) const noexcept;
+    [[nodiscard]] framework::Status doorConditionsMet(const DoorLayout& door,
+                                                      bool& met) const noexcept;
+    [[nodiscard]] framework::Status runDoorActions(std::size_t doorIndex) noexcept;
     [[nodiscard]] bool collidesWithWorld(const Rect& bounds) const noexcept;
     [[nodiscard]] bool overlapsHazard(const Rect& bounds) const noexcept;
     [[nodiscard]] static bool overlaps(const Rect& first, const Rect& second) noexcept;
@@ -592,6 +620,8 @@ private:
     const framework::QuestDefinition* mainQuest_{};
     const framework::QuestDefinition* cargoQuest_{};
     const framework::CutsceneDefinition* centralCutscene_{};
+    const framework::CutsceneModule* cutsceneModule_{};
+    std::uint8_t firedTriggers_{};
     framework::CutscenePlayer cutscenePlayer_{};
 };
 

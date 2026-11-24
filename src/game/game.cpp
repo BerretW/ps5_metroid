@@ -354,6 +354,7 @@ framework::Status Game::configureCutscenes(
     const framework::Status status = validateProjectCutscenes(module);
     if (!status) return status;
     centralCutscene_ = module.find(kCentralSignalCutsceneId);
+    cutsceneModule_ = &module;
     return framework::Status::success();
 }
 
@@ -567,6 +568,7 @@ void Game::start() noexcept {
     questBranch_ = 0;
     questRewardClaimed_ = false;
     questChoiceSelection_ = 0;
+    firedTriggers_ = 0;
     dialogueSession_.reset();
     cutscenePlayer_.reset();
     dialogueLine_ = {};
@@ -662,6 +664,7 @@ GameCheckpoint Game::checkpoint() const noexcept {
     result.completed = completed_;
     result.questBranch = questBranch_;
     result.questRewardClaimed = questRewardClaimed_;
+    result.firedTriggers = firedTriggers_;
     result.deaths = deaths_;
     result.inventory = inventory_;
     result.equipment = equipmentItems_;
@@ -693,6 +696,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
         checkpointValue.playerHealth < 1 ||
         (checkpointValue.playerFacing != -1 && checkpointValue.playerFacing != 1) ||
         checkpointValue.deaths < 0 ||
+        (world_->doorCount < 8 && (checkpointValue.firedTriggers >> world_->doorCount) != 0) ||
         checkpointValue.hasDoubleJump != checkpointValue.abilityCollected ||
         checkpointValue.questBranch > kMainQuestBranchIds.size() ||
         (checkpointValue.questBranch != 0 &&
@@ -857,6 +861,7 @@ bool Game::restore(const GameCheckpoint& checkpointValue) noexcept {
     restored.questBranch_ = checkpointValue.questBranch;
     restored.questRewardClaimed_ = checkpointValue.questRewardClaimed;
     restored.questChoiceSelection_ = 0;
+    restored.firedTriggers_ = checkpointValue.firedTriggers;
     restored.deaths_ = checkpointValue.deaths;
     for (std::size_t enemy = 0; enemy < restored.enemies_.size(); ++enemy) {
         restored.enemies_[enemy].health = checkpointValue.enemyHealth[enemy];
@@ -1126,6 +1131,19 @@ framework::Status Game::update(const Input& input, float deltaSeconds) noexcept 
         if (!status) {
             return status;
         }
+    }
+    for (std::size_t index = 0; index < world_->doorCount; ++index) {
+        const DoorLayout& trigger = world_->doors[index];
+        if (trigger.room != room_ || trigger.transitions ||
+            (trigger.once && (firedTriggers_ & (1U << index)) != 0) ||
+            !overlaps({player_.position.x, player_.position.y, world_->playerSize.x,
+                       world_->playerSize.y}, trigger.bounds)) {
+            continue;
+        }
+        bool met = false;
+        framework::Status status = doorConditionsMet(trigger, met);
+        if (status && met) status = runDoorActions(index);
+        if (!status) return status;
     }
     resolveRoomEdges();
     return claimQuestRewardIfReady();
@@ -1967,15 +1985,101 @@ framework::Status Game::interact(int moveDirection) noexcept {
         }
         return status;
     }
-    for (const DoorLayout& door : world_->doorList()) {
-        if (door.room != room_ || !overlaps(playerBounds, door.bounds)) continue;
-        if (door.requiresKey && !inventory_.contains(ItemId::MaintenanceKey)) {
+    for (std::size_t index = 0; index < world_->doorCount; ++index) {
+        const DoorLayout& door = world_->doors[index];
+        if (door.room != room_ || !door.transitions || !overlaps(playerBounds, door.bounds)) {
+            continue;
+        }
+        bool met = false;
+        framework::Status status = doorConditionsMet(door, met);
+        if (!status) return status;
+        if (!met) {
             accessBlocked_ = true;
         } else {
-            enterRoom(door.destination, door.arriveFromLeft);
+            status = runDoorActions(index);
+            if (!status) return status;
+            enterRoom(door.destination, door.arriveFromLeft,
+                      door.hasArrivePosition ? &door.arrivePosition : nullptr);
         }
         break;
     }
+    return framework::Status::success();
+}
+
+bool Game::factActive(std::string_view id) const noexcept {
+    if (id.empty()) return true;
+    for (std::size_t index = 0; index < world_->doorCount; ++index) {
+        if ((firedTriggers_ & (1U << index)) != 0 &&
+            DoorLayout::text(world_->doors[index].setsFact) == id) {
+            return true;
+        }
+    }
+    if (id == kMainQuestFacts[0]) return hasItem(ItemId::MaintenanceKey);
+    if (id == kMainQuestFacts[1]) return abilityCollected();
+    if (id == kMainQuestFacts[2]) return completed_;
+    if (id == kCargoQuestFact && powerModule_ != nullptr) {
+        bool powered = false;
+        return powerModule_->isPowered(kCargoEmergencyCircuit, powered) && powered;
+    }
+    return false;
+}
+
+framework::Status Game::doorConditionsMet(const DoorLayout& door, bool& met) const noexcept {
+    met = false;
+    if (door.requiresKey && !inventory_.contains(ItemId::MaintenanceKey)) {
+        return framework::Status::success();
+    }
+    const std::string_view item = DoorLayout::text(door.requiresItem);
+    if (!item.empty()) {
+        const framework::ItemDefinition* definition = itemDefinition(item);
+        if (definition == nullptr || !hasItem(static_cast<ItemId>(definition->key))) {
+            return framework::Status::success();
+        }
+    }
+    const std::string_view ability = DoorLayout::text(door.requiresAbility);
+    if (!ability.empty() && !hasAbility(ability)) return framework::Status::success();
+    const std::string_view circuit = DoorLayout::text(door.requiresCircuit);
+    if (!circuit.empty()) {
+        if (powerModule_ == nullptr) {
+            return {framework::ErrorCode::InvalidState, circuit,
+                    "A circuit-gated door requires the configured power service."};
+        }
+        bool powered = false;
+        const framework::Status status = powerModule_->isPowered(circuit, powered);
+        if (!status) return status;
+        if (!powered) return framework::Status::success();
+    }
+    if (!factActive(DoorLayout::text(door.requiresFact))) return framework::Status::success();
+    met = true;
+    return framework::Status::success();
+}
+
+framework::Status Game::runDoorActions(std::size_t doorIndex) noexcept {
+    const DoorLayout& door = world_->doors[doorIndex];
+    const auto bit = static_cast<std::uint8_t>(1U << doorIndex);
+    if (!door.hasActions() || (door.once && (firedTriggers_ & bit) != 0)) {
+        return framework::Status::success();
+    }
+    const std::string_view cutscene = DoorLayout::text(door.cutscene);
+    const framework::CutsceneDefinition* scene = nullptr;
+    if (!cutscene.empty()) {
+        scene = cutsceneModule_ != nullptr ? cutsceneModule_->find(cutscene) : nullptr;
+        if (scene == nullptr) {
+            return {framework::ErrorCode::MissingDependency, cutscene,
+                    "A trigger references a cutscene that is not configured."};
+        }
+    }
+    const std::string_view circuit = DoorLayout::text(door.toggleCircuit);
+    if (!circuit.empty()) {
+        if (powerModule_ == nullptr) {
+            return {framework::ErrorCode::InvalidState, circuit,
+                    "A circuit-toggling trigger requires the configured power service."};
+        }
+        const framework::Status status = powerModule_->toggle(circuit);
+        if (!status) return status;
+    }
+    if (scene != nullptr && !cutscenePlayer_.active()) cutscenePlayer_.start(*scene);
+    if (door.once || door.setsFact[0] != '\0') firedTriggers_ |= bit;
     return framework::Status::success();
 }
 
@@ -2009,7 +2113,7 @@ void Game::resolveRoomEdges() noexcept {
     }
 }
 
-void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
+void Game::enterRoom(RoomId destination, bool fromLeft, const Vec2* arrival) noexcept {
     room_ = destination;
     cameraShakeTicks_ = 0;
     player_.position.x = fromLeft ? 16.0F : roomWidth() - world_->playerSize.x - 16.0F;
@@ -2017,6 +2121,7 @@ void Game::enterRoom(RoomId destination, bool fromLeft) noexcept {
     player_.position.y = isometric()
         ? static_cast<float>(kRoomHeight) * 0.5F - world_->playerSize.y * 0.5F
         : static_cast<float>(10 * kTileSize) - world_->playerSize.y;
+    if (arrival != nullptr) player_.position = *arrival;
     player_.velocity = {};
     player_.aim = {static_cast<float>(player_.facing), 0.0F};
     player_.onGround = true;

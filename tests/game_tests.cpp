@@ -1599,9 +1599,84 @@ void testAbilityGateAndBacktracking() {
           "the coil route is independently selectable and checks its own fact");
 }
 
+void setContentId(std::array<char, 96>& output, std::string_view value) {
+    output = {};
+    std::copy(value.begin(), value.end(), output.begin());
+}
+
+echo::DoorLayout makeTestDoor(bool transitions) {
+    echo::DoorLayout door{};
+    door.room = echo::RoomId::MaintenanceTunnel;
+    door.bounds = {600.0F, 272.0F, 44.0F, 48.0F};
+    door.destination = transitions ? echo::RoomId::PowerStation : echo::RoomId::MaintenanceTunnel;
+    door.transitions = transitions;
+    door.once = !transitions;
+    return door;
+}
+
+echo::Game gameInTunnel(const echo::WorldLayout& layout) {
+    echo::Game game;
+    check(static_cast<bool>(game.configureWorld(layout)), "door fixture layout configures");
+    echo::GameCheckpoint checkpoint = game.checkpoint();
+    checkpoint.room = echo::RoomId::MaintenanceTunnel;
+    checkpoint.playerPosition = {610.0F, 292.0F};
+    check(game.restore(checkpoint), "door fixture restores into the tunnel");
+    return game;
+}
+
+void testDoorTriggerExtensions() {
+    static echo::WorldLayout arrival = echo::defaultWorldLayout();
+    arrival.doors[2] = makeTestDoor(true);
+    arrival.doors[2].hasArrivePosition = true;
+    arrival.doors[2].arrivePosition = {200.0F, 292.0F};
+    arrival.doorCount = 3;
+    echo::Game arrivalGame = gameInTunnel(arrival);
+    step(arrivalGame, {.interactPressed = true});
+    check(arrivalGame.roomId() == echo::RoomId::PowerStation &&
+              arrivalGame.player().position.x == 200.0F &&
+              arrivalGame.player().position.y == 292.0F,
+          "a door places the player at custom arrival coordinates");
+
+    static echo::WorldLayout invalid = arrival;
+    echo::Game rejecting;
+    invalid.doors[2].arrivePosition = {5000.0F, 292.0F};
+    check(!rejecting.configureWorld(invalid), "arrival outside the target room is rejected");
+    invalid.doors[2].arrivePosition = {200.0F, 310.0F};
+    check(!rejecting.configureWorld(invalid), "arrival overlapping solid tiles is rejected");
+    invalid.doors[2].arrivePosition = {200.0F, 292.0F};
+    setContentId(invalid.doors[2].requiresCircuit, "not a content id");
+    check(!rejecting.configureWorld(invalid), "malformed condition IDs are rejected");
+
+    static echo::WorldLayout factLayout = echo::defaultWorldLayout();
+    factLayout.doors[2] = makeTestDoor(false);
+    setContentId(factLayout.doors[2].setsFact, "echo:fact/test_signal");
+    factLayout.doors[3] = makeTestDoor(true);
+    setContentId(factLayout.doors[3].requiresFact, "echo:fact/test_signal");
+    factLayout.doorCount = 4;
+    echo::Game factGame = gameInTunnel(factLayout);
+    step(factGame, {.interactPressed = true});
+    check(factGame.accessBlocked() && factGame.roomId() == echo::RoomId::MaintenanceTunnel &&
+              factGame.checkpoint().firedTriggers == 0b0100,
+          "an event-only trigger fires its fact once on overlap");
+    const echo::GameCheckpoint fired = factGame.checkpoint();
+    step(factGame, {}, 5);
+    check(factGame.checkpoint().firedTriggers == fired.firedTriggers,
+          "a once trigger does not fire again while the player stands inside it");
+    step(factGame, {.interactPressed = true});
+    check(factGame.roomId() == echo::RoomId::PowerStation,
+          "a fact set by a trigger opens a requiresFact door");
+    echo::Game restoredFacts = gameInTunnel(factLayout);
+    check(restoredFacts.restore(fired) && restoredFacts.checkpoint().firedTriggers == 0b0100,
+          "fired triggers survive checkpoints");
+    echo::GameCheckpoint corrupt = fired;
+    corrupt.firedTriggers = 0b10000;
+    check(!restoredFacts.restore(corrupt), "checkpoints cannot fire triggers that do not exist");
+}
+
 } // namespace
 
 int main() {
+    testDoorTriggerExtensions();
     testBitmapTextPresentation();
     testMovementJumpAndFloorCollision();
     testAttributeModifiersAffectGameplay();

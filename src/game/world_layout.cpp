@@ -388,6 +388,29 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     return Status::success();
 }
 
+[[nodiscard]] bool readContentIdProperty(const ObjectPlacement& placement,
+                                         const ObjectDefinition& object, std::string_view key,
+                                         std::array<char, 96>& output) noexcept {
+    output = {};
+    const ObjectProperty* property = findProperty(placement, object, key);
+    if (property == nullptr) return true;
+    std::string_view value;
+    if (!readText(property, value) || value.size() >= output.size() ||
+        !framework::isValidContentId(value)) {
+        return false;
+    }
+    std::copy(value.begin(), value.end(), output.begin());
+    return true;
+}
+
+[[nodiscard]] bool validContentIdBuffer(const std::array<char, 96>& buffer) noexcept {
+    const auto end = std::find(buffer.begin(), buffer.end(), '\0');
+    return end != buffer.end() &&
+           (end == buffer.begin() ||
+            framework::isValidContentId(
+                std::string_view(buffer.data(), static_cast<std::size_t>(end - buffer.begin()))));
+}
+
 [[nodiscard]] Status addDoor(const ObjectPlacement& placement, const ObjectDefinition& object,
                              RoomId room, const RoomLayout& roomLayout,
                              WorldLayout& layout) noexcept {
@@ -402,24 +425,79 @@ const std::array<DefaultRoom, kRoomCount> kDefaultRooms{{
     door.bounds = {placement.hasPosition ? placement.x : object.spawnX(),
                    placement.hasPosition ? placement.y : object.spawnY(),
                    object.width(), object.height()};
-    std::string_view target;
-    std::string_view arrive;
-    if (!readText(findProperty(placement, object, "target"), target) ||
-        !roomFromId(target, door.destination) ||
-        !readText(findProperty(placement, object, "arrive"), arrive) ||
-        (arrive != "left" && arrive != "right")) {
+    if (!readContentIdProperty(placement, object, "requiresItem", door.requiresItem) ||
+        !readContentIdProperty(placement, object, "requiresAbility", door.requiresAbility) ||
+        !readContentIdProperty(placement, object, "requiresCircuit", door.requiresCircuit) ||
+        !readContentIdProperty(placement, object, "requiresFact", door.requiresFact) ||
+        !readContentIdProperty(placement, object, "cutscene", door.cutscene) ||
+        !readContentIdProperty(placement, object, "setsFact", door.setsFact) ||
+        !readContentIdProperty(placement, object, "toggleCircuit", door.toggleCircuit)) {
         return invalid(placement.object.data(),
-                       "Doors need a target game room and arrive set to left or right.");
+                       "Door and trigger conditions and actions need valid content IDs.");
     }
-    door.arriveFromLeft = arrive == "left";
-    const ObjectProperty* requirement = findProperty(placement, object, "requiresItem");
-    if (requirement != nullptr) {
-        std::string_view item;
-        if (!readText(requirement, item) || item != kMaintenanceKeyItem) {
+    door.requiresKey = DoorLayout::text(door.requiresItem) == kMaintenanceKeyItem;
+
+    const ObjectProperty* targetProperty = findProperty(placement, object, "target");
+    const ObjectProperty* arriveProperty = findProperty(placement, object, "arrive");
+    const ObjectProperty* arriveX = findProperty(placement, object, "arriveX");
+    const ObjectProperty* arriveY = findProperty(placement, object, "arriveY");
+    const ObjectProperty* targetPlacement = findProperty(placement, object, "targetPlacement");
+    const bool hasCustomArrival = arriveX != nullptr || arriveY != nullptr ||
+                                  targetPlacement != nullptr;
+    if (targetProperty == nullptr) {
+        if (object.category() != ObjectCategory::Trigger || !door.hasActions() ||
+            arriveProperty != nullptr || hasCustomArrival) {
             return invalid(placement.object.data(),
-                           "Doors can only require the compiled maintenance key.");
+                           "Only triggers with a cutscene, setsFact or toggleCircuit action "
+                           "may omit target, and then take no arrival properties.");
         }
-        door.requiresKey = true;
+        door.transitions = false;
+        door.destination = room;
+        door.arriveFromLeft = true;
+    } else {
+        std::string_view target;
+        if (!readText(targetProperty, target) || !roomFromId(target, door.destination)) {
+            return invalid(placement.object.data(), "Doors need a target game room.");
+        }
+        std::string_view arrive = "left";
+        if (arriveProperty != nullptr ? !readText(arriveProperty, arrive)
+                                      : !hasCustomArrival) {
+            return invalid(placement.object.data(),
+                           "Doors need arrive set to left or right, or custom arrival.");
+        }
+        if (arrive != "left" && arrive != "right") {
+            return invalid(placement.object.data(), "Door arrive must be left or right.");
+        }
+        door.arriveFromLeft = arrive == "left";
+        if (hasCustomArrival) {
+            if ((targetPlacement != nullptr) == (arriveX != nullptr || arriveY != nullptr)) {
+                return invalid(placement.object.data(),
+                               "Use either arriveX with arriveY or targetPlacement.");
+            }
+            if (targetPlacement != nullptr) {
+                std::string_view id;
+                if (!readText(targetPlacement, id) || id.empty() ||
+                    id.size() >= door.targetPlacement.size()) {
+                    return invalid(placement.object.data(),
+                                   "targetPlacement must name a placement ID.");
+                }
+                std::copy(id.begin(), id.end(), door.targetPlacement.begin());
+            } else if (!readNumber(arriveX, door.arrivePosition.x) ||
+                       !readNumber(arriveY, door.arrivePosition.y)) {
+                return invalid(placement.object.data(),
+                               "arriveX and arriveY must both be numbers.");
+            } else {
+                door.hasArrivePosition = true;
+            }
+        }
+    }
+    const ObjectProperty* once = findProperty(placement, object, "once");
+    door.once = !door.transitions;
+    if (once != nullptr) {
+        if (once->type != ObjectPropertyType::Boolean) {
+            return invalid(placement.object.data(), "Trigger once must be a boolean.");
+        }
+        door.once = once->boolean;
     }
     if (!fitsRoom(door.bounds, roomLayout)) {
         return invalid(placement.object.data(), "Door bounds must fit inside the room.");
@@ -494,6 +572,29 @@ Status validateWorldLayout(const WorldLayout& layout) noexcept {
         if (door.room >= RoomId::Count || door.destination >= RoomId::Count ||
             !fitsRoom(door.bounds, layout.rooms[static_cast<std::size_t>(door.room)])) {
             return invalid("world.doors", "A door is outside its room or targets no room.");
+        }
+        for (const std::array<char, 96>* id :
+             {&door.requiresItem, &door.requiresAbility, &door.requiresCircuit,
+              &door.requiresFact, &door.cutscene, &door.setsFact, &door.toggleCircuit}) {
+            if (!validContentIdBuffer(*id)) {
+                return invalid("world.doors",
+                               "Door and trigger conditions and actions need valid content IDs.");
+            }
+        }
+        if (!door.transitions &&
+            (!door.hasActions() || door.hasArrivePosition || door.targetPlacement[0] != '\0')) {
+            return invalid("world.doors",
+                           "Event-only triggers need an action and cannot set an arrival.");
+        }
+        if (door.transitions && door.hasArrivePosition) {
+            const RoomLayout& target = layout.rooms[static_cast<std::size_t>(door.destination)];
+            const Rect arrival{door.arrivePosition.x, door.arrivePosition.y,
+                               layout.playerSize.x, layout.playerSize.y};
+            if (!fitsRoom(arrival, target) || collides(target, arrival)) {
+                return invalid("world.doors",
+                               "A door's arrival position must fit its target room "
+                               "without overlapping solid tiles.");
+            }
         }
     }
     for (std::size_t index = 0; index < layout.propCount; ++index) {
@@ -687,6 +788,26 @@ Status buildWorldLayout(const framework::WorldModule& world, WorldLayout& output
                                "Rooms may place enemies, doors, triggers, pickups and props.");
             }
             if (!status) return status;
+        }
+    }
+    for (std::size_t index = 0; index < layout.doorCount; ++index) {
+        DoorLayout& door = layout.doors[index];
+        if (door.targetPlacement[0] == '\0') continue;
+        const RoomLayout& destination = layout.rooms[static_cast<std::size_t>(door.destination)];
+        bool resolved = false;
+        for (const ObjectPlacement& candidate : destination.definition->placements()) {
+            if (std::string_view(candidate.id.data()) != door.targetPlacement.data()) continue;
+            const ObjectDefinition* object = world.findObject(candidate.object.data());
+            door.arrivePosition = {
+                candidate.hasPosition ? candidate.x : object->spawnX(),
+                candidate.hasPosition ? candidate.y : object->spawnY()};
+            door.hasArrivePosition = true;
+            resolved = true;
+            break;
+        }
+        if (!resolved) {
+            return invalid(door.targetPlacement.data(),
+                           "A door's targetPlacement is not placed in its target room.");
         }
     }
     if (std::find(usedSlots.begin(), usedSlots.end(), false) != usedSlots.end() || !pickupFound) {
