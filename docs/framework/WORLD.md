@@ -25,12 +25,25 @@ at most 32 KiB. Sprite paths are relative to `assets/` (for example
 | `parent` | Optional object ID to inherit from. |
 | `abstract` | Template only; it cannot be placed in a room. |
 | `category` | `player`, `enemy`, `npc`, `projectile`, `pickup`, `door`, `trigger`, `loot` or `prop`. |
-| `sprite` | `sheet`, `frameWidth`, `frameHeight` and draw `offset` [x, y]. |
+| `sprite` | `sheet`, `frameWidth`, `frameHeight`, draw `offset` [x, y], optional `tint` and `rotation`. |
 | `bounds` | Collision size [w, h]. |
 | `spawn` | Default `position` [x, y] and `facing` (`left`/`right`). |
-| `animations` | Map of name → `row`, `column` (first frame), `frames`, `fps`, `loop`. |
+| `animations` | Map of name → either `row`, `column` (first frame) and `frames`, or `cells`; plus `fps`, `loop`, optional `tint`, `rotation`, `spin`. |
 | `defaultAnimation` | Animation used when the game has no more specific state. |
 | `properties` | Bounded scalar values (numbers, booleans, strings) used by the game. |
+
+Animation frames come from consecutive cells (`row`, `column`, `frames`) or from an
+explicit `cells` list of `[column, row]` pairs (1-16) that may sit anywhere on the sheet, in
+any order and repeat (`"cells": [[0, 1], [2, 1], [1, 1]]`). `cells` excludes `row`, `column`
+and `frames`; a child may replace one form with the other.
+
+`tint` is `[r, g, b]` or `[r, g, b, a]` with channels 0-1. `rotation` is in degrees
+(-360..360, clockwise) and `spin` adds degrees per second (-1440..1440) for continuous turning.
+The sprite-level and animation-level values combine: tints multiply and rotations add.
+Rotation pivots on the frame centre and reverses when the sprite is mirrored. Both are plain
+data, so objects, children and animations can recolor or turn independently (shipped examples:
+the Echo Step pickup spins in cyan, the stalker's idle cycles non-adjacent cells in red, the
+Hangar door is tinted blue).
 
 Inheritance merges field by field: a child replaces only the values it states.
 Animations merge per animation and per field, so `enemy_patrol_heavy` sets only

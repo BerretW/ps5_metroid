@@ -403,8 +403,17 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
     const Uint64 frame = animation->loop
         ? (ticks * static_cast<Uint64>(std::max(animation->fps, 0)) / 1000U) % frames
         : frames - 1U;
-    const SDL_Rect source{(animation->column + static_cast<int>(frame)) * spec.frameWidth,
-                          animation->row * spec.frameHeight, spec.frameWidth, spec.frameHeight};
+    const framework::AnimationCell cell = animation->cellAt(static_cast<std::int32_t>(frame));
+    const SDL_Rect source{static_cast<int>(cell.column) * spec.frameWidth,
+                          static_cast<int>(cell.row) * spec.frameHeight, spec.frameWidth, spec.frameHeight};
+    // Sprite and animation tints multiply; rotations add, and spin advances with time.
+    const std::array<float, 4> tint{spec.tint[0] * animation->tint[0], spec.tint[1] * animation->tint[1],
+                                    spec.tint[2] * animation->tint[2], spec.tint[3] * animation->tint[3]};
+    const float turn = std::fmod(spec.rotation + animation->rotation +
+                                     animation->spin * static_cast<float>(ticks % 3600000U) / 1000.0F,
+                                 360.0F);
+    // Mirroring flips the rotation direction so the sprite still matches the collision box.
+    const float angle = flip ? -turn : turn;
     const int sheetWidth = drawSink_ != nullptr ? static_cast<int>(image->width) : sheet->width;
     const int sheetHeight = drawSink_ != nullptr ? static_cast<int>(image->height) : sheet->height;
     if (source.x < 0 || source.y < 0 || source.x + source.w > sheetWidth ||
@@ -430,14 +439,24 @@ bool Renderer::drawObject(const framework::ObjectDefinition* object,
         if (!status || drawSinkFailed_ ||
             !drawWorldTexture(*worldImage, spec.material,
                               {destination.x, destination.y, destination.w, destination.h},
-                              uv, {1, 1, 1, 1}, 0.0F)) {
+                              uv, {tint[0], tint[1], tint[2], tint[3]}, angle)) {
             drawSinkFailed_ = true;
             return false;
         }
         return true;
     }
-    return SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination, 0.0, nullptr,
-                            flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE) == 0;
+    const auto channel = [](float value) {
+        return static_cast<Uint8>(std::clamp(value, 0.0F, 1.0F) * 255.0F + 0.5F);
+    };
+    SDL_SetTextureColorMod(sheet->texture, channel(tint[0]), channel(tint[1]), channel(tint[2]));
+    SDL_SetTextureAlphaMod(sheet->texture, channel(tint[3]));
+    const int drawn = SDL_RenderCopyEx(renderer_, sheet->texture, &source, &destination,
+                                       static_cast<double>(angle), nullptr,
+                                       flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    // Sheets are shared between objects, so the modulation must not leak.
+    SDL_SetTextureColorMod(sheet->texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(sheet->texture, 255);
+    return drawn == 0;
 }
 
 bool Renderer::drawRoomLayers(const RoomLayout& room, float cameraX) noexcept {

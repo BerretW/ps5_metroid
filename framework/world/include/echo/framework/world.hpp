@@ -98,10 +98,21 @@ struct SpriteSheetSpec {
     std::int32_t frameHeight{};
     std::int32_t offsetX{};
     std::int32_t offsetY{};
+    // Multiplied with each animation's tint; rotation (degrees, clockwise) adds to it.
+    std::array<float, 4> tint{1.0F, 1.0F, 1.0F, 1.0F};
+    float rotation{};
     WorldMaterialSpec material{};
 };
 
-// One animation reads `frames` consecutive cells from (`column`, `row`) of the sheet.
+inline constexpr std::size_t kMaxAnimationCells = 16;
+
+struct AnimationCell {
+    std::uint8_t column{};
+    std::uint8_t row{};
+};
+
+// An animation reads either `frames` consecutive cells from (`column`, `row`) of the sheet, or
+// an explicit list of `cells` that need not be adjacent (then `frames` equals the cell count).
 struct AnimationSpec {
     std::array<char, 24> name{};
     std::int32_t row{};
@@ -109,7 +120,18 @@ struct AnimationSpec {
     std::int32_t frames{};
     std::int32_t fps{};
     bool loop{true};
-    std::uint8_t present{};
+    std::array<AnimationCell, kMaxAnimationCells> cells{};
+    std::int32_t cellCount{};
+    std::array<float, 4> tint{1.0F, 1.0F, 1.0F, 1.0F};
+    float rotation{};
+    float spin{}; // degrees per second
+    std::uint16_t present{};
+
+    // Sheet cell shown for the zero-based animation frame.
+    [[nodiscard]] AnimationCell cellAt(std::int32_t frame) const noexcept {
+        if (cellCount > 0) return cells[static_cast<std::size_t>(frame % cellCount)];
+        return {static_cast<std::uint8_t>(column + frame), static_cast<std::uint8_t>(row)};
+    }
 };
 
 class ObjectDefinition {

@@ -5,7 +5,8 @@
   "sprite": {
     "sheet": "sprites/door.png",
     "frameWidth": 44,
-    "frameHeight": 48
+    "frameHeight": 48,
+    "tint": [0.55, 0.9, 1.0]
   },
   "bounds": [44, 48],
   "spawn": {

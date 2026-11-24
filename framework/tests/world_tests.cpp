@@ -178,6 +178,64 @@ int main() {
     check(base != nullptr && base->isAbstract() && base->property("armored") == nullptr,
           "parents are not modified by their children");
 
+    // Non-adjacent cells, tint, rotation and spin, including inheritance of each.
+    const std::string poseBase = R"({"schemaVersion":1,"id":"echo:object/pose","category":"prop",
+      "sprite":{"sheet":"sprites/pose.png","frameWidth":16,"frameHeight":16,"tint":[1,0.5,0.25],"rotation":10},
+      "bounds":[16,16],"animations":{"idle":{"cells":[[0,0],[3,0],[1,2]],"fps":4,"tint":[0.5,1,1,0.5],
+        "rotation":45,"spin":90},"walk":{"row":1,"frames":2,"fps":4}}})";
+    const std::string poseChild = R"({"schemaVersion":1,"id":"echo:object/pose_child","parent":"echo:object/pose",
+      "sprite":{"rotation":-30},"animations":{"idle":{"fps":8},"walk":{"cells":[[5,5],[0,1]]}}})";
+    const std::string poseReset = R"({"schemaVersion":1,"id":"echo:object/pose_reset","parent":"echo:object/pose",
+      "animations":{"idle":{"frames":2,"column":4}}})";
+    std::vector<Source> poseObjects = objects;
+    poseObjects.push_back({"echo:object/pose", poseBase});
+    poseObjects.push_back({"echo:object/pose_child", poseChild});
+    poseObjects.push_back({"echo:object/pose_reset", poseReset});
+    auto scratch = std::make_unique<WorldModule>();
+    check(static_cast<bool>(build(*scratch, poseObjects, rooms)), "pose fixture builds");
+    const ObjectDefinition* pose = scratch->findObject("echo:object/pose");
+    const AnimationSpec* poseIdle = pose != nullptr ? pose->findAnimation("idle") : nullptr;
+    check(poseIdle != nullptr && poseIdle->frames == 3 && poseIdle->cellCount == 3 &&
+              poseIdle->cellAt(1).column == 3 && poseIdle->cellAt(2).row == 2 &&
+              poseIdle->cellAt(4).column == 3 && poseIdle->tint[3] == 0.5F &&
+              poseIdle->rotation == 45.0F && poseIdle->spin == 90.0F &&
+              pose->sprite().tint[1] == 0.5F && pose->sprite().rotation == 10.0F,
+          "animations list non-adjacent cells and carry tint, rotation and spin");
+    const AnimationSpec* consecutive = pose != nullptr ? pose->findAnimation("walk") : nullptr;
+    check(consecutive != nullptr && consecutive->cellAt(1).column == 1 && consecutive->cellAt(1).row == 1,
+          "consecutive animations still address adjacent cells");
+    const ObjectDefinition* poseChildObject = scratch->findObject("echo:object/pose_child");
+    const AnimationSpec* childIdle = poseChildObject != nullptr ? poseChildObject->findAnimation("idle") : nullptr;
+    const AnimationSpec* childWalk = poseChildObject != nullptr ? poseChildObject->findAnimation("walk") : nullptr;
+    check(childIdle != nullptr && childIdle->fps == 8 && childIdle->cellCount == 3 &&
+              childIdle->spin == 90.0F && poseChildObject->sprite().rotation == -30.0F &&
+              poseChildObject->sprite().tint[2] == 0.25F,
+          "children inherit cells, tint, spin and sprite tint while overriding single fields");
+    check(childWalk != nullptr && childWalk->cellCount == 2 && childWalk->frames == 2 &&
+              childWalk->cellAt(0).column == 5,
+          "a child can replace consecutive frames with explicit cells");
+    const ObjectDefinition* poseResetObject = scratch->findObject("echo:object/pose_reset");
+    const AnimationSpec* resetIdle = poseResetObject != nullptr ? poseResetObject->findAnimation("idle") : nullptr;
+    check(resetIdle != nullptr && resetIdle->cellCount == 0 && resetIdle->frames == 2 &&
+              resetIdle->cellAt(1).column == 5,
+          "a child can replace explicit cells with consecutive frames");
+    const auto rejectsPose = [&](const char* animation, std::string_view message) {
+        const std::string json = R"({"schemaVersion":1,"id":"echo:object/bad","category":"prop",
+          "sprite":{"sheet":"sprites/pose.png","frameWidth":16,"frameHeight":16},"bounds":[16,16],
+          "animations":{"idle":)" + std::string(animation) + "}}";
+        std::vector<Source> candidate = objects;
+        candidate.push_back({"echo:object/bad", json});
+        check(!build(*scratch, candidate, rooms), message);
+    };
+    rejectsPose(R"({"cells":[[0,0]],"frames":2,"fps":4})", "cells exclude frames");
+    rejectsPose(R"({"cells":[[0,0]],"column":1,"fps":4})", "cells exclude column and row");
+    rejectsPose(R"({"cells":[],"fps":4})", "empty cell lists are rejected");
+    rejectsPose(R"({"cells":[[0]],"fps":4})", "malformed cells are rejected");
+    rejectsPose(R"({"cells":[[256,0]],"fps":4})", "out-of-range cells are rejected");
+    rejectsPose(R"({"frames":1,"fps":4,"tint":[1,2,1]})", "tint channels above 1 are rejected");
+    rejectsPose(R"({"frames":1,"fps":4,"tint":[1,1]})", "tints need three or four channels");
+    rejectsPose(R"({"frames":1,"fps":4,"rotation":720})", "out-of-range rotation is rejected");
+
     const RoomDefinition* alpha = world->findRoom("echo:room/a");
     check(alpha != nullptr && alpha->name() == "Alpha" && alpha->columns() == 20 && alpha->rows() == 3 &&
               alpha->background()[2] == 3 && alpha->tilesets().size() == 2,

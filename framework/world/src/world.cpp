@@ -47,14 +47,20 @@ enum ObjectField : std::uint32_t {
     kFacing = 1U << 10U,
     kDefaultAnimation = 1U << 11U,
     kMaterial = 1U << 12U,
+    kSpriteTint = 1U << 13U,
+    kSpriteRotation = 1U << 14U,
 };
 
-enum AnimationField : std::uint8_t {
+enum AnimationField : std::uint16_t {
     kRow = 1U << 0U,
     kColumn = 1U << 1U,
     kFrames = 1U << 2U,
     kFps = 1U << 3U,
     kLoop = 1U << 4U,
+    kCells = 1U << 5U,
+    kAnimTint = 1U << 6U,
+    kAnimRotation = 1U << 7U,
+    kAnimSpin = 1U << 8U,
 };
 
 enum RoomField : std::uint32_t {
@@ -71,10 +77,11 @@ enum RoomField : std::uint32_t {
 constexpr std::array<std::string_view, 11> kObjectFields{
     "schemaVersion", "id", "parent", "abstract", "category", "sprite",
     "bounds", "spawn", "animations", "defaultAnimation", "properties"};
-constexpr std::array<std::string_view, 5> kSpriteFields{
-    "sheet", "frameWidth", "frameHeight", "offset", "material"};
+constexpr std::array<std::string_view, 7> kSpriteFields{
+    "sheet", "frameWidth", "frameHeight", "offset", "material", "tint", "rotation"};
 constexpr std::array<std::string_view, 2> kSpawnFields{"position", "facing"};
-constexpr std::array<std::string_view, 5> kAnimationFields{"row", "column", "frames", "fps", "loop"};
+constexpr std::array<std::string_view, 9> kAnimationFields{
+    "row", "column", "frames", "fps", "loop", "cells", "tint", "rotation", "spin"};
 constexpr std::array<std::string_view, 14> kRoomFields{
     "schemaVersion", "id", "parent", "abstract", "name", "size", "background",
     "projection", "tilesets", "tiles", "layers", "exits", "objects", "lighting"};
@@ -191,6 +198,17 @@ template <std::size_t Size>
            readFloat(value.at(0), 0.0, 1.0, output[0]) &&
            readFloat(value.at(1), 0.0, 1.0, output[1]) &&
            readFloat(value.at(2), 0.0, 1.0, output[2]);
+}
+
+// Tint is [r, g, b] or [r, g, b, a], each 0-1.
+[[nodiscard]] bool readTint(JsonValue value, std::array<float, 4>& output) noexcept {
+    if (!value.isArray() || (value.size() != 3 && value.size() != 4)) return false;
+    std::array<float, 4> parsed{1.0F, 1.0F, 1.0F, 1.0F};
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        if (!readFloat(value.at(index), 0.0, 1.0, parsed[index])) return false;
+    }
+    output = parsed;
+    return true;
 }
 
 [[nodiscard]] Status parseMaterial(JsonValue value, WorldMaterialSpec& output) noexcept {
@@ -576,6 +594,20 @@ Status WorldParser::parseObject(JsonValue document, ObjectDefinition& output) no
             }
             output.present_ |= kOffsetX | kOffsetY;
         }
+        const JsonValue spriteTint = sprite.find("tint");
+        if (spriteTint.valid()) {
+            if (!readTint(spriteTint, output.sprite_.tint)) {
+                return invalid("world.object.sprite.tint", "Sprite tint must be [r, g, b] or [r, g, b, a] in 0-1.");
+            }
+            output.present_ |= kSpriteTint;
+        }
+        const JsonValue spriteRotation = sprite.find("rotation");
+        if (spriteRotation.valid()) {
+            if (!readFloat(spriteRotation, -360.0, 360.0, output.sprite_.rotation)) {
+                return invalid("world.object.sprite.rotation", "Sprite rotation must be -360 to 360 degrees.");
+            }
+            output.present_ |= kSpriteRotation;
+        }
         const JsonValue material = sprite.find("material");
         if (material.valid()) {
             const Status status = parseMaterial(material, output.sprite_.material);
@@ -637,10 +669,43 @@ Status WorldParser::parseObject(JsonValue document, ObjectDefinition& output) no
                 return invalid("world.object.animation",
                                "Animation row/column 0-255, frames 1-64, fps 1-60 and boolean loop are required.");
             }
-            animation.present = static_cast<std::uint8_t>(
+            const JsonValue cells = entry.find("cells");
+            if (cells.valid()) {
+                if (row.valid() || column.valid() || frames.valid() || !cells.isArray() ||
+                    cells.size() == 0 || cells.size() > kMaxAnimationCells) {
+                    return invalid("world.object.animation.cells",
+                                   "Cells are 1-16 [column, row] pairs and exclude row, column and frames.");
+                }
+                for (std::size_t cell = 0; cell < cells.size(); ++cell) {
+                    const JsonValue pair = cells.at(cell);
+                    std::int32_t cellColumn{};
+                    std::int32_t cellRow{};
+                    if (!pair.isArray() || pair.size() != 2 ||
+                        !readInt(pair.at(0), 0, 255, cellColumn) ||
+                        !readInt(pair.at(1), 0, 255, cellRow)) {
+                        return invalid("world.object.animation.cells", "Each cell is [column, row] within 0-255.");
+                    }
+                    animation.cells[cell] = {static_cast<std::uint8_t>(cellColumn),
+                                             static_cast<std::uint8_t>(cellRow)};
+                }
+                animation.cellCount = static_cast<std::int32_t>(cells.size());
+                animation.frames = animation.cellCount;
+            }
+            const JsonValue tint = entry.find("tint");
+            const JsonValue rotation = entry.find("rotation");
+            const JsonValue spin = entry.find("spin");
+            if ((tint.valid() && !readTint(tint, animation.tint)) ||
+                (rotation.valid() && !readFloat(rotation, -360.0, 360.0, animation.rotation)) ||
+                (spin.valid() && !readFloat(spin, -1440.0, 1440.0, animation.spin))) {
+                return invalid("world.object.animation",
+                               "Animation tint is 3-4 values in 0-1, rotation +-360 and spin +-1440 degrees.");
+            }
+            animation.present = static_cast<std::uint16_t>(
                 (row.valid() ? kRow : 0U) | (column.valid() ? kColumn : 0U) |
-                (frames.valid() ? kFrames : 0U) | (fps.valid() ? kFps : 0U) |
-                (loop.valid() ? kLoop : 0U));
+                (frames.valid() || cells.valid() ? kFrames : 0U) | (fps.valid() ? kFps : 0U) |
+                (loop.valid() ? kLoop : 0U) | (cells.valid() ? kCells : 0U) |
+                (tint.valid() ? kAnimTint : 0U) | (rotation.valid() ? kAnimRotation : 0U) |
+                (spin.valid() ? kAnimSpin : 0U));
             ++output.animationCount_;
         }
     }
@@ -674,6 +739,8 @@ Status WorldParser::mergeObject(const ObjectDefinition& parent, ObjectDefinition
     if ((own & kOffsetX) != 0U) merged.sprite_.offsetX = child.sprite_.offsetX;
     if ((own & kOffsetY) != 0U) merged.sprite_.offsetY = child.sprite_.offsetY;
     if ((own & kMaterial) != 0U) merged.sprite_.material = child.sprite_.material;
+    if ((own & kSpriteTint) != 0U) merged.sprite_.tint = child.sprite_.tint;
+    if ((own & kSpriteRotation) != 0U) merged.sprite_.rotation = child.sprite_.rotation;
     if ((own & kWidth) != 0U) merged.width_ = child.width_;
     if ((own & kHeight) != 0U) merged.height_ = child.height_;
     if ((own & kSpawnX) != 0U) merged.spawnX_ = child.spawnX_;
@@ -702,7 +769,19 @@ Status WorldParser::mergeObject(const ObjectDefinition& parent, ObjectDefinition
         if ((animation.present & kFrames) != 0U) target->frames = animation.frames;
         if ((animation.present & kFps) != 0U) target->fps = animation.fps;
         if ((animation.present & kLoop) != 0U) target->loop = animation.loop;
-        target->present = static_cast<std::uint8_t>(target->present | animation.present);
+        if ((animation.present & kAnimTint) != 0U) target->tint = animation.tint;
+        if ((animation.present & kAnimRotation) != 0U) target->rotation = animation.rotation;
+        if ((animation.present & kAnimSpin) != 0U) target->spin = animation.spin;
+        if ((animation.present & kCells) != 0U) {
+            target->cells = animation.cells;
+            target->cellCount = animation.cellCount;
+            target->present = static_cast<std::uint16_t>(target->present | kCells);
+        } else if ((animation.present & (kRow | kColumn | kFrames)) != 0U) {
+            // An override of consecutive frames replaces an inherited explicit cell list.
+            target->cellCount = 0;
+            target->present = static_cast<std::uint16_t>(target->present & ~kCells);
+        }
+        target->present = static_cast<std::uint16_t>(target->present | animation.present);
     }
     if (!mergeProperties(merged.properties_, child.properties_)) {
         return {ErrorCode::CapacityExceeded, "world.object.properties",

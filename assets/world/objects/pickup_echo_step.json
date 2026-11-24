@@ -14,11 +14,11 @@
   },
   "animations": {
     "idle": {
-      "row": 0,
-      "column": 0,
-      "frames": 2,
-      "fps": 3,
-      "loop": true
+      "cells": [[0, 0], [1, 0], [1, 0], [0, 0]],
+      "fps": 4,
+      "loop": true,
+      "tint": [0.6, 1.0, 1.0],
+      "spin": 60
     }
   },
   "defaultAnimation": "idle",
