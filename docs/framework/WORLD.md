@@ -240,7 +240,7 @@ and rejects layouts the simulation cannot represent:
     `door_power_bypass` (Power Station → Maintenance Tunnel, `requiresCircuit` +
     `requiresFact` + `arriveX`/`arriveY`) require visiting the survey trigger and powering the
     Cargo Hold emergency circuit; `door_power_return` uses `targetPlacement` and `requiresAbility`.
-  - `shmup` (a stage ID from `assets/shmup/stages.json`) turns a door into the entrance of a
+  - `shmup` (a stage ID listed in `assets/shmup/stages.json`, defined in `assets/shmup/stages/*.json`) turns a door into the entrance of a
     SHMUP stage: it takes no `target` or arrival properties, still honours every condition, and
     unknown stages or reward items are rejected at startup. Example: `door_shmup_hangar` in the
     Landing Bay. See [SHMUP.md](SHMUP.md).

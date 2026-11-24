@@ -1,0 +1,388 @@
+{
+  "version": 1,
+  "id": "echo:shmup/cargo_run",
+  "name": "CARGO RUN",
+  "background": [
+    5,
+    8,
+    20
+  ],
+  "enemyShotObject": "echo:object/shmup_shot_enemy",
+  "layers": [
+    {
+      "object": "echo:object/shmup_bg_stars",
+      "scrollFactor": 0.25,
+      "y": 0
+    },
+    {
+      "object": "echo:object/shmup_bg_dust",
+      "scrollFactor": 0.6,
+      "y": 0
+    },
+    {
+      "object": "echo:object/shmup_bg_hull",
+      "scrollFactor": 1.4,
+      "y": 0
+    }
+  ],
+  "scrollSpeed": 80,
+  "completionFact": "echo:fact/cargo_run_cleared",
+  "rewardItem": "echo:item/scrap",
+  "player": {
+    "object": "echo:object/shmup_ship",
+    "shotObject": "echo:object/shmup_shot_player",
+    "health": 5,
+    "speed": 210,
+    "width": 26,
+    "height": 14,
+    "fireInterval": 0.12,
+    "bulletSpeed": 480,
+    "bulletDamage": 1,
+    "invulnerability": 1.3
+  },
+  "enemyTypes": [
+    {
+      "id": "drifter",
+      "object": "echo:object/shmup_drifter",
+      "health": 1,
+      "width": 22,
+      "height": 18,
+      "score": 10,
+      "color": [
+        210,
+        90,
+        80
+      ],
+      "motion": {
+        "kind": "straight",
+        "speed": 120
+      }
+    },
+    {
+      "id": "wave_flyer",
+      "object": "echo:object/shmup_wave_flyer",
+      "health": 2,
+      "width": 24,
+      "height": 18,
+      "score": 20,
+      "color": [
+        230,
+        170,
+        70
+      ],
+      "motion": {
+        "kind": "sine",
+        "speed": 95,
+        "amplitude": 60,
+        "frequency": 2.4
+      },
+      "attack": {
+        "kind": "stream",
+        "interval": 1.8,
+        "delay": 0.8,
+        "bulletSpeed": 170
+      }
+    },
+    {
+      "id": "diver",
+      "object": "echo:object/shmup_diver",
+      "health": 2,
+      "width": 22,
+      "height": 20,
+      "score": 30,
+      "color": [
+        240,
+        60,
+        120
+      ],
+      "motion": {
+        "kind": "dive",
+        "speed": 110,
+        "amplitude": 260
+      }
+    },
+    {
+      "id": "gunship",
+      "object": "echo:object/shmup_gunship",
+      "health": 6,
+      "width": 40,
+      "height": 28,
+      "score": 60,
+      "color": [
+        120,
+        190,
+        230
+      ],
+      "motion": {
+        "kind": "hold",
+        "speed": 90,
+        "amplitude": 40,
+        "frequency": 1.4,
+        "anchorX": 520
+      },
+      "attack": {
+        "kind": "aimed",
+        "interval": 1.4,
+        "delay": 1.0,
+        "count": 3,
+        "spreadDegrees": 14,
+        "bulletSpeed": 160
+      }
+    },
+    {
+      "id": "drone",
+      "object": "echo:object/shmup_drone",
+      "health": 1,
+      "width": 18,
+      "height": 16,
+      "score": 5,
+      "color": [
+        200,
+        120,
+        240
+      ],
+      "motion": {
+        "kind": "sine",
+        "speed": 140,
+        "amplitude": 40,
+        "frequency": 3.5
+      }
+    }
+  ],
+  "waves": [
+    {
+      "time": 1.0,
+      "enemy": "drifter",
+      "count": 5,
+      "y": 60,
+      "yStep": 50,
+      "spacing": 0.5
+    },
+    {
+      "time": 6.0,
+      "enemy": "wave_flyer",
+      "count": 6,
+      "y": 180,
+      "spacing": 0.6
+    },
+    {
+      "time": 12.0,
+      "enemy": "diver",
+      "count": 4,
+      "y": 50,
+      "yStep": 70,
+      "spacing": 0.8
+    },
+    {
+      "time": 17.0,
+      "enemy": "gunship",
+      "count": 2,
+      "y": 90,
+      "yStep": 150,
+      "spacing": 1.0
+    },
+    {
+      "time": 22.0,
+      "enemy": "wave_flyer",
+      "count": 5,
+      "y": 100,
+      "spacing": 0.5
+    },
+    {
+      "time": 25.0,
+      "enemy": "drifter",
+      "count": 8,
+      "y": 40,
+      "yStep": 36,
+      "spacing": 0.3
+    }
+  ],
+  "boss": {
+    "name": "WARDEN CORE",
+    "object": "echo:object/shmup_boss_warden",
+    "hitAnimation": "hit",
+    "health": 60,
+    "width": 96,
+    "height": 104,
+    "spawnTime": 32,
+    "y": 128,
+    "color": [
+      150,
+      70,
+      200
+    ],
+    "phases": [
+      {
+        "animation": "phase1",
+        "healthBelow": 1.0,
+        "motion": {
+          "kind": "hold",
+          "amplitude": 90,
+          "frequency": 1.2,
+          "anchorX": 490
+        },
+        "attacks": [
+          {
+            "kind": "aimed",
+            "interval": 1.6,
+            "delay": 1.0,
+            "count": 3,
+            "spreadDegrees": 14,
+            "bulletSpeed": 170
+          }
+        ]
+      },
+      {
+        "animation": "phase2",
+        "healthBelow": 0.66,
+        "transitionSeconds": 1.5,
+        "motion": {
+          "kind": "patrol",
+          "speed": 140,
+          "anchorX": 470
+        },
+        "attacks": [
+          {
+            "kind": "spread",
+            "interval": 1.3,
+            "delay": 0.8,
+            "count": 5,
+            "spreadDegrees": 18,
+            "bulletSpeed": 150
+          }
+        ],
+        "summon": {
+          "enemy": "drone",
+          "count": 3,
+          "interval": 5
+        }
+      },
+      {
+        "animation": "phase3",
+        "healthBelow": 0.33,
+        "transitionSeconds": 1.5,
+        "motion": {
+          "kind": "track",
+          "speed": 110,
+          "anchorX": 520
+        },
+        "attacks": [
+          {
+            "kind": "radial",
+            "interval": 2.2,
+            "delay": 0.8,
+            "count": 12,
+            "bulletSpeed": 120
+          },
+          {
+            "kind": "wall",
+            "interval": 3.6,
+            "delay": 2.0,
+            "count": 10,
+            "bulletSpeed": 110,
+            "bulletSize": 10
+          },
+          {
+            "kind": "aimed",
+            "interval": 0.8,
+            "delay": 1.0,
+            "count": 1,
+            "bulletSpeed": 200
+          }
+        ]
+      }
+    ]
+  },
+  "obstacles": [
+    {
+      "kind": "wall",
+      "object": "echo:object/shmup_wall",
+      "x": 700,
+      "y": 24,
+      "width": 320,
+      "height": 32
+    },
+    {
+      "kind": "wall",
+      "object": "echo:object/shmup_wall",
+      "x": 700,
+      "y": 328,
+      "width": 320,
+      "height": 32
+    },
+    {
+      "kind": "debris",
+      "object": "echo:object/shmup_debris",
+      "x": 1100,
+      "y": 150,
+      "width": 32,
+      "height": 32,
+      "health": 4,
+      "score": 25
+    },
+    {
+      "kind": "debris",
+      "object": "echo:object/shmup_debris",
+      "x": 1300,
+      "y": 220,
+      "width": 32,
+      "height": 32,
+      "health": 4,
+      "score": 25
+    },
+    {
+      "kind": "debris",
+      "object": "echo:object/shmup_debris",
+      "x": 1300,
+      "y": 100,
+      "width": 16,
+      "height": 16,
+      "health": 2,
+      "score": 10
+    },
+    {
+      "kind": "debris",
+      "object": "echo:object/shmup_debris",
+      "x": 1500,
+      "y": 170,
+      "width": 48,
+      "height": 48,
+      "health": 6,
+      "score": 40
+    },
+    {
+      "kind": "wall",
+      "object": "echo:object/shmup_wall",
+      "x": 1700,
+      "y": 24,
+      "width": 32,
+      "height": 112
+    },
+    {
+      "kind": "wall",
+      "object": "echo:object/shmup_wall",
+      "x": 1900,
+      "y": 248,
+      "width": 32,
+      "height": 112
+    },
+    {
+      "kind": "wall",
+      "object": "echo:object/shmup_wall",
+      "x": 2100,
+      "y": 24,
+      "width": 240,
+      "height": 16
+    },
+    {
+      "kind": "debris",
+      "object": "echo:object/shmup_debris",
+      "x": 2200,
+      "y": 200,
+      "width": 32,
+      "height": 32,
+      "health": 4,
+      "score": 25
+    }
+  ]
+}

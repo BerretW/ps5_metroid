@@ -2,8 +2,12 @@
 
 A SHMUP stage is a self-contained, horizontally scrolling shoot-'em-up level entered from a
 side-view room through a door whose archetype or placement sets `"shmup": "<stage id>"`
-(for example `door_shmup_hangar` in the Landing Bay). Everything about a stage is data in
-`assets/shmup/stages.json`; C++ (`src/game/shmup.*`) only provides generic motion and attack
+(for example `door_shmup_hangar` in the Landing Bay). Everything about a stage is data: the
+manifest `assets/shmup/stages.json` only lists stage IDs (`{"version": 1, "stages": ["echo:shmup/cargo_run"]}`),
+and each stage is its own file `assets/shmup/stages/<name>.json` (ID `echo:shmup/<name>`) holding
+the whole level design: enemies, waves, boss, terrain, parallax layers and sprites. A stage file
+is `version: 1` plus the stage keys below and must declare the ID it is listed under. C++
+(`src/game/shmup.*`) only provides generic motion and attack
 primitives. The simulation is SDL-free, uses the fixed step and fixed-capacity storage.
 
 Entering a stage suspends the room simulation (the room and player stay at the door). Leaving
@@ -37,6 +41,11 @@ attacks per phase.
 - Attack `kind`: `aimed`, `spread`, `stream`, `radial`, `wall`, with `interval`, `delay`,
   `count`, `spreadDegrees`, `bulletSpeed`, `bulletSize`.
 - Wave: `time`, `enemy` (enemy type id), `count`, `y`, `yStep`, `spacing`.
+- Obstacles (terrain, up to 32): `kind` (`wall` is indestructible and stops all shots; `debris`
+  has `health`/`score` and can be shot down), `object`, `x` (level distance in scroll pixels
+  where it reaches the screen's left edge), `y`, `width`, `height`. The object sprite is tiled
+  across the area, so width and height must be multiples of its frame size. Touching terrain
+  hurts the pilot. Example: `shmup_wall` and `shmup_debris` in `cargo_run.json`.
 - Boss: `name`, `health`, `width`, `height`, `spawnTime`, `y`, `color`, `object`, `hitAnimation`, `phases`. The first
   phase starts at `healthBelow: 1.0`; later phases use strictly decreasing fractions. Each phase
   has `motion`, `attacks`, optional `animation`, optional `transitionSeconds` and optional

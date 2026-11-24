@@ -18,6 +18,7 @@ struct ShmupVisual {
     const framework::ObjectDefinition* archetype{};
 };
 inline constexpr std::size_t kMaxShmupLayers = 4;
+inline constexpr std::size_t kMaxShmupObstacles = 32;
 
 // Fixed capacities keep the SHMUP mode free of dynamic allocation.
 inline constexpr std::size_t kMaxShmupStages = 4;
@@ -138,6 +139,22 @@ struct ShmupLayer {
     float y{};
 };
 
+// Terrain placed in the scrolling level. Walls are indestructible and stop every shot; debris
+// can be shot down. Touching either hurts the pilot. `x` is the level distance (pixels of
+// scroll) at which the left edge reaches the left side of the screen.
+enum class ShmupObstacleKind : std::uint8_t { Wall, Debris };
+
+struct ShmupObstacle {
+    ShmupObstacleKind kind{ShmupObstacleKind::Wall};
+    float x{};
+    float y{};
+    float width{16.0F};
+    float height{16.0F};
+    int health{3};
+    int score{};
+    ShmupVisual visual{}; // tiled across width x height using the object's frame size
+};
+
 struct ShmupStage {
     std::array<char, 96> id{};
     std::array<char, 32> name{};
@@ -155,6 +172,8 @@ struct ShmupStage {
     ShmupVisual enemyShot{};
     std::array<ShmupLayer, kMaxShmupLayers> layers{};
     std::size_t layerCount{};
+    std::array<ShmupObstacle, kMaxShmupObstacles> obstacles{};
+    std::size_t obstacleCount{};
 
     [[nodiscard]] std::string_view idText() const noexcept { return id.data(); }
 };
@@ -170,6 +189,11 @@ struct ShmupLibrary {
 // Parses and strictly validates a stage library (assets/shmup/stages.json).
 [[nodiscard]] framework::Status parseShmupLibrary(framework::JsonValue root,
                                                   ShmupLibrary& output) noexcept;
+
+// Parses one stage file (assets/shmup/stages/*.json: `version` plus the stage keys) and appends
+// it to the library; duplicate stage IDs are rejected.
+[[nodiscard]] framework::Status parseShmupStageFile(framework::JsonValue root,
+                                                    ShmupLibrary& library) noexcept;
 
 // Binds every referenced echo:object/... to its world definition; unknown objects or boss
 // animations are errors. Call after the world module is finalized.
@@ -190,6 +214,9 @@ void forEachShmupObject(const ShmupLibrary& library, Visitor&& visit) {
         }
         for (std::size_t layer = 0; layer < stage.layerCount; ++layer) {
             visit(stage.layers[layer].visual.archetype);
+        }
+        for (std::size_t obstacle = 0; obstacle < stage.obstacleCount; ++obstacle) {
+            visit(stage.obstacles[obstacle].visual.archetype);
         }
     }
 }
@@ -271,6 +298,13 @@ public:
         return enemyShots_;
     }
     [[nodiscard]] const ShmupBossState& boss() const noexcept { return boss_; }
+    [[nodiscard]] bool obstacleAlive(std::size_t index) const noexcept {
+        return index < kMaxShmupObstacles && obstacleHealth_[index] > 0;
+    }
+    // Screen-space left edge of an obstacle.
+    [[nodiscard]] float obstacleX(std::size_t index) const noexcept {
+        return stage_->obstacles[index].x - scroll_;
+    }
     [[nodiscard]] float bossHealthFraction() const noexcept;
     // Monotonic counters used by the platform layer to derive feedback.
     [[nodiscard]] std::uint32_t shotsFired() const noexcept { return shotsFired_; }
@@ -299,6 +333,7 @@ private:
     std::array<ShmupBullet, kMaxShmupEnemyShots> enemyShots_{};
     // Per-wave progress: how many ships of the wave have spawned.
     std::array<int, kMaxShmupWaves> waveSpawned_{};
+    std::array<int, kMaxShmupObstacles> obstacleHealth_{};
     float time_{};
     float scroll_{};
     float fireCooldown_{};

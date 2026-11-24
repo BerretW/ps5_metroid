@@ -41,7 +41,9 @@
     "echo:object/shmup_bg_stars",
     "echo:object/shmup_bg_dust",
     "echo:object/shmup_bg_hull",
-    "echo:object/shmup_boss_warden"
+    "echo:object/shmup_boss_warden",
+    "echo:object/shmup_wall",
+    "echo:object/shmup_debris"
   ],
   "rooms": [
     "echo:room/station_base",

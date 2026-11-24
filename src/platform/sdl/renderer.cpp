@@ -1215,6 +1215,32 @@ void Renderer::drawShmup(const Game& game, bool paused) noexcept {
         }
     }
 
+    for (std::size_t index = 0; index < stage->obstacleCount; ++index) {
+        if (!session.obstacleAlive(index)) continue;
+        const ShmupObstacle& obstacle = stage->obstacles[index];
+        const float left = session.obstacleX(index);
+        if (left > 640.0F || left + obstacle.width < 0.0F) continue;
+        const framework::ObjectDefinition* object = obstacle.visual.archetype;
+        const float tileW = object != nullptr ? static_cast<float>(object->sprite().frameWidth) : 0.0F;
+        const float tileH = object != nullptr ? static_cast<float>(object->sprite().frameHeight) : 0.0F;
+        bool drawn = object != nullptr && tileW > 0.0F && tileH > 0.0F;
+        for (float ty = 0.0F; drawn && ty < obstacle.height; ty += tileH) {
+            for (float tx = 0.0F; tx < obstacle.width; tx += tileW) {
+                if (!drawObject(object, "idle", ticks, {left + tx, obstacle.y + ty, tileW, tileH}, 0.0F,
+                                false)) {
+                    drawn = false;
+                    break;
+                }
+            }
+        }
+        if (!drawn) {
+            const bool wall = obstacle.kind == ShmupObstacleKind::Wall;
+            panel({static_cast<int>(left), static_cast<int>(obstacle.y), static_cast<int>(obstacle.width),
+                   static_cast<int>(obstacle.height)},
+                  wall ? SDL_Color{60, 72, 98, 255} : SDL_Color{120, 96, 84, 255});
+        }
+    }
+
     for (const ShmupEnemyState& enemy : session.enemies()) {
         if (!enemy.active) continue;
         const ShmupEnemyType& type = stage->enemyTypes[enemy.type];

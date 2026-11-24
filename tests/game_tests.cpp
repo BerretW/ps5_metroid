@@ -1700,14 +1700,14 @@ echo::ShmupStage makeTinyShmupStage(int bossHealth, bool deadlyBoss) {
 
 void testShmupSimulation() {
     static echo::ShmupLibrary shipped{};
-    std::ifstream input(ECHO_SOURCE_ASSETS "shmup/stages.json", std::ios::binary);
+    std::ifstream input(ECHO_SOURCE_ASSETS "shmup/stages/cargo_run.json", std::ios::binary);
     const std::string source{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     echo::framework::JsonDocument document{};
     echo::framework::JsonError error{};
     const bool parsedOk = static_cast<bool>(
         echo::framework::JsonDocument::parse(source.data(), source.size(), document, error));
-    check(parsedOk && static_cast<bool>(echo::parseShmupLibrary(document.root(), shipped)),
-          "the shipped SHMUP stage library parses");
+    check(parsedOk && static_cast<bool>(echo::parseShmupStageFile(document.root(), shipped)),
+          "the shipped SHMUP stage file parses");
     const echo::ShmupStage* cargoRun = shipped.find("echo:shmup/cargo_run");
     check(cargoRun != nullptr && cargoRun->boss.phaseCount == 3 && cargoRun->enemyTypeCount >= 5,
           "the shipped stage defines several enemy types and a three-phase boss");
@@ -1723,6 +1723,31 @@ void testShmupSimulation() {
     };
     reject(R"({"version":1,"stages":[{"id":"nope"}]})", "stages with malformed IDs are rejected");
     reject(R"({"version":1,"stages":[],"extra":1})", "unknown SHMUP keys are rejected");
+    reject(R"({"version":1,"stages":[{"id":"echo:shmup/x","name":"X","enemyTypes":[{"id":"a","motion":{"kind":"straight"}}],"waves":[],"obstacles":[{"kind":"lava","x":0,"y":0}],"boss":{}}]})",
+           "unknown obstacle kinds are rejected");
+
+    if (cargoRun != nullptr) {
+        check(cargoRun->obstacleCount >= 8, "the shipped stage places walls and debris from JSON");
+        // A wall blocks shots; debris takes them down and awards score.
+        static echo::ShmupStage terrain{};
+        terrain = *cargoRun;
+        terrain.obstacleCount = 2;
+        terrain.obstacles[0] = {echo::ShmupObstacleKind::Wall, 200.0F, 150.0F, 16.0F, 64.0F, 1, 0, {}};
+        terrain.obstacles[1] = {echo::ShmupObstacleKind::Debris, 400.0F, 172.0F, 16.0F, 16.0F, 1, 7, {}};
+        terrain.waveCount = 0;
+        terrain.scrollSpeed = 0.0F;
+        echo::ShmupSession session;
+        session.begin(terrain);
+        for (int i = 0; i < 90; ++i) session.step({0, 0, true}, 1.0F / 60.0F);
+        check(session.obstacleAlive(0) && session.obstacleAlive(1) && session.score() == 0,
+              "a wall stops pilot shots before they reach debris behind it");
+        terrain.obstacles[0].y = 10.0F;
+        terrain.obstacles[0].height = 8.0F;
+        session.begin(terrain);
+        for (int i = 0; i < 120; ++i) session.step({0, 0, true}, 1.0F / 60.0F);
+        check(!session.obstacleAlive(1) && session.score() == 7,
+              "shooting debris destroys it and awards its score");
+    }
 
     if (cargoRun != nullptr) {
         // Same stage with an invulnerable pilot and a short boss fight, to cover all phases.

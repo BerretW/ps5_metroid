@@ -545,13 +545,13 @@ int main() {
         std::error_code ignored;
         auto missingObject = std::make_unique<echo::platform::FrameworkIntegration>();
         check(initializeWithEditedAsset(
-                  "shmup/stages.json", "\"echo:object/shmup_boss_warden\"",
+                  "shmup/stages/cargo_run.json", "\"echo:object/shmup_boss_warden\"",
                   "\"echo:object/shmup_missing\"", *missingObject).code ==
                   echo::framework::ErrorCode::MissingDependency,
               "startup rejects a SHMUP stage referencing an unknown world object");
         auto missingAnimation = std::make_unique<echo::platform::FrameworkIntegration>();
         check(!static_cast<bool>(initializeWithEditedAsset(
-                  "shmup/stages.json", "\"hitAnimation\": \"hit\"", "\"hitAnimation\": \"nope\"",
+                  "shmup/stages/cargo_run.json", "\"hitAnimation\": \"hit\"", "\"hitAnimation\": \"nope\"",
                   *missingAnimation)),
               "startup rejects a SHMUP boss animation missing from its object");
         std::filesystem::remove_all(std::filesystem::temp_directory_path() / "echo-door-fixture",

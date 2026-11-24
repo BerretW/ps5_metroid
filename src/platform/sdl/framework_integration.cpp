@@ -226,10 +226,51 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     }
     status = buildWorldLayout(*worldModule_, *worldLayout_);
     if (!status) return status;
-    status = loadFile("shmup/stages.json", [&](framework::JsonValue root) {
-        return parseShmupLibrary(root, worldLayout_->shmup);
+    // shmup/stages.json lists stage IDs; each stage is its own file shmup/stages/<name>.json.
+    std::array<std::array<char, 96>, kMaxShmupStages> stageIds{};
+    std::size_t stageIdCount = 0;
+    status = loadFile("shmup/stages.json", [&](framework::JsonValue root) -> framework::Status {
+        const framework::JsonValue list = root.find("stages");
+        std::int64_t version = 0;
+        if (!root.find("version").integer(version) || version != 1 || !list.isArray() ||
+            list.size() > stageIds.size()) {
+            return {ErrorCode::InvalidValue, "shmup",
+                    "The SHMUP manifest needs version 1 and up to four stage IDs."};
+        }
+        for (std::size_t index = 0; index < list.size(); ++index) {
+            std::string_view id;
+            if (!list.at(index).string(id) || !framework::isValidContentId(id) ||
+                id.size() >= stageIds[index].size() || id.size() <= 11 ||
+                std::string_view(id.data(), 11) != "echo:shmup/") {
+                return {ErrorCode::InvalidValue, "shmup", "SHMUP stage IDs must be echo:shmup/... IDs."};
+            }
+            std::copy(id.begin(), id.end(), stageIds[index].begin());
+            ++stageIdCount;
+        }
+        return framework::Status::success();
     });
-    if (status) status = resolveShmupObjects(*worldModule_, worldLayout_->shmup);
+    if (!status) return status;
+    worldLayout_->shmup = {};
+    for (std::size_t index = 0; index < stageIdCount; ++index) {
+        const std::string_view id = stageIds[index].data();
+        std::array<char, 160> stagePath{};
+        const int written = std::snprintf(stagePath.data(), stagePath.size(), "shmup/stages/%s.json",
+                                          id.data() + 11);
+        if (written <= 0 || static_cast<std::size_t>(written) >= stagePath.size()) {
+            return {ErrorCode::CapacityExceeded, id, "SHMUP stage path is too long."};
+        }
+        status = loadFile(stagePath.data(), [&](framework::JsonValue root) -> framework::Status {
+            const framework::Status parsed = parseShmupStageFile(root, worldLayout_->shmup);
+            if (!parsed) return parsed;
+            if (worldLayout_->shmup.stages[worldLayout_->shmup.stageCount - 1].idText() != id) {
+                return {ErrorCode::InvalidValue, id,
+                        "A SHMUP stage file must declare the ID it is listed under."};
+            }
+            return framework::Status::success();
+        });
+        if (!status) return status;
+    }
+    status = resolveShmupObjects(*worldModule_, worldLayout_->shmup);
     if (!status) return status;
     worldLayout_->worldLighting = worldLighting_;
     for (const PropLayout& prop : worldLayout_->propList()) {

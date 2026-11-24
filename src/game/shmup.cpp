@@ -229,8 +229,9 @@ template <std::size_t N>
 }
 
 [[nodiscard]] Status parseStage(JsonValue value, ShmupStage& stage) noexcept {
-    if (!onlyKeys(value, {"id", "name", "background", "scrollSpeed", "player", "completionFact",
-                          "rewardItem", "enemyTypes", "waves", "boss", "enemyShotObject", "layers"}) ||
+    if (!onlyKeys(value, {"version", "id", "name", "background", "scrollSpeed", "player", "completionFact",
+                          "rewardItem", "enemyTypes", "waves", "boss", "enemyShotObject", "layers",
+                          "obstacles"}) ||
         !readText(value, "enemyShotObject", stage.enemyShot.object, false, true) ||
         !readText(value, "id", stage.id, true, true) ||
         !readText(value, "name", stage.name, true, false) ||
@@ -273,6 +274,33 @@ template <std::size_t N>
                 return bad("stages.layers", "A background layer needs an object and bounded settings.");
             }
             stage.layers[stage.layerCount++] = layer;
+        }
+    }
+    const JsonValue obstacles = value.find("obstacles");
+    if (obstacles.valid()) {
+        if (!obstacles.isArray() || obstacles.size() > kMaxShmupObstacles) {
+            return bad("stages.obstacles", "A stage lists at most 32 obstacles.");
+        }
+        for (std::size_t index = 0; index < obstacles.size(); ++index) {
+            const JsonValue entry = obstacles.at(index);
+            ShmupObstacle obstacle{};
+            std::string_view kind;
+            if (!onlyKeys(entry, {"kind", "object", "x", "y", "width", "height", "health", "score"}) ||
+                !entry.find("kind").string(kind) ||
+                !readText(entry, "object", obstacle.visual.object, false, true) ||
+                !readNumber(entry, "x", obstacle.x, 0.0F, 50000.0F) ||
+                !readNumber(entry, "y", obstacle.y, 0.0F, kShmupHeight) ||
+                !readNumber(entry, "width", obstacle.width, 8.0F, 640.0F) ||
+                !readNumber(entry, "height", obstacle.height, 8.0F, 360.0F) ||
+                !readInt(entry, "health", obstacle.health, 1, 99) ||
+                !readInt(entry, "score", obstacle.score, 0, 10000) ||
+                obstacle.y + obstacle.height > kShmupHeight) {
+                return bad("stages.obstacles", "An obstacle needs a kind and bounded geometry.");
+            }
+            if (kind == "wall") obstacle.kind = ShmupObstacleKind::Wall;
+            else if (kind == "debris") obstacle.kind = ShmupObstacleKind::Debris;
+            else return bad("stages.obstacles", "Obstacle kind must be wall or debris.");
+            stage.obstacles[stage.obstacleCount++] = obstacle;
         }
     }
     const JsonValue types = value.find("enemyTypes");
@@ -361,6 +389,29 @@ Status parseShmupLibrary(JsonValue root, ShmupLibrary& output) noexcept {
     return Status::success();
 }
 
+Status parseShmupStageFile(JsonValue root, ShmupLibrary& library) noexcept {
+    std::int64_t version = 0;
+    if (!root.find("version").integer(version) || version != 1) {
+        return bad("shmup", "A SHMUP stage file needs version 1.");
+    }
+    if (library.stageCount == kMaxShmupStages) {
+        return {ErrorCode::CapacityExceeded, "shmup", "At most four SHMUP stages are supported."};
+    }
+    ShmupStage& slot = library.stages[library.stageCount];
+    slot = {};
+    const Status status = parseStage(root, slot);
+    if (!status) {
+        slot = {};
+        return status;
+    }
+    if (library.indexOf(slot.idText()) >= 0) {
+        slot = {};
+        return {ErrorCode::DuplicateId, "stages", "SHMUP stage IDs must be unique."};
+    }
+    ++library.stageCount;
+    return Status::success();
+}
+
 Status resolveShmupObjects(const framework::WorldModule& world, ShmupLibrary& library) noexcept {
     const auto bind = [&](ShmupVisual& visual) -> Status {
         const std::string_view id = visual.object.data();
@@ -389,6 +440,18 @@ Status resolveShmupObjects(const framework::WorldModule& world, ShmupLibrary& li
         for (std::size_t layer = 0; layer < stage.layerCount; ++layer) {
             if (const Status status = bind(stage.layers[layer].visual); !status) return status;
         }
+        for (std::size_t obstacle = 0; obstacle < stage.obstacleCount; ++obstacle) {
+            ShmupObstacle& entry = stage.obstacles[obstacle];
+            if (const Status status = bind(entry.visual); !status) return status;
+            if (entry.visual.archetype == nullptr) continue;
+            const framework::SpriteSheetSpec& sprite = entry.visual.archetype->sprite();
+            if (sprite.frameWidth <= 0 || sprite.frameHeight <= 0 ||
+                static_cast<int>(entry.width) % sprite.frameWidth != 0 ||
+                static_cast<int>(entry.height) % sprite.frameHeight != 0) {
+                return bad("stages.obstacles",
+                           "Obstacle width and height must be multiples of the object frame size.");
+            }
+        }
         if (!animationExists(stage.boss.visual, stage.boss.hitAnimation)) {
             return bad("boss.hitAnimation", "The boss object has no animation with that name.");
         }
@@ -405,6 +468,9 @@ void ShmupSession::begin(const ShmupStage& stage) noexcept {
     *this = {};
     stage_ = &stage;
     health_ = stage.player.health;
+    for (std::size_t index = 0; index < stage.obstacleCount; ++index) {
+        obstacleHealth_[index] = stage.obstacles[index].health;
+    }
     ship_ = {48.0F, kShmupHeight * 0.5F - stage.player.height * 0.5F};
 }
 
@@ -694,6 +760,22 @@ void ShmupSession::resolveHits() noexcept {
     const ShmupBoss& boss = stage_->boss;
     for (ShmupBullet& shot : playerShots_) {
         if (!shot.active) continue;
+        for (std::size_t index = 0; index < stage_->obstacleCount && shot.active; ++index) {
+            const ShmupObstacle& obstacle = stage_->obstacles[index];
+            if (!obstacleAlive(index) ||
+                !overlap(shot.x, shot.y, shot.size * 2.0F, shot.size, obstacleX(index), obstacle.y,
+                         obstacle.width, obstacle.height)) {
+                continue;
+            }
+            shot.active = false;
+            if (obstacle.kind == ShmupObstacleKind::Debris &&
+                (obstacleHealth_[index] -= spec.bulletDamage) <= 0) {
+                obstacleHealth_[index] = 0;
+                ++kills_;
+                score_ += obstacle.score;
+            }
+        }
+        if (!shot.active) continue;
         for (ShmupEnemyState& enemy : enemies_) {
             if (!enemy.active) continue;
             const ShmupEnemyType& type = stage_->enemyTypes[enemy.type];
@@ -744,10 +826,28 @@ void ShmupSession::resolveHits() noexcept {
     const float hitW = spec.width - 2.0F * kHitInset;
     const float hitH = spec.height - 2.0F * kHitInset;
     for (ShmupBullet& bullet : enemyShots_) {
+        if (!bullet.active) continue;
+        for (std::size_t index = 0; index < stage_->obstacleCount; ++index) {
+            const ShmupObstacle& obstacle = stage_->obstacles[index];
+            if (obstacleAlive(index) &&
+                overlap(bullet.x - bullet.size * 0.5F, bullet.y - bullet.size * 0.5F, bullet.size,
+                        bullet.size, obstacleX(index), obstacle.y, obstacle.width, obstacle.height)) {
+                bullet.active = false;
+                break;
+            }
+        }
         if (bullet.active &&
             overlap(bullet.x - bullet.size * 0.5F, bullet.y - bullet.size * 0.5F, bullet.size,
                     bullet.size, hitX, hitY, hitW, hitH)) {
             bullet.active = false;
+            hurtPlayer();
+        }
+    }
+    for (std::size_t index = 0; index < stage_->obstacleCount; ++index) {
+        const ShmupObstacle& obstacle = stage_->obstacles[index];
+        if (obstacleAlive(index) &&
+            overlap(obstacleX(index), obstacle.y, obstacle.width, obstacle.height, hitX, hitY, hitW,
+                    hitH)) {
             hurtPlayer();
         }
     }
