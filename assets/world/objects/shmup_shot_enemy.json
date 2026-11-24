@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_shot_enemy",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/shot_enemy.png",
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "offset": [
+      0,
+      0
+    ]
+  },
+  "bounds": [
+    16,
+    16
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 8,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}

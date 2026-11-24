@@ -229,6 +229,7 @@ framework::Status FrameworkIntegration::loadWorld(const char* contentRoot) noexc
     status = loadFile("shmup/stages.json", [&](framework::JsonValue root) {
         return parseShmupLibrary(root, worldLayout_->shmup);
     });
+    if (status) status = resolveShmupObjects(*worldModule_, worldLayout_->shmup);
     if (!status) return status;
     worldLayout_->worldLighting = worldLighting_;
     for (const PropLayout& prop : worldLayout_->propList()) {

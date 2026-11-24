@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_gunship",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/gunship.png",
+    "frameWidth": 44,
+    "frameHeight": 30,
+    "offset": [
+      -2,
+      -1
+    ]
+  },
+  "bounds": [
+    44,
+    30
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 8,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}

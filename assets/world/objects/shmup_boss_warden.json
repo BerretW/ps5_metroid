@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_boss_warden",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/warden_core.png",
+    "frameWidth": 104,
+    "frameHeight": 104,
+    "offset": [
+      -4,
+      0
+    ]
+  },
+  "bounds": [
+    104,
+    104
+  ],
+  "animations": {
+    "phase1": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 6,
+      "loop": true
+    },
+    "phase2": {
+      "row": 1,
+      "column": 0,
+      "frames": 2,
+      "fps": 9,
+      "loop": true
+    },
+    "phase3": {
+      "row": 2,
+      "column": 0,
+      "frames": 2,
+      "fps": 12,
+      "loop": true
+    },
+    "hit": {
+      "row": 3,
+      "column": 0,
+      "frames": 2,
+      "fps": 15,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "phase1"
+}

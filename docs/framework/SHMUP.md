@@ -21,17 +21,25 @@ attacks per phase.
   `completionFact`, optional `rewardItem` (must exist in the item catalog), `player`,
   `enemyTypes`, `waves`, `boss`.
 - `player`: `health`, `speed`, `width`, `height`, `fireInterval`, `bulletSpeed`,
-  `bulletDamage`, `invulnerability`.
-- Enemy type: `id`, `health`, `width`, `height`, `score`, `color`, `motion`, optional `attack`.
+  `bulletDamage`, `invulnerability`, plus `object` (ship) and `shotObject`.
+- Enemy type: `id`, `health`, `width`, `height`, `score`, `color`, `motion`, optional `attack`,
+  optional `object`.
+- Visuals: every `object` is an `echo:object/...` world object registered in `world.json`; its
+  PNG sprite sheet and animations draw the entity (`idle` is used, boss phases use the phase
+  `animation`, and `hitAnimation` plays while flashing). Stage `enemyShotObject` draws enemy
+  bullets, and `layers` (up to 4: `object`, `scrollFactor`, `y`) are horizontally tiled
+  parallax backgrounds. Unknown objects or boss animations reject startup; entities without an
+  object (headless tests) fall back to coloured panels. Shipped sheets live in
+  `assets/sprites/shmup/`.
 - Motion `kind`: `straight`, `sine` (`amplitude`, `frequency`), `dive` (homes on the pilot's
   height once near), `hold` (flies to `anchorX`, then bobs); bosses also use `patrol` and
   `track`.
 - Attack `kind`: `aimed`, `spread`, `stream`, `radial`, `wall`, with `interval`, `delay`,
   `count`, `spreadDegrees`, `bulletSpeed`, `bulletSize`.
 - Wave: `time`, `enemy` (enemy type id), `count`, `y`, `yStep`, `spacing`.
-- Boss: `name`, `health`, `width`, `height`, `spawnTime`, `y`, `color`, `phases`. The first
+- Boss: `name`, `health`, `width`, `height`, `spawnTime`, `y`, `color`, `object`, `hitAnimation`, `phases`. The first
   phase starts at `healthBelow: 1.0`; later phases use strictly decreasing fractions. Each phase
-  has `motion`, `attacks`, optional `transitionSeconds` and optional
+  has `motion`, `attacks`, optional `animation`, optional `transitionSeconds` and optional
   `summon: { enemy, count, interval }`. A phase change makes the boss invulnerable for
   `transitionSeconds` and clears enemy bullets.
 

@@ -1637,8 +1637,8 @@ int main() {
             check(static_cast<bool>(worldGame.configureWorld(*worldLayout)),
                   "the packaged world layout configures a game");
             canvasSprites[static_cast<std::size_t>(echo::platform::Sprite::Player)].width = 192;
-            check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 20 &&
-                      pad.worldSheetCount() == 20,
+            check(pad.loadWorldSprites(ECHO_SOURCE_ASSETS, worldGame.world()) == 32 &&
+                      pad.worldSheetCount() == 32,
                   "every world sprite sheet and tileset referenced by JSON decodes");
             auto canvasWorldSprites =
                 std::make_unique<echo::platform::CanvasWorldSprites>();
@@ -1711,6 +1711,10 @@ int main() {
                 addObjectSprite(archetypes.engineer) && addObjectSprite(archetypes.pickup) &&
                 addObjectSprite(archetypes.projectile) &&
                 addObjectSprite(archetypes.enemyProjectile) && addObjectSprite(archetypes.loot);
+            echo::forEachShmupObject(loadedWorld.shmup,
+                                     [&](const echo::framework::ObjectDefinition* object) {
+                                         worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(object);
+                                     });
             for (const echo::EnemySpawn& enemy : loadedWorld.enemies) {
                 worldSpritesLoaded = worldSpritesLoaded && addObjectSprite(enemy.archetype);
             }
@@ -1731,7 +1735,7 @@ int main() {
                         addWorldSprite(tileset.sheet.data(), tileset.material);
                 }
             }
-            check(worldSpritesLoaded && canvasWorldSprites->count == 21,
+            check(worldSpritesLoaded && canvasWorldSprites->count == 33,
                   "world sprite handles are populated from every JSON-referenced sheet");
             spriteProbe = {};
             check(keyboard.recordGame(spriteProbe, worldGame, false, false, "SPACE", "J", "E",

@@ -205,6 +205,11 @@ bool loadCanvasWorldSprites(rendering::IRenderBackend& backend, const char* asse
         if (door.visible && !addObject(door.archetype)) return false;
     }
     for (const PropLayout& prop : world.propList()) if (!addObject(prop.archetype)) return false;
+    bool shmupLoaded = true;
+    forEachShmupObject(world.shmup, [&](const framework::ObjectDefinition* object) {
+        shmupLoaded = shmupLoaded && addObject(object);
+    });
+    if (!shmupLoaded) return false;
     for (const RoomLayout& room : world.rooms) {
         if (room.definition == nullptr) continue;
         for (const framework::TilesetSpec& tileset : room.definition->tilesets()) {

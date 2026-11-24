@@ -147,8 +147,9 @@ template <std::size_t N>
         return {ErrorCode::CapacityExceeded, "enemyTypes", "A stage supports at most eight enemy types."};
     }
     ShmupEnemyType type{};
-    if (!onlyKeys(value, {"id", "health", "width", "height", "score", "motion", "attack", "color"}) ||
+    if (!onlyKeys(value, {"id", "health", "width", "height", "score", "motion", "attack", "color", "object"}) ||
         !readText(value, "id", type.id, true, false) ||
+        !readText(value, "object", type.visual.object, false, true) ||
         findEnemyType(stage, type.id.data()) >= 0 ||
         !readInt(value, "health", type.health, 1, 99) ||
         !readNumber(value, "width", type.width, 8.0F, 128.0F) ||
@@ -167,8 +168,11 @@ template <std::size_t N>
 [[nodiscard]] Status parseBoss(JsonValue value, ShmupStage& stage) noexcept {
     ShmupBoss& boss = stage.boss;
     const JsonValue phases = value.find("phases");
-    if (!onlyKeys(value, {"name", "health", "width", "height", "spawnTime", "y", "color", "phases"}) ||
+    if (!onlyKeys(value, {"name", "health", "width", "height", "spawnTime", "y", "color", "phases",
+                          "object", "hitAnimation"}) ||
         !readText(value, "name", boss.name, true, false) ||
+        !readText(value, "object", boss.visual.object, false, true) ||
+        !readText(value, "hitAnimation", boss.hitAnimation, false, false) ||
         !readInt(value, "health", boss.health, 1, 999) ||
         !readNumber(value, "width", boss.width, 16.0F, 200.0F) ||
         !readNumber(value, "height", boss.height, 16.0F, 200.0F) ||
@@ -182,7 +186,9 @@ template <std::size_t N>
     for (std::size_t index = 0; index < phases.size(); ++index) {
         const JsonValue entry = phases.at(index);
         ShmupBossPhase phase{};
-        if (!onlyKeys(entry, {"healthBelow", "transitionSeconds", "motion", "attacks", "summon"}) ||
+        if (!onlyKeys(entry, {"healthBelow", "transitionSeconds", "motion", "attacks", "summon",
+                              "animation"}) ||
+            !readText(entry, "animation", phase.animation, false, false) ||
             !readNumber(entry, "healthBelow", phase.healthBelow, 0.05F, 1.0F) ||
             !readNumber(entry, "transitionSeconds", phase.transitionSeconds, 0.0F, 5.0F) ||
             !readMotion(entry.find("motion"), true, phase.motion)) {
@@ -224,7 +230,8 @@ template <std::size_t N>
 
 [[nodiscard]] Status parseStage(JsonValue value, ShmupStage& stage) noexcept {
     if (!onlyKeys(value, {"id", "name", "background", "scrollSpeed", "player", "completionFact",
-                          "rewardItem", "enemyTypes", "waves", "boss"}) ||
+                          "rewardItem", "enemyTypes", "waves", "boss", "enemyShotObject", "layers"}) ||
+        !readText(value, "enemyShotObject", stage.enemyShot.object, false, true) ||
         !readText(value, "id", stage.id, true, true) ||
         !readText(value, "name", stage.name, true, false) ||
         !readColor(value, "background", stage.background) ||
@@ -237,7 +244,9 @@ template <std::size_t N>
     if (player.valid()) {
         ShmupPlayerSpec& spec = stage.player;
         if (!onlyKeys(player, {"health", "speed", "width", "height", "fireInterval", "bulletSpeed",
-                               "bulletDamage", "invulnerability"}) ||
+                               "bulletDamage", "invulnerability", "object", "shotObject"}) ||
+            !readText(player, "object", spec.visual.object, false, true) ||
+            !readText(player, "shotObject", spec.shot.object, false, true) ||
             !readInt(player, "health", spec.health, 1, 12) ||
             !readNumber(player, "speed", spec.speed, 40.0F, 400.0F) ||
             !readNumber(player, "width", spec.width, 8.0F, 64.0F) ||
@@ -247,6 +256,23 @@ template <std::size_t N>
             !readInt(player, "bulletDamage", spec.bulletDamage, 1, 20) ||
             !readNumber(player, "invulnerability", spec.invulnerability, 0.0F, 5.0F)) {
             return bad("stages.player", "The player ship settings are invalid.");
+        }
+    }
+    const JsonValue layers = value.find("layers");
+    if (layers.valid()) {
+        if (!layers.isArray() || layers.size() > kMaxShmupLayers) {
+            return bad("stages.layers", "A stage lists at most four background layers.");
+        }
+        for (std::size_t index = 0; index < layers.size(); ++index) {
+            const JsonValue entry = layers.at(index);
+            ShmupLayer layer{};
+            if (!onlyKeys(entry, {"object", "scrollFactor", "y"}) ||
+                !readText(entry, "object", layer.visual.object, true, true) ||
+                !readNumber(entry, "scrollFactor", layer.scrollFactor, 0.0F, 4.0F) ||
+                !readNumber(entry, "y", layer.y, 0.0F, kShmupHeight)) {
+                return bad("stages.layers", "A background layer needs an object and bounded settings.");
+            }
+            stage.layers[stage.layerCount++] = layer;
         }
     }
     const JsonValue types = value.find("enemyTypes");
@@ -331,6 +357,46 @@ Status parseShmupLibrary(JsonValue root, ShmupLibrary& output) noexcept {
             return {ErrorCode::DuplicateId, "stages", "SHMUP stage IDs must be unique."};
         }
         output.stages[output.stageCount++] = stage;
+    }
+    return Status::success();
+}
+
+Status resolveShmupObjects(const framework::WorldModule& world, ShmupLibrary& library) noexcept {
+    const auto bind = [&](ShmupVisual& visual) -> Status {
+        const std::string_view id = visual.object.data();
+        if (id.empty()) return Status::success();
+        visual.archetype = world.findObject(id);
+        if (visual.archetype == nullptr || visual.archetype->isAbstract()) {
+            return {ErrorCode::MissingDependency, id, "A SHMUP stage references an unknown world object."};
+        }
+        return Status::success();
+    };
+    const auto animationExists = [](const ShmupVisual& visual, const std::array<char, 24>& name) {
+        const std::string_view text = name.data();
+        return text.empty() || visual.archetype == nullptr ||
+               visual.archetype->findAnimation(text) != nullptr;
+    };
+    for (std::size_t index = 0; index < library.stageCount; ++index) {
+        ShmupStage& stage = library.stages[index];
+        std::array<ShmupVisual*, 4> singles{&stage.player.visual, &stage.player.shot, &stage.enemyShot,
+                                            &stage.boss.visual};
+        for (ShmupVisual* visual : singles) {
+            if (const Status status = bind(*visual); !status) return status;
+        }
+        for (std::size_t type = 0; type < stage.enemyTypeCount; ++type) {
+            if (const Status status = bind(stage.enemyTypes[type].visual); !status) return status;
+        }
+        for (std::size_t layer = 0; layer < stage.layerCount; ++layer) {
+            if (const Status status = bind(stage.layers[layer].visual); !status) return status;
+        }
+        if (!animationExists(stage.boss.visual, stage.boss.hitAnimation)) {
+            return bad("boss.hitAnimation", "The boss object has no animation with that name.");
+        }
+        for (std::size_t phase = 0; phase < stage.boss.phaseCount; ++phase) {
+            if (!animationExists(stage.boss.visual, stage.boss.phases[phase].animation)) {
+                return bad("boss.phases.animation", "The boss object has no animation with that name.");
+            }
+        }
     }
     return Status::success();
 }

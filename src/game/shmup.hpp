@@ -2,6 +2,7 @@
 
 #include "echo/framework/core.hpp"
 #include "echo/framework/data.hpp"
+#include "echo/framework/world.hpp"
 
 #include <array>
 #include <cstddef>
@@ -9,6 +10,14 @@
 #include <string_view>
 
 namespace echo {
+
+// A world object (echo:object/...) that supplies PNG sprites and animations. The pointer is
+// resolved from the world module at load time; it stays null in headless fixtures.
+struct ShmupVisual {
+    std::array<char, 96> object{};
+    const framework::ObjectDefinition* archetype{};
+};
+inline constexpr std::size_t kMaxShmupLayers = 4;
 
 // Fixed capacities keep the SHMUP mode free of dynamic allocation.
 inline constexpr std::size_t kMaxShmupStages = 4;
@@ -68,6 +77,7 @@ struct ShmupEnemyType {
     ShmupMotion motion{};
     ShmupAttack attack{};
     std::array<std::uint8_t, 3> color{220, 90, 80};
+    ShmupVisual visual{};
 };
 
 struct ShmupWave {
@@ -90,6 +100,8 @@ struct ShmupBossPhase {
     int summonType{-1};
     int summonCount{1};
     float summonInterval{4.0F};
+    // Animation of the boss object shown during this phase (empty keeps the default).
+    std::array<char, 24> animation{};
 };
 
 struct ShmupBoss {
@@ -102,6 +114,8 @@ struct ShmupBoss {
     std::array<std::uint8_t, 3> color{150, 70, 200};
     std::array<ShmupBossPhase, kMaxShmupPhases> phases{};
     std::size_t phaseCount{};
+    ShmupVisual visual{};
+    std::array<char, 24> hitAnimation{}; // shown while flashing after a hit or phase change
 };
 
 struct ShmupPlayerSpec {
@@ -113,6 +127,15 @@ struct ShmupPlayerSpec {
     float bulletSpeed{460.0F};
     int bulletDamage{1};
     float invulnerability{1.2F};
+    ShmupVisual visual{};
+    ShmupVisual shot{};
+};
+
+// A scrolling background strip; it tiles horizontally and moves at `scrollFactor` x the stage speed.
+struct ShmupLayer {
+    ShmupVisual visual{};
+    float scrollFactor{1.0F};
+    float y{};
 };
 
 struct ShmupStage {
@@ -129,6 +152,9 @@ struct ShmupStage {
     std::array<ShmupWave, kMaxShmupWaves> waves{};
     std::size_t waveCount{};
     ShmupBoss boss{};
+    ShmupVisual enemyShot{};
+    std::array<ShmupLayer, kMaxShmupLayers> layers{};
+    std::size_t layerCount{};
 
     [[nodiscard]] std::string_view idText() const noexcept { return id.data(); }
 };
@@ -144,6 +170,29 @@ struct ShmupLibrary {
 // Parses and strictly validates a stage library (assets/shmup/stages.json).
 [[nodiscard]] framework::Status parseShmupLibrary(framework::JsonValue root,
                                                   ShmupLibrary& output) noexcept;
+
+// Binds every referenced echo:object/... to its world definition; unknown objects or boss
+// animations are errors. Call after the world module is finalized.
+[[nodiscard]] framework::Status resolveShmupObjects(const framework::WorldModule& world,
+                                                    ShmupLibrary& library) noexcept;
+
+// Visits every bound object of a library (for sprite sheet loading).
+template <typename Visitor>
+void forEachShmupObject(const ShmupLibrary& library, Visitor&& visit) {
+    for (std::size_t index = 0; index < library.stageCount; ++index) {
+        const ShmupStage& stage = library.stages[index];
+        visit(stage.player.visual.archetype);
+        visit(stage.player.shot.archetype);
+        visit(stage.enemyShot.archetype);
+        visit(stage.boss.visual.archetype);
+        for (std::size_t type = 0; type < stage.enemyTypeCount; ++type) {
+            visit(stage.enemyTypes[type].visual.archetype);
+        }
+        for (std::size_t layer = 0; layer < stage.layerCount; ++layer) {
+            visit(stage.layers[layer].visual.archetype);
+        }
+    }
+}
 
 struct ShmupInput {
     int moveX{};

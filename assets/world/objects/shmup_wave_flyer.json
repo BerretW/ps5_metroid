@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_wave_flyer",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/wave_flyer.png",
+    "frameWidth": 28,
+    "frameHeight": 22,
+    "offset": [
+      -2,
+      -2
+    ]
+  },
+  "bounds": [
+    28,
+    22
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 8,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}

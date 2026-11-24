@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_bg_hull",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/bg_hull.png",
+    "frameWidth": 320,
+    "frameHeight": 360,
+    "offset": [
+      0,
+      0
+    ]
+  },
+  "bounds": [
+    320,
+    360
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 1,
+      "fps": 1,
+      "loop": false
+    }
+  },
+  "defaultAnimation": "idle"
+}

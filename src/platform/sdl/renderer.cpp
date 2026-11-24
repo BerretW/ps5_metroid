@@ -374,6 +374,7 @@ int Renderer::loadWorldSprites(const char* assetDirectory, const WorldLayout& wo
         if (door.visible) loadObject(door.archetype);
     }
     for (const PropLayout& prop : world.propList()) loadObject(prop.archetype);
+    forEachShmupObject(world.shmup, loadObject);
     for (const RoomLayout& room : world.rooms) {
         if (room.definition == nullptr) continue;
         for (const framework::TilesetSpec& tileset : room.definition->tilesets()) {
@@ -1178,9 +1179,29 @@ void Renderer::drawShmup(const Game& game, bool paused) noexcept {
     if (stage == nullptr) return;
     panel({0, 0, 640, 360}, SDL_Color{stage->background[0], stage->background[1],
                                        stage->background[2], 255});
-    // Three parallax star layers derived from the scroll distance; no state is mutated.
+    const Uint64 ticks = SDL_GetTicks64();
+    // Parallax layers come from JSON world objects; the scroll distance drives them statelessly.
+    bool layersDrawn = stage->layerCount > 0;
+    for (std::size_t index = 0; index < stage->layerCount; ++index) {
+        const ShmupLayer& layer = stage->layers[index];
+        if (layer.visual.archetype == nullptr) {
+            layersDrawn = false;
+            continue;
+        }
+        const framework::SpriteSheetSpec& spec = layer.visual.archetype->sprite();
+        const float tile = static_cast<float>(spec.frameWidth);
+        float offset = std::fmod(session.scroll() * layer.scrollFactor, tile);
+        if (offset < 0.0F) offset += tile;
+        for (float x = -offset; x < 640.0F; x += tile) {
+            if (!drawObject(layer.visual.archetype, "idle", ticks,
+                            {x, layer.y, tile, static_cast<float>(spec.frameHeight)}, 0.0F, false)) {
+                layersDrawn = false;
+            }
+        }
+    }
+    // Fallback for stages without object-backed layers: three procedural star layers.
     constexpr std::array<float, 3> kStarSpeed{0.25F, 0.55F, 1.0F};
-    for (std::size_t layer = 0; layer < kStarSpeed.size(); ++layer) {
+    for (std::size_t layer = 0; layer < kStarSpeed.size() && !layersDrawn; ++layer) {
         for (std::uint32_t star = 0; star < 28; ++star) {
             const std::uint32_t hash = (star + 1U) * 2654435761U + static_cast<std::uint32_t>(layer) * 40503U;
             const float baseX = static_cast<float>((hash >> 7) % 700U);
@@ -1204,6 +1225,11 @@ void Renderer::drawShmup(const Game& game, bool paused) noexcept {
         const int y = static_cast<int>(enemy.y);
         const int w = static_cast<int>(type.width);
         const int h = static_cast<int>(type.height);
+        if (drawObject(type.visual.archetype, "idle", ticks, {enemy.x, enemy.y, type.width, type.height},
+                       0.0F, false)) {
+            if (enemy.flash > 0.0F) outline({x, y, w, h}, SDL_Color{255, 255, 255, 255});
+            continue;
+        }
         panel({x, y + h / 4, w, h / 2}, body);
         panel({x + w / 4, y, w / 2, h}, body);
         panel({x + 2, y + h / 2 - 2, 5, 4}, SDL_Color{20, 10, 14, 255});
@@ -1218,23 +1244,39 @@ void Renderer::drawShmup(const Game& game, bool paused) noexcept {
         const int h = static_cast<int>(definition.height);
         const bool shifting = boss.transitionLeft > 0.0F &&
                               static_cast<int>(boss.transitionLeft * 12.0F) % 2 == 0;
-        const SDL_Color body = boss.flash > 0.0F || shifting
-            ? SDL_Color{255, 255, 255, 255}
-            : SDL_Color{definition.color[0], definition.color[1], definition.color[2], 255};
-        panel({x, y + h / 6, w, h * 2 / 3}, body);
-        panel({x + w / 6, y, w * 2 / 3, h}, body);
-        panel({x - 10, y + h / 2 - 6, 14, 12}, kOrange);
-        const std::uint8_t core = static_cast<std::uint8_t>(80 + boss.phase * 70);
-        panel({x + w / 3, y + h / 3, w / 3, h / 3}, SDL_Color{core, 40, 60, 255});
+        const std::size_t phaseIndex =
+            std::min<std::size_t>(boss.phase, definition.phaseCount > 0 ? definition.phaseCount - 1 : 0);
+        const std::string_view animation = boss.flash > 0.0F || shifting
+            ? std::string_view(definition.hitAnimation.data())
+            : std::string_view(definition.phases[phaseIndex].animation.data());
+        if (!drawObject(definition.visual.archetype, animation, ticks,
+                        {boss.x, boss.y, definition.width, definition.height}, 0.0F, false)) {
+            const SDL_Color body = boss.flash > 0.0F || shifting
+                ? SDL_Color{255, 255, 255, 255}
+                : SDL_Color{definition.color[0], definition.color[1], definition.color[2], 255};
+            panel({x, y + h / 6, w, h * 2 / 3}, body);
+            panel({x + w / 6, y, w * 2 / 3, h}, body);
+            panel({x - 10, y + h / 2 - 6, 14, 12}, kOrange);
+            const std::uint8_t core = static_cast<std::uint8_t>(80 + boss.phase * 70);
+            panel({x + w / 3, y + h / 3, w / 3, h / 3}, SDL_Color{core, 40, 60, 255});
+        }
     }
 
     for (const ShmupBullet& shot : session.playerShots()) {
         if (!shot.active) continue;
+        if (drawObject(stage->player.shot.archetype, "idle", ticks, {shot.x, shot.y - 1.0F, 12.0F, 6.0F},
+                       0.0F, false)) {
+            continue;
+        }
         panel({static_cast<int>(shot.x), static_cast<int>(shot.y), 12, 4}, kCyan);
     }
     for (const ShmupBullet& bullet : session.enemyShots()) {
         if (!bullet.active) continue;
         const int size = static_cast<int>(bullet.size);
+        if (drawObject(stage->enemyShot.archetype, "idle", ticks,
+                       {bullet.x - 8.0F, bullet.y - 8.0F, 16.0F, 16.0F}, 0.0F, false)) {
+            continue;
+        }
         panel({static_cast<int>(bullet.x) - size / 2, static_cast<int>(bullet.y) - size / 2, size, size},
               SDL_Color{255, 214, 120, 255});
         panel({static_cast<int>(bullet.x) - size / 4, static_cast<int>(bullet.y) - size / 4,
@@ -1250,9 +1292,12 @@ void Renderer::drawShmup(const Game& game, bool paused) noexcept {
         const int y = static_cast<int>(ship.y);
         const int w = static_cast<int>(stage->player.width);
         const int h = static_cast<int>(stage->player.height);
-        panel({x, y + h / 3, w, h / 3}, kCyan);
-        panel({x + w / 4, y, w / 3, h}, SDL_Color{40, 150, 170, 255});
-        panel({x - 6, y + h / 2 - 2, 6, 4}, kOrange);
+        if (!drawObject(stage->player.visual.archetype, "idle", ticks,
+                        {ship.x, ship.y, stage->player.width, stage->player.height}, 0.0F, false)) {
+            panel({x, y + h / 3, w, h / 3}, kCyan);
+            panel({x + w / 4, y, w / 3, h}, SDL_Color{40, 150, 170, 255});
+            panel({x - 6, y + h / 2 - 2, 6, 4}, kOrange);
+        }
     }
 
     panel({0, 0, 640, 22}, SDL_Color{4, 10, 17, 218});

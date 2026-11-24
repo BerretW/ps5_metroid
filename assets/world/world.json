@@ -29,7 +29,19 @@
     "echo:object/trigger_power_survey",
     "echo:object/door_power_bypass",
     "echo:object/door_power_return",
-    "echo:object/door_shmup_hangar"
+    "echo:object/door_shmup_hangar",
+    "echo:object/shmup_ship",
+    "echo:object/shmup_drifter",
+    "echo:object/shmup_wave_flyer",
+    "echo:object/shmup_diver",
+    "echo:object/shmup_gunship",
+    "echo:object/shmup_drone",
+    "echo:object/shmup_shot_player",
+    "echo:object/shmup_shot_enemy",
+    "echo:object/shmup_bg_stars",
+    "echo:object/shmup_bg_dust",
+    "echo:object/shmup_bg_hull",
+    "echo:object/shmup_boss_warden"
   ],
   "rooms": [
     "echo:room/station_base",

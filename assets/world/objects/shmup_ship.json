@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_ship",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/ship.png",
+    "frameWidth": 32,
+    "frameHeight": 16,
+    "offset": [
+      -3,
+      -1
+    ]
+  },
+  "bounds": [
+    32,
+    16
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 8,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}

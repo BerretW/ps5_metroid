@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "echo:object/shmup_diver",
+  "category": "prop",
+  "sprite": {
+    "sheet": "sprites/shmup/diver.png",
+    "frameWidth": 24,
+    "frameHeight": 22,
+    "offset": [
+      -1,
+      -1
+    ]
+  },
+  "bounds": [
+    24,
+    22
+  ],
+  "animations": {
+    "idle": {
+      "row": 0,
+      "column": 0,
+      "frames": 2,
+      "fps": 8,
+      "loop": true
+    }
+  },
+  "defaultAnimation": "idle"
+}
