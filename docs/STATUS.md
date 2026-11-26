@@ -6,7 +6,7 @@ Statuses are evidence-based: **PASS**, **FAIL**, or **NOT TESTED**. Update after
 bounded Lua snippets against synthetic AI and UI inputs/outputs. Its host tests
 pass for repeated results, invalid outputs, unavailable OS APIs, source,
 memory and instruction limits, and error handling. The Windows game build and
-22/22 existing tests also pass. The experiment is not integrated into gameplay,
+23/23 existing tests pass. The experiment is not integrated into gameplay,
 a general scene editor is not implemented, and Lua on PS5 is NOT TESTED.
 
 **Native map workspace:** Windows can build an initial room tile-grid editor
@@ -17,6 +17,15 @@ not the game renderer; object placement, full scene editing, UI layout and Lua
 integration remain unfinished. Windows Debug build/tests pass 23/23; the
 editor window opened, but interactive map editing was not verified. PS5
 execution is unaffected and not tested by this host-only tool.
+
+**Script binding authoring foundation (2026-11-26):** `game.json` now declares
+a versioned Lua binding block for one enemy-AI target and one UI-visibility
+target. The native property inspector edits bounded source text, and the
+PROJECT ECHO content validator rejects unknown kinds, mismatched targets,
+duplicate bindings, oversized or empty source, and duplicate JSON fields.
+Windows Debug build/tests pass 23/23 and the isolated Lua prototype passes 1/1.
+This is an authoring contract only: Lua is not executed by PROJECT ECHO or
+packaged for PS5.
 
 **PS5 operator report (2026-11-23):** The operator reported that the current
 Vulkan package works on PS5. The binary digest, hardware setup and specific

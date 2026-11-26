@@ -287,7 +287,9 @@ void selectField(App& app, int index) {
     if (index >= 0 && static_cast<std::size_t>(index) < app.model.fields().size()) {
         const auto& field = app.model.fields()[static_cast<std::size_t>(index)];
         std::wstring description = wide(field.label);
-        if (field.kind != echo::editor::FieldKind::Objective)
+        if (field.kind == echo::editor::FieldKind::Script)
+            description += L"\r\nLua source, 1-4096 bytes";
+        else if (field.kind != echo::editor::FieldKind::Objective)
             description += L"\r\nAllowed: " + std::to_wstring(field.minimum) + L" - " +
                            std::to_wstring(field.maximum);
         else description += L"\r\nGame font, maximum 48 characters";
@@ -304,7 +306,7 @@ void selectField(App& app, int index) {
 bool applyValue(App& app) {
     if (!app.valueDirty) return true;
     const int size = GetWindowTextLengthW(app.value);
-    if (size > 1024) { error(app.window, L"Value is too long."); return false; }
+    if (size > 4096) { error(app.window, L"Value is too long."); return false; }
     std::vector<wchar_t> buffer(static_cast<std::size_t>(size) + 1);
     if (GetWindowTextW(app.value, buffer.data(), size + 1) != size) {
         error(app.window, L"Could not read the property value.");

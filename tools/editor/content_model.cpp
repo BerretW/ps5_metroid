@@ -8,6 +8,7 @@
 #include "yyjson.h"
 
 #include <charconv>
+#include <cstring>
 #include <cstdlib>
 #include <memory>
 
@@ -99,6 +100,40 @@ bool inspect(std::string_view source, std::vector<Field>& fields, std::string& e
                                   std::string(text), 0, 0});
             }
         }
+        const JsonValue scripts = root.find("scripts");
+        if (scripts.valid()) {
+            std::int64_t schemaVersion{};
+            if (!scripts.isObject() ||
+                !scripts.find("schemaVersion").integer(schemaVersion) ||
+                schemaVersion != 1) {
+                error = "Script schema version must be 1.";
+                return false;
+            }
+            const JsonValue bindings = scripts.find("bindings");
+            if (!bindings.isArray() || bindings.size() == 0 || bindings.size() > 16) {
+                error = "Script bindings must be a non-empty bounded array.";
+                return false;
+            }
+            for (std::size_t i = 0; i < bindings.size(); ++i) {
+                std::string_view id, kind, target, source;
+                if (!bindings.at(i).isObject() ||
+                    !bindings.at(i).find("id").string(id) ||
+                    !bindings.at(i).find("kind").string(kind) ||
+                    !bindings.at(i).find("target").string(target) ||
+                    !bindings.at(i).find("source").string(source) ||
+                    id.empty() || id.size() > 64 ||
+                    (kind != "enemy_ai" && kind != "ui_visibility") ||
+                    target.empty() || target.size() > 64 ||
+                    source.empty() || source.size() > 4096 ||
+                    std::memchr(source.data(), '\0', source.size()) != nullptr) {
+                    error = "Invalid script binding.";
+                    return false;
+                }
+                fields.push_back({FieldKind::Script, i, 0,
+                                  std::string(id) + " / " + std::string(kind),
+                                  std::string(source), 1, 4096});
+            }
+        }
         return true;
     }
     if (root.find("id").string(id) && id == "echo:object/enemy_stalker") {
@@ -161,6 +196,12 @@ bool ContentModel::edit(std::size_t index, std::string_view value, std::string& 
             error = "Objective text must use the game font and contain 1-48 characters.";
             return false;
         }
+    } else if (field.kind == FieldKind::Script) {
+        if (value.empty() || value.size() > 4096 ||
+            std::memchr(value.data(), '\0', value.size()) != nullptr) {
+            error = "Script source must contain 1-4096 bytes and no embedded NUL.";
+            return false;
+        }
     } else {
         const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
         if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
@@ -188,6 +229,10 @@ bool ContentModel::edit(std::size_t index, std::string_view value, std::string& 
         auto* attrs = yyjson_mut_obj_get(root, "attributes");
         auto* definitions = yyjson_mut_obj_get(attrs, "definitions");
         target = yyjson_mut_obj_get(yyjson_mut_arr_get(definitions, field.first), "baseValue");
+    } else if (field.kind == FieldKind::Script) {
+        auto* scripts = yyjson_mut_obj_get(root, "scripts");
+        auto* bindings = yyjson_mut_obj_get(scripts, "bindings");
+        target = yyjson_mut_obj_get(yyjson_mut_arr_get(bindings, field.first), "source");
     } else if (field.kind == FieldKind::Stalker) {
         constexpr const char* names[] = {"health", "speed", "detectionRange"};
         target = yyjson_mut_obj_get(yyjson_mut_obj_get(root, "properties"), names[field.first]);
@@ -197,7 +242,8 @@ bool ContentModel::edit(std::size_t index, std::string_view value, std::string& 
         auto* objectives = yyjson_mut_obj_get(quest, "objectives");
         target = yyjson_mut_obj_get(yyjson_mut_arr_get(objectives, field.second), "text");
     }
-    if (!target || !(field.kind == FieldKind::Objective
+    if (!target || !((field.kind == FieldKind::Objective ||
+                      field.kind == FieldKind::Script)
                          ? yyjson_mut_set_strn(target, value.data(), value.size())
                          : yyjson_mut_set_sint(target, number))) {
         error = "Could not update the selected field.";

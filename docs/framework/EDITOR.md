@@ -14,7 +14,9 @@ connected to this tool or to the game.
 4. Choose **Save** and confirm to replace the opened file. The editor validates
    the complete world and game layout before saving. To edit other properties,
    open `assets\framework\game.json` for attributes and quest text, or
-   `assets\world\objects\enemy_stalker.json` for stalker tuning.
+   `assets\world\objects\enemy_stalker.json` for stalker tuning. The same game
+   file exposes bounded script-source fields for the enemy-AI and
+   UI-visibility authoring prototypes.
 5. Rebuild with `.\scripts\build-windows.ps1`, then run
    `.\build\windows\project_echo_vulkan.exe`. The build copies source assets
    beside the game executable. Changes to a running game require a restart;

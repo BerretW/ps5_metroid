@@ -159,6 +159,16 @@ try {
     Invoke-Validator $path $Dialogue $Manifest $false 'engineer position outside the engineer object'
 
     $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.scripts.bindings[0].kind = 'unknown_behavior'
+    $path = Write-JsonFixture 'unknown-script-kind.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'unsupported Lua binding kind'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
+    $config.scripts.bindings[1].target = $config.scripts.bindings[0].target
+    $path = Write-JsonFixture 'duplicate-script-target.json' $config
+    Invoke-Validator $path $Dialogue $Manifest $false 'duplicate Lua binding target'
+
+    $config = Get-Content -LiteralPath $GameConfig -Raw | ConvertFrom-Json
     $config.resources = @($config.resources | Where-Object {
         $_.id -ne 'echo:item/maintenance_key'
     })

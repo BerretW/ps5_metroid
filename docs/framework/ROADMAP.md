@@ -51,7 +51,7 @@ fixed-step tests, target ABI/linking and separate PS5 hardware evidence.
 
 ### AI and UI authoring milestones
 
-1. Define versioned scene, entity, UI and script-binding schemas with stable
+1. **In progress:** Define versioned scene, entity, UI and script-binding schemas with stable
    IDs. The editor and runtime must share validators and compiled capability
    descriptors, rather than maintaining separate lists of supported behavior.
 2. Replace the experiment's synthetic input/output with explicit per-entity

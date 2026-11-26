@@ -74,6 +74,16 @@ void testGame(const std::filesystem::path& assets) {
                                            yyjson_obj_get(yyjson_doc_get_root(after.get()), "loot")),
           "unrelated game content survives serialization");
 
+    const auto stalkerScript = find(model, "echo:script/stalker_ai / enemy_ai");
+    check(stalkerScript < model.fields().size(), "stalker Lua binding is editable");
+    const std::string beforeScript = model.source();
+    check(!model.edit(stalkerScript, "", error) && model.source() == beforeScript,
+          "empty script source is rejected");
+    check(model.edit(stalkerScript,
+                     "return function(input)\n return {move_x=0,fire=false,visible=true}\nend\n",
+                     error),
+          "bounded Lua source can be authored");
+
     const auto objective = find(model, "Quest echo:quest/main_route / key");
     const std::string previous = model.source();
     check(!model.edit(objective, "BAD!", error) && model.source() == previous,

@@ -23,9 +23,9 @@ namespace {
 using namespace echo::framework;
 
 constexpr std::size_t kProjectContentBytes = 16 * 1024;
-constexpr std::array<std::string_view, 12> kGameConfigFields{
+constexpr std::array<std::string_view, 13> kGameConfigFields{
     "game", "modules", "technician", "resources", "quests", "cutscenes", "power",
-    "worldLighting", "equipment", "attributes", "abilities", "loot"};
+    "worldLighting", "equipment", "attributes", "abilities", "loot", "scripts"};
 // The engineer's position belongs to echo:object/engineer spawn data.
 constexpr std::array<std::string_view, 1> kTechnicianFields{"interaction"};
 constexpr std::array<std::string_view, 6> kResourceFields{
@@ -57,6 +57,74 @@ constexpr std::array<std::string_view, 2> kComponentFields{
                         "Object contains a duplicate field."};
             }
         }
+    }
+    return Status::success();
+}
+
+[[nodiscard]] Status validateScriptBindings(JsonValue scripts) noexcept {
+    if (!scripts.valid()) {
+        return Status::success();
+    }
+    if (!scripts.isObject()) {
+        return {ErrorCode::InvalidValue, "scripts",
+                "Script bindings must be a JSON object."};
+    }
+    std::int64_t schemaVersion{};
+    if (!scripts.find("schemaVersion").integer(schemaVersion) ||
+        schemaVersion != 1) {
+        return {ErrorCode::InvalidValue, "scripts.schemaVersion",
+                "Script binding schema version must be 1."};
+    }
+    constexpr std::array<std::string_view, 2> kScriptFields{
+        "schemaVersion", "bindings"};
+    Status status = validateObjectFields(scripts, kScriptFields, "scripts");
+    if (!status) return status;
+    const JsonValue bindings = scripts.find("bindings");
+    if (!bindings.isArray() || bindings.size() == 0 || bindings.size() > 16) {
+        return {ErrorCode::InvalidValue, "scripts.bindings",
+                "Script bindings must be a non-empty bounded array."};
+    }
+    std::array<std::string_view, 16> ids{};
+    std::array<std::string_view, 16> targets{};
+    for (std::size_t index = 0; index < bindings.size(); ++index) {
+        const JsonValue binding = bindings.at(index);
+        constexpr std::array<std::string_view, 4> kBindingFields{
+            "id", "kind", "target", "source"};
+        if (!binding.isObject() || binding.size() != kBindingFields.size()) {
+            return {ErrorCode::InvalidValue, "scripts.bindings",
+                    "Script binding must contain exactly id, kind, target and source."};
+        }
+        status = validateObjectFields(binding, kBindingFields, "scripts.bindings");
+        if (!status) return status;
+        std::string_view id;
+        std::string_view kind;
+        std::string_view target;
+        std::string_view source;
+        if (!binding.find("id").string(id) || id.empty() || id.size() > 64 ||
+            !binding.find("kind").string(kind) ||
+            (kind != "enemy_ai" && kind != "ui_visibility") ||
+            !binding.find("target").string(target) ||
+            target.empty() || target.size() > 64 ||
+            !binding.find("target").string(target) ||
+            !binding.find("source").string(source) ||
+            source.empty() || source.size() > 4096 ||
+            std::memchr(source.data(), '\0', source.size()) != nullptr) {
+            return {ErrorCode::InvalidValue, "scripts.bindings",
+                    "Script binding fields or source exceed the authored contract."};
+        }
+        if ((kind == "enemy_ai" && target.find("echo:object/") != 0) ||
+            (kind == "ui_visibility" && target.find("echo:ui/") != 0)) {
+            return {ErrorCode::InvalidValue, "scripts.bindings.target",
+                    "Script target does not match its binding kind."};
+        }
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            if (ids[previous] == id || targets[previous] == target) {
+                return {ErrorCode::DuplicateId, "scripts.bindings",
+                        "Script binding IDs and targets must be unique."};
+            }
+        }
+        ids[index] = id;
+        targets[index] = target;
     }
     return Status::success();
 }
@@ -372,6 +440,8 @@ constexpr std::array<std::string_view, 2> kComponentFields{
         return {ErrorCode::InvalidValue, "game",
                 "Game configuration must target echo.project_echo."};
     }
+    status = validateScriptBindings(root.find("scripts"));
+    if (!status) return status;
 
     const JsonValue modules = root.find("modules");
     if (!modules.isArray() || modules.size() == 0 || modules.size() > 11) {

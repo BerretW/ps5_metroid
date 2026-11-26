@@ -8,7 +8,7 @@
 
 namespace echo::editor {
 
-enum class FieldKind { Attribute, Stalker, Objective };
+enum class FieldKind { Attribute, Stalker, Objective, Script };
 
 struct Field {
     FieldKind kind{};

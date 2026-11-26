@@ -286,6 +286,23 @@
       {"saveSlot": 11, "enemySlot": 4, "item": "echo:item/blast_charge", "quantity": 1}
     ]
   },
+  "scripts": {
+    "schemaVersion": 1,
+    "bindings": [
+      {
+        "id": "echo:script/stalker_ai",
+        "kind": "enemy_ai",
+        "target": "echo:object/enemy_stalker",
+        "source": "return function(input)\n    return {move_x = input.distance > 10 and 1 or 0,\n            fire = input.distance <= 10,\n            visible = input.health > 0}\nend\n"
+      },
+      {
+        "id": "echo:script/pause_status",
+        "kind": "ui_visibility",
+        "target": "echo:ui/pause_status",
+        "source": "return function(input)\n    return {move_x = 0,\n            fire = false,\n            visible = input.health > 0}\nend\n"
+      }
+    ]
+  },
   "resources": [
     {
       "id": "echo:ability/echo_step",
