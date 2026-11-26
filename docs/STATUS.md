@@ -182,13 +182,15 @@ panel now support a dedicated repair quest with state-aware dialogue and HUD
 progress. Windows build/tests passed 22/22. The current PS5 Vulkan package
 (`dist/ps5-vulkan/PPSA91007`) passes static validation with 73 validated assets,
 and `tests/ps5_package_tests.ps1 -Vulkan` passes, including missing/malformed
-quest and dialogue cases. PS5 hardware execution is NOT TESTED.
+quest and dialogue cases.
 
 ### Manual PS5 verification for a new Vulkan candidate
 
-Back up the existing title package and saves before manual transfer; retain
-PPSA91007 and install only one variant. Record the installed digest, firmware,
-loader, observations and any errors.
+**PASS (user-confirmed, 2026-11-26):** the operator confirmed the complete
+manual checklist on the current Vulkan package. The retained candidate is
+`dist/ps5-vulkan/PPSA91007/eboot.bin`, 28,218,573 bytes, SHA-256
+`10b9f97fc60434feb21bf2497626411d2c356f5c3d5f768b69a0d851eada0624`.
+The confirmation covers:
 
 - Boot and menu, options and prompts; start a new game.
 - Move, jump, aim and shoot in the platformer; verify audio.
@@ -196,6 +198,9 @@ loader, observations and any errors.
 - Open inventory, dialogue, map, pause and cutscene screens.
 - Save, return to menu, Continue and verify restored state.
 - Shut down and relaunch; check for errors and controller reconnection.
+
+This is operator-reported hardware evidence. It does not add a PS5 evidence
+claim for a package rebuilt after this accepted digest.
 
 **Vulkan-first migration checkpoint (2026-11-22):** the native Windows Vulkan
 production target and PS5 Vulkan game path build successfully. The Vulkan GPU
@@ -254,15 +259,15 @@ manually, not both at once.
 | 3 | Five traversable rooms | PASS (simulation) | Headless progression test talks to the Landing Bay engineer, uses the Maintenance Key, collects Echo Step, and reaches the Central Chamber through the five-room route. |
 | 4 | Ability unlock changes access | PASS (simulation) | Test confirms the locked gate rejects entry, the Lab requires backtracking, Echo Step is acquired, and the gate then opens. |
 | 5 | Enemies damage player and can be defeated | PASS (simulation) | Tests cover enemy damage, projectile defeat, hazard damage, death, and respawn. |
-| 6 | Main menu and pause | NOT TESTED | Main menu was visually confirmed; pause/options interaction was not exercised because foreground input was detected. |
-| 7 | Controller input on supported targets | NOT TESTED (complete acceptance) | User reports the PS5 controller build is playable, but the input device, complete mappings and reconnect behavior have not been separately verified. |
+| 6 | Main menu and pause | PASS (PS5 Vulkan hardware, 2026-11-26) | Operator confirmed boot, menu, options, prompts, pause and relaunch on the current Vulkan candidate. |
+| 7 | Controller input on supported targets | PASS (PS5 Vulkan hardware, 2026-11-26) | Operator confirmed controller gameplay and reconnection behavior in the complete manual checklist for the current Vulkan package. |
 | 8 | Structurally valid PS5 application package | PASS (static) | Native Windows Hello World and PROJECT ECHO compile, link, convert and package. ELF64/SCE entry, segment bounds/alignment, FSELF digest, exact runtime hashes and title-directory structure validate. |
-| 9 | PROJECT ECHO launch on actual PS5 hardware | PASS (user-reported) | The operator confirmed the earlier playable milestone and, on 2026-11-22, reported the build from `dist/ps5-controller` tested and working. The latest report does not specify individual controls or features tested. The original keyboard-enabled build still crashes with CE-108255-1. |
+| 9 | PROJECT ECHO launch on actual PS5 hardware | PASS (user-reported) | The current Vulkan candidate with digest `10b9f97fc60434feb21bf2497626411d2c356f5c3d5f768b69a0d851eada0624` was confirmed working on PS5 in the 2026-11-26 manual acceptance run. |
 | 10 | No WSL, Docker, Linux VM, or proprietary Sony SDK required | PASS (both builds) | Native Windows LLVM 18.1.8/LLD, MSVC host utilities, CMake/Ninja, PowerShell and public SDK target files build both PS5 artifacts. |
-| 11 | Platform-specific control prompts | PASS (offscreen Windows tests); NOT TESTED (new PS5 hardware UI) | SDL dummy/software-renderer tests verify controller symbols, no keyboard-binding leakage on PS5, and updated Windows gameplay/door prompts after rebinding. |
+| 11 | Platform-specific control prompts | PASS (Windows tests and PS5 Vulkan hardware, 2026-11-26) | SDL dummy/software-renderer tests verify controller symbols and no keyboard-binding leakage. The complete PS5 manual acceptance confirmed gameplay prompts and menu/pause controls on the current Vulkan package. |
 | 12 | Interactive `build.bat` platform selector | PASS | Windows selects Release plus tests; PS5 now offers SDL or Vulkan and routes each selection to its supported PowerShell build command. Cancellation returns zero. |
 | 13 | DualSense Lab baseline | PASS (Windows tests, PS5 static package, operator-reported hardware rumble/LED and console report); NOT TESTED (complete controller hardware acceptance) | Offscreen tests verify the menu entry, live button/stick visualization and platform prompts. Pure tests cover normalization, dead zone, touch-coordinate bounds, bounded output duration and report escaping. The operator's 2026-11-20 screenshot shows the lab open; supplied PS5 JSON records button/stick/trigger observations, full recorded stick and trigger travel, and the expected unsupported backend features. The operator separately confirms physical vibration and LED output. Complete mappings, LED color sequence/reset, effect duration/stop behavior, reconnect and gameplay regression on this console build remain unverified. |
-| 14 | PNG sprites and WAV sound effects | PASS (Windows tests and launch, PS5 static package); NOT TESTED (PS5 hardware) | Offscreen test decodes all six sprite sheets, verifies the player is drawn from PNG, the missing-directory fallback, WAV loading/resampling and rejection of non-PNG data. The Windows app logs `Assets loaded: 6/6 sprites, 8/8 sounds`. The PS5 package contains 14 assets validated by signature (PNG, PCM WAV) and size; `eboot.bin` SHA256 `e2fa2820ad80c122ab371070b6f1a2a58cfb1ab50082f9a9268bf9bbe67a997b` links with no new system modules. Loading from `/app0/assets/` and AudioOut playback have not been run on the console. |
+| 14 | PNG sprites and WAV sound effects | PASS (Windows and PS5 Vulkan hardware, 2026-11-26) | Offscreen tests validate sprite/WAV decoding and package assets. The operator confirmed audio playback and gameplay rendering for the current Vulkan candidate. |
 | 15 | Echo Framework foundation and reference integration | PASS (Windows Debug/Release tests, PS5 static package); operator-reported PS5 gameplay save confirmation | Both Windows configurations pass 10/10 tests, including bounded JSON condition decoding, Local AppData storage, and the dialogue module. Native Windows PS5 Hello and game builds compile/link/package; package tests validate the artifacts. The operator confirms an earlier controller package works on PS5 and reports gameplay saving works on that integrated build. Other full-framework and gameplay acceptance remains partial. See remaining boundaries below. |
 | 16 | PS5 save-storage adapter and diagnostic | PASS (Windows and one operator-reported PS5 diagnostic run, 2026-11-21) | Initial console probes identified sandbox EPERM for `lstat`/`opendir` and EINVAL for 4 KiB `getdents`; the revised provider uses an `open+fstat` status fallback and bounded 64 KiB directory reads. Probe 4 reported write, replacement, read-back, `enumerate: method=getdents64k` and `PS5 save storage probe: PASS`. The gameplay autosave was subsequently confirmed by the operator; see criterion 17. |
 | 17 | Gameplay autosave and Continue integration | PASS (Windows Release 8/8 tests; PS5 static package validation; operator-reported PS5 save test, 2026-11-21) | Adds validated, versioned `autosave` checkpoints, a Continue menu entry, major-progress and 30-second autosaves, and saves on return to menu/orderly shutdown. Checkpoints include room, player state, ability/completion/death progress and enemy health; invalid checkpoints are rejected before changing the active game. The controller package is `dist/ps5-controller/PPSA91007`, `eboot.bin` SHA256 `818e4d772f145da29516b26b00390c1866a18e6d18d0d37cfd6a597f36ddcfd4` (1,527,457 bytes). The operator reports that gameplay saving works on PS5; this is a single hardware confirmation. |
@@ -360,6 +365,6 @@ PS5 hardware run, 2026-11-20 (operator report with console screenshot and export
 
 The startup diagnostic reached the call to `sceKeyboardInit` on hardware. A separate experimental build (`-Target Game -StartupDiagnostics -SkipPs5Keyboard`, output `dist/ps5-diagnostic-no-keyboard/PPSA91007`) omits PS5 hardware keyboard and IME calls, retaining the controller path. The operator reports this build launches and is playable, but it is not a permanent fix or full acceptance test. Initialization errors are reported explicitly and the diagnostic process stays open for collection. See [PS5 compatibility](PS5_COMPATIBILITY.md#hardware-crash-investigation-kraken-mount-031).
 
-At the operator's request, `-Target Game -SkipPs5Keyboard` produces the non-diagnostic controller build in `dist/ps5-controller/PPSA91007`, without physical PS5 keyboard or IME support. The hardware-tested `playable` milestone's `eboot.bin` SHA256 is `eff47dcc2a39b3e7b92e226d9851fafdb6078055763c6d50221e7af8072d70bd`. The operator confirmed on 2026-11-20 that this milestone is playable and supplied a gameplay screenshot; its local package was retained in `dist/ps5-controller-playable/PPSA91007` before rebuilding the newer UI. The new controller-symbol prompts, touchpad map and circle/back actions are not yet hardware-tested. The original PS5 package and user-tested diagnostic are built separately; generated packages are not tracked in Git. Full controller mappings/reconnect, audio playback, five-room progression and exit/relaunch remain unverified; the exact underlying keyboard-path fault remains undiagnosed.
+At the operator's request, `-Target Game -SkipPs5Keyboard` produces the non-diagnostic controller build in `dist/ps5-controller/PPSA91007`, without physical PS5 keyboard or IME support. The hardware-tested `playable` milestone's `eboot.bin` SHA256 is `eff47dcc2a39b3e7b92e226d9851fafdb6078055763c6d50221e7af8072d70bd`. The operator confirmed on 2026-11-20 that this milestone is playable and supplied a gameplay screenshot; its local package was retained in `dist/ps5-controller-playable/PPSA91007` before rebuilding the newer UI. On 2026-11-26, the complete manual checklist passed on the later current Vulkan candidate `10b9f97...`. The original PS5 package and user-tested diagnostic are built separately; generated packages are not tracked in Git. Physical PS5 keyboard/IME rebinding remains unavailable, and the exact keyboard-init crash remains undiagnosed.
 
 The controller-symbol update built through `build.bat` option P and passed ELF/FSELF/package validation on Windows. Its `eboot.bin` is 1,152,065 bytes, SHA256 `7ddf8c7afcac1395d59b1c61b41ce67a5a876750b86365487285971037ff6279`; keyboard/IME imports remain absent. This new executable still requires a console test.
